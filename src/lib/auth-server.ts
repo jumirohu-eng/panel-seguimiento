@@ -12,3 +12,9 @@ export async function getAuthenticatedEmail(request: NextRequest): Promise<strin
 
   return data.user.email
 }
+
+export async function getAuthenticatedAdminEmail(request: NextRequest): Promise<string | null> {
+  const email = await getAuthenticatedEmail(request)
+  if (!email || email !== process.env.ADMIN_EMAIL) return null
+  return email
+}

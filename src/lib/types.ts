@@ -17,3 +17,12 @@ export interface Reporte {
   analisisIA: string
   mensajeSugerido: string
 }
+
+export interface Invitacion {
+  token: string
+  tokenTruncado: string
+  email: string
+  estado: 'Activo' | 'Usado' | 'Expirado' | 'Cancelado'
+  creado: string
+  expira: string
+}

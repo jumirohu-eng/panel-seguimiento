@@ -129,6 +129,9 @@ Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Ent
 | Fecha_alta | Date | Formato europeo D/M/YYYY |
 | Precio_mensual | Currency | € precisión 0 |
 | Notas | Texto largo | Histórico manual + observaciones |
+| Link_whatsapp | Formula | `https://wa.me/<tel sin símbolos>?text=<mensaje>` a partir de Teléfono + Nombre |
+| Último_login | DateTime | Europe/Madrid. Se actualiza desde código (POST /api/admin/log-activity), NO es fórmula |
+| Permite_marketing | Checkbox | Consentimiento para usar métricas en agregados de marketing. Default desmarcado |
 
 ### Tabla "Snapshots" (tbliaBxJa4GIYoHId)
 | Campo | Tipo | Notas |
@@ -160,10 +163,10 @@ panel-seguimiento/
 │ │ ├── reset-password/
 │ │ │ └── page.tsx # Reset password
 │ │ ├── dashboard/
-│ │ │ └── page.tsx # Dashboard protegido (entrenador)
+│ │ │ └── page.tsx # Entrenador: sus clientes. Admin: AdminResumenView (resumen del negocio)
 │ │ ├── admin/
-│ │ │ ├── page.tsx # Lista de entrenadores + alta (solo jumirohu@gmail.com)
-│ │ │ └── entrenador/[email]/page.tsx # Ficha de entrenador: editar, sparkline, invitación
+│ │ │ ├── page.tsx # Lista de entrenadores + alta (solo jumirohu@gmail.com). ?nuevo=1 abre el form
+│ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña
 │ │ └── api/
 │ │ ├── clientes/route.ts # GET clientes filtrados por entrenador
 │ │ ├── reportes/route.ts # GET reportes del cliente
@@ -173,6 +176,9 @@ panel-seguimiento/
 │ │ ├── regenerate/route.ts # POST regenerar token
 │ │ ├── cancel/route.ts # POST cancelar invitación
 │ │ ├── create-user/route.ts # POST crear usuario Supabase directo (evita rate limit)
+│ │ ├── reset-password/route.ts # POST genera password temporal y la aplica en Supabase
+│ │ ├── log-activity/route.ts # POST actualiza Último_login (fire-and-forget desde login)
+│ │ ├── resumen-negocio/route.ts # GET métricas de negocio, alertas y métricas de impacto
 │ │ └── entrenadores/
 │ │ ├── route.ts # GET lista + POST crear entrenador
 │ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar
@@ -185,11 +191,13 @@ panel-seguimiento/
 │ │ ├── AIAnalysis.tsx
 │ │ ├── ClientSelector.tsx
 │ │ ├── Header.tsx
+│ │ ├── AdminResumenView.tsx # Tarjetas, gráficas, alertas y accesos rápidos del /dashboard admin
 │ │ └── ExportPDF.tsx
 │ └── lib/
 │ ├── supabase.ts # Cliente Supabase (anon key)
 │ ├── supabase-server.ts # Cliente Supabase servidor (service role key)
 │ ├── auth-server.ts # Lógica de auth backend
+│ ├── admin.ts # Constante ADMIN_EMAIL (NEXT_PUBLIC_ADMIN_EMAIL con fallback)
 │ └── airtable.ts # Helpers para Airtable API
 └── public/
 └── [favicons, etc.]
@@ -213,18 +221,23 @@ panel-seguimiento/
 
 ---
 
-## N8N WORKFLOWS (sin cambios en esta sesión)
+## N8N WORKFLOWS
 
-### Workflow 1: "Recepción" ✅ ACTIVO
-Tally webhook → Airtable (crear reporte)
+### "Seguimiento - Resumen&Alerta" ✅ ACTIVO
+Webhook Tally (path `Tallyseguimiento`) → Formatear datos → Buscar cliente → Crear reporte (Airtable)
 
-### Workflow 2: "Seguimiento - Análisis lunes" ✅ ACTIVO
+### "Seguimiento - Análisis Lunes" ✅ (ver n8n)
 Cada lunes 9am → Clientes activos → Claude analiza → actualiza Análisis IA + Mensaje sugerido
 
-### Workflow 3: "Limpieza" ✅ INACTIVO
+### "Seguimiento - Limpieza de datos antiguos" ⏸️ INACTIVO
 Backup de reportes >60 días, mantener inactivo.
 
-### Workflow 4: "Recordatorios viernes" ⏳ NO CONSTRUIDO
+### "Recepción entrenador" ⏸️ INACTIVO (NEW, id D3Jnswx0Hh5THEev)
+Webhook Tally (path `TallyEntrenadores`) → Formatear datos → Crear entrenador (Airtable, tabla Entrenadores)
+Crea el registro con Estado="Prueba" fijo, sin Precio_mensual, sin generar invitación automática. Extrae del formulario: Nombre, Email, Teléfono, Soluciones_interes, Num_clientes_actual, Como_conocio.
+**Pendiente:** crear el formulario en Tally con esos labels de campo exactos y conectarlo al webhook. Activar manualmente cuando esté listo.
+
+### Workflow "Recordatorios viernes" ⏳ NO CONSTRUIDO
 Pendiente para después.
 
 ---
@@ -299,6 +312,11 @@ try {
 - [x] Admin dashboard: generar invitaciones + historial
 - [x] Login/signup vía token
 - [x] Admin: tabla Entrenadores + Snapshots, ficha completa por entrenador, dark mode, logout
+- [x] Reset de contraseña + registro de Último_login + botón WhatsApp
+- [x] /dashboard admin: resumen del negocio (tarjetas, gráficas, alertas, métricas de impacto)
+- [x] Workflow n8n "Recepción entrenador" (queda INACTIVO)
+- [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code
+- [ ] Crear formulario en Tally para "Recepción entrenador" y conectar al webhook — manual
 - [ ] Privacidad + política (Termly/Iubenda)
 - [ ] Cláusula onboarding (DPA, procesamiento IA)
 - [ ] Pre-venta con 3 entrenadores reales

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente, Reporte } from '@/lib/types'
+import { ADMIN_EMAIL } from '@/lib/admin'
 import Header from '@/components/Header'
 import ClientSelector from '@/components/ClientSelector'
 import EnergyChart from '@/components/EnergyChart'
@@ -13,10 +14,12 @@ import StatusBadge from '@/components/StatusBadge'
 import SuggestedMessage from '@/components/SuggestedMessage'
 import AIAnalysis from '@/components/AIAnalysis'
 import ExportPDF from '@/components/ExportPDF'
+import AdminResumenView from '@/components/AdminResumenView'
 
 export default function DashboardPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reportes, setReportes] = useState<Reporte[]>([])
@@ -38,6 +41,12 @@ export default function DashboardPage() {
         return
       }
       setEmail(userData.user.email ?? '')
+
+      if (userData.user.email === ADMIN_EMAIL) {
+        setIsAdmin(true)
+        setLoadingClientes(false)
+        return
+      }
 
       const token = await getToken()
       if (!token) {
@@ -92,6 +101,17 @@ export default function DashboardPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <p className="text-sm text-muted">Cargando…</p>
+      </div>
+    )
+  }
+
+  if (isAdmin) {
+    return (
+      <div className="min-h-screen bg-background">
+        {email && <Header email={email} />}
+        <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+          <AdminResumenView />
+        </main>
       </div>
     )
   }

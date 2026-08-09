@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-
-const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'jumirohu@gmail.com'
+import { ADMIN_EMAIL } from '@/lib/admin'
 
 function getInitialDark(): boolean {
   if (typeof window === 'undefined') return false

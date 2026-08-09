@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState, FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useState, FormEvent } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Entrenador } from '@/lib/types'
 import Header from '@/components/Header'
@@ -16,7 +16,16 @@ const ESTADO_BADGE: Record<string, string> = {
 }
 
 export default function AdminPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminPageContent />
+    </Suspense>
+  )
+}
+
+function AdminPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState<string | null>(null)
   const [authorized, setAuthorized] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
@@ -72,9 +81,13 @@ export default function AdminPage() {
       setEmail(data.user.email ?? '')
       setAuthorized(true)
       setCheckingAuth(false)
+      if (searchParams.get('nuevo') === '1') {
+        setShowForm(true)
+      }
       await loadEntrenadores()
     }
     init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, loadEntrenadores])
 
   function toggleSolucion(sol: string) {

@@ -290,3 +290,39 @@ export async function getSnapshotsByEntrenador(email: string) {
   )
   return data.records
 }
+
+export async function getAllSnapshots() {
+  const params = new URLSearchParams()
+  params.set('sort[0][field]', 'Fecha')
+  params.set('sort[0][direction]', 'asc')
+  const data = await airtableGet<{ records: AirtableRecord<SnapshotFields>[] }>(
+    TABLE_SNAPSHOTS,
+    params
+  )
+  return data.records
+}
+
+export async function getAllClientes() {
+  const params = new URLSearchParams()
+  ;['Nombre', 'Email', 'Estado', 'Entrenador'].forEach((f) => params.append('fields[]', f))
+  const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(
+    TABLE_CLIENTES,
+    params
+  )
+  return data.records
+}
+
+export interface ReporteConMensajeFields {
+  Cliente_Email?: string[]
+}
+
+export async function getReportesConMensajeSugerido() {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Mensaje sugerido} != ""`)
+  params.append('fields[]', 'Cliente_Email')
+  const data = await airtableGet<{ records: AirtableRecord<ReporteConMensajeFields>[] }>(
+    TABLE_REPORTES,
+    params
+  )
+  return data.records
+}

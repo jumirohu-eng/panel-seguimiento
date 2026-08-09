@@ -50,3 +50,28 @@ export interface EntrenadorDetalle extends Entrenador {
   snapshots: SnapshotPunto[]
   invitacion: Invitacion | null
 }
+
+export interface AlertaNegocio {
+  tipo: 'invitacion_expirando' | 'prueba_estancada' | 'sin_clientes' | 'inconsistencia'
+  entrenador_email: string
+  entrenador_nombre: string
+  mensaje: string
+  urgencia: 'ambar' | 'rojo'
+}
+
+export interface MetricasImpacto {
+  total_clientes_seguidos: number
+  promedio_clientes_activos: number
+  alertas_riesgo_historicas: number
+}
+
+export interface ResumenNegocio {
+  total_entrenadores_activos: number
+  total_clientes_gestionados: number
+  mrr_estimado: number
+  entrenadores_prueba: number
+  evolucion_clientes_mensual: { mes: string; total_clientes: number }[]
+  distribucion_soluciones: { solucion: string; count: number }[]
+  alertas: AlertaNegocio[]
+  metricas_impacto: MetricasImpacto | null
+}

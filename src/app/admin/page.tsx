@@ -3,41 +3,16 @@
 import { useCallback, useEffect, useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Invitacion } from '@/lib/types'
+import { Entrenador } from '@/lib/types'
 import Header from '@/components/Header'
 
-interface GeneratedInvite {
-  token: string
-  inviteLink: string
-  expiresAt: string
-}
+const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos']
+const ESTADOS = ['Activo', 'Prueba', 'Inactivo'] as const
 
-function formatRelativeDay(iso: string) {
-  const date = new Date(iso)
-  const today = new Date()
-  const dayDiff = Math.round(
-    (new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() -
-      new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) /
-      86400000
-  )
-  if (dayDiff === 0) return 'Hoy'
-  if (dayDiff === 1) return 'Mañana'
-  if (dayDiff === -1) return 'Ayer'
-  return dayDiff > 0 ? `En ${dayDiff}d` : `Hace ${Math.abs(dayDiff)}d`
-}
-
-const ESTADO_STYLES: Record<Invitacion['estado'], string> = {
-  Activo: 'text-primary',
-  Usado: 'text-success',
-  Expirado: 'text-warning',
-  Cancelado: 'text-danger',
-}
-
-const ESTADO_ICONS: Record<Invitacion['estado'], string> = {
-  Activo: '⏳',
-  Usado: '✅',
-  Expirado: '⏰',
-  Cancelado: '✕',
+const ESTADO_BADGE: Record<string, string> = {
+  Activo: 'bg-success/10 text-success',
+  Prueba: 'bg-warning/10 text-warning',
+  Inactivo: 'bg-danger/10 text-danger',
 }
 
 export default function AdminPage() {
@@ -46,40 +21,42 @@ export default function AdminPage() {
   const [authorized, setAuthorized] = useState(false)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
-  const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
+  const [entrenadores, setEntrenadores] = useState<Entrenador[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
 
-  const [generateEmail, setGenerateEmail] = useState('')
-  const [generating, setGenerating] = useState(false)
-  const [generateError, setGenerateError] = useState<string | null>(null)
-  const [generatedInvite, setGeneratedInvite] = useState<GeneratedInvite | null>(null)
-
-  const [actionToken, setActionToken] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [formEmail, setFormEmail] = useState('')
+  const [formNombre, setFormNombre] = useState('')
+  const [formTelefono, setFormTelefono] = useState('')
+  const [formSoluciones, setFormSoluciones] = useState<string[]>([])
+  const [formEstado, setFormEstado] = useState('Prueba')
+  const [formPrecio, setFormPrecio] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token ?? null
   }, [])
 
-  const loadInvitaciones = useCallback(async () => {
+  const loadEntrenadores = useCallback(async () => {
     setLoadingList(true)
     setListError(null)
     try {
       const token = await getToken()
-      const res = await fetch('/api/admin/invitaciones', {
+      const res = await fetch('/api/admin/entrenadores', {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.status === 403) {
         router.push('/login')
         return
       }
-      if (!res.ok) throw new Error('No se pudo cargar el historial')
+      if (!res.ok) throw new Error('No se pudo cargar la lista')
       const data = await res.json()
-      setInvitaciones(data.invitaciones)
+      setEntrenadores(data.entrenadores)
     } catch {
-      setListError('Error al cargar el historial de invitaciones.')
+      setListError('Error al cargar los entrenadores.')
     } finally {
       setLoadingList(false)
     }
@@ -95,104 +72,53 @@ export default function AdminPage() {
       setEmail(data.user.email ?? '')
       setAuthorized(true)
       setCheckingAuth(false)
-      await loadInvitaciones()
+      await loadEntrenadores()
     }
     init()
-  }, [router, loadInvitaciones])
+  }, [router, loadEntrenadores])
 
-  useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(null), 3000)
-    return () => clearTimeout(timer)
-  }, [toast])
+  function toggleSolucion(sol: string) {
+    setFormSoluciones((prev) =>
+      prev.includes(sol) ? prev.filter((s) => s !== sol) : [...prev, sol]
+    )
+  }
 
-  async function handleGenerate(e: FormEvent) {
+  async function handleCreate(e: FormEvent) {
     e.preventDefault()
-    setGenerateError(null)
-    setGenerating(true)
+    setFormError(null)
+    setCreating(true)
     try {
       const token = await getToken()
-      const res = await fetch('/api/admin/invite', {
+      const res = await fetch('/api/admin/entrenadores', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ email: generateEmail.trim() }),
+        body: JSON.stringify({
+          email: formEmail.trim(),
+          nombre: formNombre.trim(),
+          telefono: formTelefono.trim(),
+          soluciones: formSoluciones,
+          estado: formEstado,
+          precioMensual: formPrecio ? Number(formPrecio) : 0,
+        }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Error al generar invitación')
+      if (!res.ok) throw new Error(data.error ?? 'Error al crear entrenador')
 
-      setGeneratedInvite({
-        token: data.token,
-        inviteLink: data.inviteLink,
-        expiresAt: data.expiresAt,
-      })
-      setGenerateEmail('')
-      setToast('✅ Invitación generada')
-      await loadInvitaciones()
+      setShowForm(false)
+      setFormEmail('')
+      setFormNombre('')
+      setFormTelefono('')
+      setFormSoluciones([])
+      setFormEstado('Prueba')
+      setFormPrecio('')
+      await loadEntrenadores()
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Error al generar invitación')
+      setFormError(err instanceof Error ? err.message : 'Error al crear entrenador')
     } finally {
-      setGenerating(false)
-    }
-  }
-
-  async function handleCopy(link: string) {
-    await navigator.clipboard.writeText(link)
-    setToast('Link copiado al portapapeles')
-  }
-
-  async function handleRegenerate(inv: Invitacion) {
-    setActionToken(inv.token)
-    try {
-      const token = await getToken()
-      const res = await fetch('/api/admin/regenerate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ email: inv.email }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Error al regenerar invitación')
-
-      setGeneratedInvite({
-        token: data.token,
-        inviteLink: data.inviteLink,
-        expiresAt: data.expiresAt,
-      })
-      setToast('✅ Invitación regenerada')
-      await loadInvitaciones()
-    } catch (err) {
-      setToast(err instanceof Error ? err.message : 'Error al regenerar invitación')
-    } finally {
-      setActionToken(null)
-    }
-  }
-
-  async function handleCancel(inv: Invitacion) {
-    setActionToken(inv.token)
-    try {
-      const token = await getToken()
-      const res = await fetch('/api/admin/cancel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ token: inv.token }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Error al cancelar invitación')
-
-      setToast('Invitación cancelada')
-      await loadInvitaciones()
-    } catch (err) {
-      setToast(err instanceof Error ? err.message : 'Error al cancelar invitación')
-    } finally {
-      setActionToken(null)
+      setCreating(false)
     }
   }
 
@@ -209,123 +135,167 @@ export default function AdminPage() {
       {email && <Header email={email} />}
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6">
-        {toast && (
-          <div className="fixed right-4 top-4 z-50 rounded-lg border border-border bg-card px-4 py-2 text-sm text-card-foreground shadow-sm">
-            {toast}
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-foreground">Entrenadores</h1>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+          >
+            {showForm ? 'Cancelar' : '+ Nuevo entrenador'}
+          </button>
+        </div>
+
+        {showForm && (
+          <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="mb-4 text-lg font-semibold text-card-foreground">Nuevo entrenador</h2>
+            <form onSubmit={handleCreate} className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-card-foreground">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={formEmail}
+                    onChange={(e) => setFormEmail(e.target.value)}
+                    className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
+                    placeholder="entrenador@email.com"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-card-foreground">Nombre</label>
+                  <input
+                    type="text"
+                    required
+                    value={formNombre}
+                    onChange={(e) => setFormNombre(e.target.value)}
+                    className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-card-foreground">Teléfono</label>
+                  <input
+                    type="tel"
+                    value={formTelefono}
+                    onChange={(e) => setFormTelefono(e.target.value)}
+                    className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
+                    placeholder="+34600000000"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-card-foreground">
+                    Precio mensual (€)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formPrecio}
+                    onChange={(e) => setFormPrecio(e.target.value)}
+                    className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-card-foreground">Estado</label>
+                  <select
+                    value={formEstado}
+                    onChange={(e) => setFormEstado(e.target.value)}
+                    className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
+                  >
+                    {ESTADOS.map((estado) => (
+                      <option key={estado} value={estado}>
+                        {estado}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-card-foreground">Soluciones</label>
+                <div className="flex flex-wrap gap-2">
+                  {SOLUCIONES.map((sol) => (
+                    <button
+                      type="button"
+                      key={sol}
+                      onClick={() => toggleSolucion(sol)}
+                      className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                        formSoluciones.includes(sol)
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border text-card-foreground hover:bg-background'
+                      }`}
+                    >
+                      {sol}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {formError && <p className="text-sm text-danger">{formError}</p>}
+
+              <button
+                type="submit"
+                disabled={creating}
+                className="w-fit rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+              >
+                {creating ? 'Creando…' : 'Crear entrenador'}
+              </button>
+            </form>
+          </section>
         )}
 
         <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-card-foreground">
-            Generar nueva invitación
-          </h2>
-
-          <form onSubmit={handleGenerate} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex flex-1 flex-col gap-1">
-              <label htmlFor="generateEmail" className="text-sm font-medium text-card-foreground">
-                Email del entrenador
-              </label>
-              <input
-                id="generateEmail"
-                type="email"
-                required
-                value={generateEmail}
-                onChange={(e) => setGenerateEmail(e.target.value)}
-                placeholder="entrenador@email.com"
-                className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={generating}
-              className="rounded-lg bg-primary px-4 py-2 font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-            >
-              {generating ? 'Generando…' : 'Generar invitación'}
-            </button>
-          </form>
-
-          {generateError && <p className="mt-3 text-sm text-danger">{generateError}</p>}
-
-          {generatedInvite && (
-            <div className="mt-4 flex flex-col gap-2 rounded-lg border border-border bg-background p-4">
-              <p className="text-sm text-success">✅ Token generado: {generatedInvite.token}</p>
-              <p className="break-all text-sm text-muted">{generatedInvite.inviteLink}</p>
-              <button
-                onClick={() => handleCopy(generatedInvite.inviteLink)}
-                className="w-fit rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-card"
-              >
-                Copiar al portapapeles
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-card-foreground">
-            Historial de invitaciones
-          </h2>
-
           {loadingList && <p className="text-sm text-muted">Cargando…</p>}
           {listError && <p className="text-sm text-danger">{listError}</p>}
-          {!loadingList && !listError && invitaciones.length === 0 && (
-            <p className="text-sm text-muted">Todavía no se han generado invitaciones.</p>
+          {!loadingList && !listError && entrenadores.length === 0 && (
+            <p className="text-sm text-muted">Todavía no hay entrenadores dados de alta.</p>
           )}
 
-          {!loadingList && invitaciones.length > 0 && (
+          {!loadingList && entrenadores.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-border text-muted">
+                    <th className="py-2 pr-4 font-medium">Nombre</th>
                     <th className="py-2 pr-4 font-medium">Email</th>
-                    <th className="py-2 pr-4 font-medium">Token</th>
                     <th className="py-2 pr-4 font-medium">Estado</th>
-                    <th className="py-2 pr-4 font-medium">Expira</th>
-                    <th className="py-2 pr-4 font-medium">Acciones</th>
+                    <th className="py-2 pr-4 font-medium">Soluciones</th>
+                    <th className="py-2 pr-4 font-medium">Clientes activos</th>
+                    <th className="py-2 pr-4 font-medium">Precio/mes</th>
+                    <th className="py-2 pr-4 font-medium">Alta</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invitaciones.map((inv) => (
-                    <tr key={inv.token} className="border-b border-border last:border-0">
-                      <td className="py-2 pr-4 text-card-foreground">{inv.email}</td>
-                      <td className="py-2 pr-4 font-mono text-xs text-muted">
-                        {inv.tokenTruncado}
-                      </td>
-                      <td className={`py-2 pr-4 font-medium ${ESTADO_STYLES[inv.estado]}`}>
-                        {inv.estado} {ESTADO_ICONS[inv.estado]}
-                      </td>
-                      <td className="py-2 pr-4 text-card-foreground">
-                        {formatRelativeDay(inv.expira)}
+                  {entrenadores.map((ent) => (
+                    <tr
+                      key={ent.id}
+                      onClick={() =>
+                        router.push(`/admin/entrenador/${encodeURIComponent(ent.email)}`)
+                      }
+                      className="cursor-pointer border-b border-border last:border-0 hover:bg-background"
+                    >
+                      <td className="py-2 pr-4 font-medium text-card-foreground">{ent.nombre}</td>
+                      <td className="py-2 pr-4 text-muted">{ent.email}</td>
+                      <td className="py-2 pr-4">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_BADGE[ent.estado] ?? ''}`}
+                        >
+                          {ent.estado}
+                        </span>
                       </td>
                       <td className="py-2 pr-4">
-                        <div className="flex flex-wrap gap-2">
-                          {inv.estado === 'Activo' && (
-                            <>
-                              <button
-                                onClick={() =>
-                                  handleCopy(`${window.location.origin}/signup?token=${inv.token}`)
-                                }
-                                className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-card-foreground hover:bg-background"
-                              >
-                                Copiar link
-                              </button>
-                              <button
-                                onClick={() => handleRegenerate(inv)}
-                                disabled={actionToken === inv.token}
-                                className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-card-foreground hover:bg-background disabled:opacity-50"
-                              >
-                                Regenerar
-                              </button>
-                              <button
-                                onClick={() => handleCancel(inv)}
-                                disabled={actionToken === inv.token}
-                                className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-danger hover:bg-background disabled:opacity-50"
-                              >
-                                Cancelar
-                              </button>
-                            </>
-                          )}
+                        <div className="flex flex-wrap gap-1">
+                          {ent.soluciones.map((s) => (
+                            <span
+                              key={s}
+                              className="rounded-full border border-border px-2 py-0.5 text-xs text-card-foreground"
+                            >
+                              {s}
+                            </span>
+                          ))}
                         </div>
                       </td>
+                      <td className="py-2 pr-4 text-card-foreground">{ent.clientesActivos}</td>
+                      <td className="py-2 pr-4 text-card-foreground">{ent.precioMensual}€</td>
+                      <td className="py-2 pr-4 text-card-foreground">{ent.fechaAlta}</td>
                     </tr>
                   ))}
                 </tbody>

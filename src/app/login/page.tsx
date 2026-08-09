@@ -18,12 +18,15 @@ export default function LoginPage() {
     setInfo(null)
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: password.trim(),
+    })
 
     setLoading(false)
 
     if (error) {
-      setError('Email o contraseña incorrectos.')
+      setError(error.message || 'Error desconocido al iniciar sesión')
       return
     }
 

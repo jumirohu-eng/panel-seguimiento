@@ -4,6 +4,8 @@ const AIRTABLE_API_URL = 'https://api.airtable.com/v0'
 const TABLE_CLIENTES = 'tblcpRBZbtViJzQVQ'
 const TABLE_REPORTES = 'tbljT33LCBLT6NoKf'
 const TABLE_INVITACIONES = 'tblzr50mLzLgnIsVg'
+const TABLE_ENTRENADORES = 'tblo7dLrfaOxcPppY'
+const TABLE_SNAPSHOTS = 'tbliaBxJa4GIYoHId'
 
 export interface AirtableRecord<T> {
   id: string
@@ -39,6 +41,26 @@ export interface InvitacionFields {
   Estado: EstadoInvitacion
   Creado: string
   Expira: string
+}
+
+export type EstadoEntrenador = 'Activo' | 'Prueba' | 'Inactivo'
+export type SolucionEntrenador = 'Seguimiento' | 'Captación' | 'Recuperación' | 'Referidos'
+
+export interface EntrenadorFields {
+  Email: string
+  Nombre: string
+  'Teléfono'?: string
+  Soluciones?: SolucionEntrenador[]
+  Estado: EstadoEntrenador
+  Fecha_alta?: string
+  Precio_mensual?: number
+  Notas?: string
+}
+
+export interface SnapshotFields {
+  Entrenador_email: string
+  Fecha: string
+  Clientes_activos: number
 }
 
 function airtableHeaders() {
@@ -184,4 +206,84 @@ export async function marcarInvitacionUsada(recordId: string) {
     'PATCH',
     { Estado: 'Usado' }
   )
+}
+
+export async function getAllEntrenadores() {
+  const params = new URLSearchParams()
+  params.set('sort[0][field]', 'Nombre')
+  params.set('sort[0][direction]', 'asc')
+  const data = await airtableGet<{ records: AirtableRecord<EntrenadorFields>[] }>(
+    TABLE_ENTRENADORES,
+    params
+  )
+  return data.records
+}
+
+export async function getEntrenadorByEmail(
+  email: string
+): Promise<AirtableRecord<EntrenadorFields> | null> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Email} = "${escapeFormulaValue(email)}"`)
+  params.set('maxRecords', '1')
+  const data = await airtableGet<{ records: AirtableRecord<EntrenadorFields>[] }>(
+    TABLE_ENTRENADORES,
+    params
+  )
+  return data.records[0] ?? null
+}
+
+export async function crearEntrenador(fields: Partial<EntrenadorFields>) {
+  return airtableWrite<AirtableRecord<EntrenadorFields>>(TABLE_ENTRENADORES, 'POST', fields)
+}
+
+export async function actualizarEntrenador(recordId: string, fields: Partial<EntrenadorFields>) {
+  return airtableWrite<AirtableRecord<EntrenadorFields>>(
+    `${TABLE_ENTRENADORES}/${recordId}`,
+    'PATCH',
+    fields
+  )
+}
+
+export async function getClientesActivosPorEntrenador(): Promise<Record<string, number>> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Estado} = "Activo"`)
+  params.append('fields[]', 'Entrenador')
+  const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(
+    TABLE_CLIENTES,
+    params
+  )
+  const counts: Record<string, number> = {}
+  for (const record of data.records) {
+    const entrenador = record.fields.Entrenador
+    if (!entrenador) continue
+    counts[entrenador] = (counts[entrenador] ?? 0) + 1
+  }
+  return counts
+}
+
+export async function getInvitacionMasRecienteByEmail(
+  email: string
+): Promise<AirtableRecord<InvitacionFields> | null> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Email_entrenador} = "${escapeFormulaValue(email)}"`)
+  params.set('sort[0][field]', 'Creado')
+  params.set('sort[0][direction]', 'desc')
+  params.set('maxRecords', '1')
+  const data = await airtableGet<{ records: AirtableRecord<InvitacionFields>[] }>(
+    TABLE_INVITACIONES,
+    params
+  )
+  return data.records[0] ?? null
+}
+
+export async function getSnapshotsByEntrenador(email: string) {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Entrenador_email} = "${escapeFormulaValue(email)}"`)
+  params.set('sort[0][field]', 'Fecha')
+  params.set('sort[0][direction]', 'asc')
+  const data = await airtableGet<{ records: AirtableRecord<SnapshotFields>[] }>(
+    TABLE_SNAPSHOTS,
+    params
+  )
+  return data.records
 }

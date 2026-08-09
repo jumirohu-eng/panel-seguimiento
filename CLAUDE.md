@@ -32,7 +32,9 @@ Base ID: appZ7NZWDl6haw8pK
 Tabla Clientes: tblcpRBZbtViJzQVQ
 Tabla Reportes: tbljT33LCBLT6NoKf
 Tabla Archivo (backup): tblgwKrbv6kRYqrAt
-Tabla Invitaciones (NEW): [SE CREA EN ESTA SESIÓN]
+Tabla Invitaciones: tblzr50mLzLgnIsVg
+Tabla Entrenadores: tblo7dLrfaOxcPppY
+Tabla Snapshots: tbliaBxJa4GIYoHId
 Token: [en Vercel env vars, NO en repo]
 
 
@@ -47,6 +49,8 @@ Tabla profiles (opcional): Para datos de usuario adicionales
 Proyecto: dashboard-seguimiento
 URL: https://dashboard-seguimiento-two.vercel.app
 Environment Variables: [configuradas en Vercel UI]
+- ADMIN_EMAIL (server-side, ya existía) → usado por API routes para autorizar /api/admin/*
+- NEXT_PUBLIC_ADMIN_EMAIL (NEW) → mismo valor, expuesto al frontend para mostrar el botón "Admin" en el Header. Añadir en Vercel si no está.
 Framework: Next.js (detectado automáticamente)
 
 
@@ -102,7 +106,7 @@ jumirohu@gmail.com → admin del dashboard
 | Mensaje sugerido | Texto largo | Rellenado por n8n/Claude (solo si alerta) |
 | Cliente_Email | Lookup | Del campo Email de Clientes (para filtrado fiable) |
 
-### Tabla "Invitaciones" (NEW - SE CREA ESTA SESIÓN)
+### Tabla "Invitaciones" (tblzr50mLzLgnIsVg)
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | Token | Texto (PRIMARY) | inv_abc123xyz... (UUID) |
@@ -113,6 +117,25 @@ jumirohu@gmail.com → admin del dashboard
 
 ### Tabla "Archivo" (tblgwKrbv6kRYqrAt)
 Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Entrenamientos, Energía, Notas, Análisis_IA, Mensaje_sugerido.
+
+### Tabla "Entrenadores" (tblo7dLrfaOxcPppY)
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| Email | Texto (PRIMARY) | Clave que conecta con Clientes.Entrenador e Invitaciones.Email_entrenador |
+| Nombre | Texto | |
+| Teléfono | Teléfono | +34... formato |
+| Soluciones | Multi-select | Seguimiento / Captación / Recuperación / Referidos |
+| Estado | Select | Activo / Prueba / Inactivo |
+| Fecha_alta | Date | Formato europeo D/M/YYYY |
+| Precio_mensual | Currency | € precisión 0 |
+| Notas | Texto largo | Histórico manual + observaciones |
+
+### Tabla "Snapshots" (tbliaBxJa4GIYoHId)
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| Entrenador_email | Texto (PRIMARY) | |
+| Fecha | Date | Formato europeo, un registro por mes por entrenador |
+| Clientes_activos | Number | Precisión 0, usado para el sparkline en la ficha de entrenador |
 
 ---
 
@@ -139,16 +162,20 @@ panel-seguimiento/
 │ │ ├── dashboard/
 │ │ │ └── page.tsx # Dashboard protegido (entrenador)
 │ │ ├── admin/
-│ │ │ └── page.tsx # Admin dashboard (NEW - solo jumirohu@gmail.com)
+│ │ │ ├── page.tsx # Lista de entrenadores + alta (solo jumirohu@gmail.com)
+│ │ │ └── entrenador/[email]/page.tsx # Ficha de entrenador: editar, sparkline, invitación
 │ │ └── api/
 │ │ ├── clientes/route.ts # GET clientes filtrados por entrenador
 │ │ ├── reportes/route.ts # GET reportes del cliente
-│ │ ├── auth/
-│ │ │ └── [...auth]/route.ts # Supabase auth API
 │ │ └── admin/
-│ │ ├── invite/route.ts # POST generar invitación (NEW)
-│ │ ├── invitaciones/route.ts # GET historial invitaciones (NEW)
-│ │ └── regenerate/route.ts # POST regenerar token (NEW)
+│ │ ├── invite/route.ts # POST generar invitación
+│ │ ├── invitaciones/route.ts # GET historial invitaciones
+│ │ ├── regenerate/route.ts # POST regenerar token
+│ │ ├── cancel/route.ts # POST cancelar invitación
+│ │ ├── create-user/route.ts # POST crear usuario Supabase directo (evita rate limit)
+│ │ └── entrenadores/
+│ │ ├── route.ts # GET lista + POST crear entrenador
+│ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar
 │ ├── components/
 │ │ ├── EnergyChart.tsx
 │ │ ├── WorkoutsChart.tsx
@@ -182,6 +209,7 @@ panel-seguimiento/
 8. **Token se marca "Usado" solo cuando signup se completa**
 9. **Regenerar token = borra anterior + crea nuevo**
 10. **NO hay signup pública** (solo vía token)
+11. **Campo Email en Entrenadores/Snapshots.Entrenador_email = email texto** (mismo patrón que Clientes.Entrenador, NO linked record — es la clave que conecta Entrenadores, Clientes, Invitaciones y Snapshots)
 
 ---
 
@@ -268,8 +296,9 @@ try {
 
 ## PENDIENTES INMEDIATOS
 
-- [ ] Admin dashboard: generar invitaciones + historial (ESTA SESIÓN)
-- [ ] Login/signup vía token
+- [x] Admin dashboard: generar invitaciones + historial
+- [x] Login/signup vía token
+- [x] Admin: tabla Entrenadores + Snapshots, ficha completa por entrenador, dark mode, logout
 - [ ] Privacidad + política (Termly/Iubenda)
 - [ ] Cláusula onboarding (DPA, procesamiento IA)
 - [ ] Pre-venta con 3 entrenadores reales

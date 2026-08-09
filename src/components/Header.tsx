@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+
+const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'jumirohu@gmail.com'
 
 function getInitialDark(): boolean {
   if (typeof window === 'undefined') return false
@@ -13,6 +15,7 @@ function getInitialDark(): boolean {
 
 export default function Header({ email }: { email: string }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [dark, setDark] = useState(getInitialDark)
 
   useEffect(() => {
@@ -30,14 +33,24 @@ export default function Header({ email }: { email: string }) {
   }
 
   const nombre = email.split('@')[0]
+  const isAdmin = email === ADMIN_EMAIL
+  const onAdminPages = pathname?.startsWith('/admin') ?? false
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
+    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-3 sm:px-6">
       <div>
         <p className="text-sm font-medium capitalize text-card-foreground">{nombre}</p>
         <p className="text-xs text-muted">{email}</p>
       </div>
       <div className="flex items-center gap-2">
+        {isAdmin && (
+          <button
+            onClick={() => router.push(onAdminPages ? '/dashboard' : '/admin')}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+          >
+            {onAdminPages ? 'Volver al dashboard' : 'Admin'}
+          </button>
+        )}
         <button
           onClick={toggleDark}
           aria-label="Cambiar modo oscuro"

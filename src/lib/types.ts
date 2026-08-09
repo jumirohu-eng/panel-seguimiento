@@ -26,3 +26,26 @@ export interface Invitacion {
   creado: string
   expira: string
 }
+
+export interface Entrenador {
+  id: string
+  email: string
+  nombre: string
+  telefono: string
+  soluciones: string[]
+  estado: 'Activo' | 'Prueba' | 'Inactivo'
+  fechaAlta: string
+  precioMensual: number
+  notas: string
+  clientesActivos: number
+}
+
+export interface SnapshotPunto {
+  fecha: string
+  clientesActivos: number
+}
+
+export interface EntrenadorDetalle extends Entrenador {
+  snapshots: SnapshotPunto[]
+  invitacion: Invitacion | null
+}

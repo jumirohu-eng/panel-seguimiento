@@ -46,6 +46,11 @@ export default function EntrenadorFichaPage() {
   const [invitando, setInvitando] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState<string | null>(null)
+
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token ?? null
@@ -183,6 +188,36 @@ export default function EntrenadorFichaPage() {
     }
   }
 
+  async function handleResetPassword() {
+    setResetting(true)
+    setResetError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: emailParam }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al resetear la contraseña')
+      setNewPassword(data.newPassword)
+      setShowResetConfirm(false)
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Error al resetear la contraseña')
+    } finally {
+      setResetting(false)
+    }
+  }
+
+  async function handleCopyPassword() {
+    if (!newPassword) return
+    await navigator.clipboard.writeText(newPassword)
+    setToast('Contraseña copiada')
+  }
+
   if (checkingAuth || !authorized) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -199,6 +234,35 @@ export default function EntrenadorFichaPage() {
         {toast && (
           <div className="fixed right-4 top-4 z-50 rounded-lg border border-border bg-card px-4 py-2 text-sm text-card-foreground shadow-sm">
             {toast}
+          </div>
+        )}
+
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-sm">
+              <h3 className="mb-2 text-lg font-semibold text-card-foreground">
+                ¿Resetear contraseña?
+              </h3>
+              <p className="mb-4 text-sm text-muted">
+                Esto invalida su contraseña actual e impide que inicie sesión hasta que le des la
+                nueva.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleResetPassword}
+                  disabled={resetting}
+                  className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {resetting ? 'Reseteando…' : 'Sí, resetear'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -223,6 +287,16 @@ export default function EntrenadorFichaPage() {
                   <p className="text-sm text-muted">{entrenador.email}</p>
                   {entrenador.telefono && (
                     <p className="text-sm text-muted">{entrenador.telefono}</p>
+                  )}
+                  {entrenador.linkWhatsapp && (
+                    <a
+                      href={entrenador.linkWhatsapp}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
+                    >
+                      Escribir por WhatsApp
+                    </a>
                   )}
                 </div>
                 <span
@@ -388,6 +462,35 @@ export default function EntrenadorFichaPage() {
                   >
                     {invitando ? 'Generando…' : 'Generar nueva invitación'}
                   </button>
+                )}
+              </div>
+
+              <div className="my-4 border-t border-border" />
+
+              <div className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium text-card-foreground">Acceso</h3>
+                <button
+                  onClick={() => setShowResetConfirm(true)}
+                  className="w-fit rounded-lg border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/10"
+                >
+                  Resetear contraseña
+                </button>
+
+                {resetError && <p className="text-sm text-danger">{resetError}</p>}
+
+                {newPassword && (
+                  <div className="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-background p-4">
+                    <p className="text-sm text-card-foreground">
+                      Nueva contraseña temporal:{' '}
+                      <span className="font-mono font-semibold">{newPassword}</span>
+                    </p>
+                    <button
+                      onClick={handleCopyPassword}
+                      className="w-fit rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-card"
+                    >
+                      Copiar
+                    </button>
+                  </div>
                 )}
               </div>
             </section>

@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       precioMensual: r.fields.Precio_mensual ?? 0,
       notas: r.fields.Notas ?? '',
       clientesActivos: clientesActivos[r.fields.Email] ?? 0,
+      linkWhatsapp: r.fields.Link_whatsapp ?? '',
     }))
 
     return NextResponse.json({ entrenadores })

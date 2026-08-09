@@ -38,6 +38,7 @@ export interface Entrenador {
   precioMensual: number
   notas: string
   clientesActivos: number
+  linkWhatsapp: string
 }
 
 export interface SnapshotPunto {

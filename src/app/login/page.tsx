@@ -30,6 +30,15 @@ export default function LoginPage() {
       return
     }
 
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (accessToken) {
+      fetch('/api/admin/log-activity', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {})
+    }
+
     router.push('/dashboard')
   }
 

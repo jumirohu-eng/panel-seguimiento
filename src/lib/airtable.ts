@@ -55,6 +55,9 @@ export interface EntrenadorFields {
   Fecha_alta?: string
   Precio_mensual?: number
   Notas?: string
+  Link_whatsapp?: string
+  'Último_login'?: string
+  Permite_marketing?: boolean
 }
 
 export interface SnapshotFields {

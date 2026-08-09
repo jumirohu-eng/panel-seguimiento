@@ -1,0 +1,57 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+
+function getInitialDark(): boolean {
+  if (typeof window === 'undefined') return false
+  const stored = localStorage.getItem('theme')
+  if (stored) return stored === 'dark'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+export default function Header({ email }: { email: string }) {
+  const router = useRouter()
+  const [dark, setDark] = useState(getInitialDark)
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  function toggleDark() {
+    setDark((d) => !d)
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  const nombre = email.split('@')[0]
+
+  return (
+    <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
+      <div>
+        <p className="text-sm font-medium capitalize text-card-foreground">{nombre}</p>
+        <p className="text-xs text-muted">{email}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={toggleDark}
+          aria-label="Cambiar modo oscuro"
+          className="rounded-lg border border-border p-2 text-sm text-card-foreground hover:bg-background"
+        >
+          {dark ? '☀️' : '🌙'}
+        </button>
+        <button
+          onClick={handleLogout}
+          className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+        >
+          Cerrar sesión
+        </button>
+      </div>
+    </header>
+  )
+}

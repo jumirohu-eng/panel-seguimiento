@@ -229,7 +229,7 @@ export default function AdminResumenView() {
           onClick={() => setShowQuick((v) => !v)}
           className="flex w-full items-center justify-between px-6 py-4 text-left"
         >
-          <h2 className="text-lg font-semibold text-card-foreground">Accesos rápidos</h2>
+          <h2 className="text-lg font-semibold text-card-foreground">Aplicaciones</h2>
           <span className="text-muted">{showQuick ? '▲' : '▼'}</span>
         </button>
         {showQuick && (
@@ -249,6 +249,14 @@ export default function AdminResumenView() {
               className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
             >
               n8n
+            </a>
+            <a
+              href="https://supabase.com/dashboard/project/jcijxhxdjabxdujldzml"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
+            >
+              Supabase
             </a>
             <button
               onClick={() => router.push('/admin?nuevo=1')}

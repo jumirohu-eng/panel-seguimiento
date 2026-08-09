@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       notas: r.fields.Notas ?? '',
       clientesActivos: clientesActivos[r.fields.Email] ?? 0,
       linkWhatsapp: r.fields.Link_whatsapp ?? '',
+      ultimoLogin: r.fields['Último_login'] ?? null,
     }))
 
     return NextResponse.json({ entrenadores })

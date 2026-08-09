@@ -39,6 +39,7 @@ export interface Entrenador {
   notas: string
   clientesActivos: number
   linkWhatsapp: string
+  ultimoLogin: string | null
 }
 
 export interface SnapshotPunto {

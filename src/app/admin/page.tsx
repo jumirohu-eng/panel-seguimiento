@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState, FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Entrenador } from '@/lib/types'
+import { formatDateTime } from '@/lib/format'
 import Header from '@/components/Header'
 
 const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos']
@@ -13,6 +14,13 @@ const ESTADO_BADGE: Record<string, string> = {
   Activo: 'bg-success/10 text-success',
   Prueba: 'bg-warning/10 text-warning',
   Inactivo: 'bg-danger/10 text-danger',
+}
+
+const SIETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000
+
+function esLoginReciente(ultimoLogin: string | null) {
+  if (!ultimoLogin) return false
+  return Date.now() - new Date(ultimoLogin).getTime() < SIETE_DIAS_MS
 }
 
 export default function AdminPage() {
@@ -274,6 +282,7 @@ function AdminPageContent() {
                     <th className="py-2 pr-4 font-medium">Clientes activos</th>
                     <th className="py-2 pr-4 font-medium">Precio/mes</th>
                     <th className="py-2 pr-4 font-medium">Alta</th>
+                    <th className="py-2 pr-4 font-medium">Actividad</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -309,6 +318,16 @@ function AdminPageContent() {
                       <td className="py-2 pr-4 text-card-foreground">{ent.clientesActivos}</td>
                       <td className="py-2 pr-4 text-card-foreground">{ent.precioMensual}€</td>
                       <td className="py-2 pr-4 text-card-foreground">{ent.fechaAlta}</td>
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-1.5 text-card-foreground">
+                          <span
+                            className={`h-2 w-2 rounded-full ${esLoginReciente(ent.ultimoLogin) ? 'bg-success' : 'bg-muted'}`}
+                          />
+                          <span className="text-xs text-muted">
+                            {ent.ultimoLogin ? formatDateTime(ent.ultimoLogin) : 'Nunca'}
+                          </span>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { LineChart, Line, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { EntrenadorDetalle } from '@/lib/types'
+import { formatDateTime } from '@/lib/format'
 import Header from '@/components/Header'
 
 const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos']
@@ -218,6 +219,13 @@ export default function EntrenadorFichaPage() {
     setToast('Contraseña copiada')
   }
 
+  const isDirty = entrenador
+    ? estado !== entrenador.estado ||
+      precio !== String(entrenador.precioMensual) ||
+      notas !== entrenador.notas ||
+      JSON.stringify([...soluciones].sort()) !== JSON.stringify([...entrenador.soluciones].sort())
+    : false
+
   if (checkingAuth || !authorized) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -299,11 +307,14 @@ export default function EntrenadorFichaPage() {
                     </a>
                   )}
                 </div>
-                <span
-                  className={`rounded-full px-3 py-1 text-sm font-medium ${ESTADO_BADGE[estado] ?? ''}`}
-                >
-                  {estado}
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  <span
+                    className={`rounded-full px-3 py-1 text-sm font-medium ${ESTADO_BADGE[estado] ?? ''}`}
+                  >
+                    {estado}
+                  </span>
+                  {isDirty && <span className="text-xs text-warning">Sin guardar</span>}
+                </div>
               </div>
 
               <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -333,11 +344,21 @@ export default function EntrenadorFichaPage() {
                     className="rounded-lg border border-border bg-transparent px-3 py-2 text-card-foreground outline-none focus:border-primary"
                   />
                 </div>
-                <div className="flex flex-col gap-1 sm:col-span-2">
+                <div className="flex flex-col gap-1">
                   <label className="text-sm font-medium text-card-foreground">
                     Fecha de alta
                   </label>
                   <p className="text-sm text-muted">{entrenador.fechaAlta || '—'}</p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-card-foreground">
+                    Última actividad
+                  </label>
+                  <p className="text-sm text-muted">
+                    {entrenador.ultimoLogin
+                      ? formatDateTime(entrenador.ultimoLogin)
+                      : 'Nunca ha iniciado sesión'}
+                  </p>
                 </div>
               </div>
 
@@ -375,13 +396,18 @@ export default function EntrenadorFichaPage() {
 
               {saveError && <p className="mt-3 text-sm text-danger">{saveError}</p>}
 
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? 'Guardando…' : 'Guardar cambios'}
-              </button>
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+                {isDirty && !saving && (
+                  <span className="text-sm text-warning">Tienes cambios sin guardar</span>
+                )}
+              </div>
             </section>
 
             <section className="rounded-xl border border-border bg-card p-6 shadow-sm">

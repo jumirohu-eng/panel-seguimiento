@@ -65,6 +65,7 @@ export async function GET(
       notas: entrenadorRecord.fields.Notas ?? '',
       clientesActivos: clientesActivos[email] ?? 0,
       linkWhatsapp: entrenadorRecord.fields.Link_whatsapp ?? '',
+      ultimoLogin: entrenadorRecord.fields['Último_login'] ?? null,
       snapshots: snapshots.map((s) => ({
         fecha: s.fields.Fecha,
         clientesActivos: s.fields.Clientes_activos,

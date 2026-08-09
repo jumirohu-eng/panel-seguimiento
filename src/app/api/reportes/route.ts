@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getClienteById, getReportesByClienteId } from '@/lib/airtable'
+import { getClienteById, getReportesByClienteEmail } from '@/lib/airtable'
 
 export async function GET(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
@@ -21,8 +21,11 @@ export async function GET(request: NextRequest) {
     if (cliente.fields.Entrenador !== email) {
       return NextResponse.json({ error: 'No tienes acceso a este cliente' }, { status: 403 })
     }
+    if (!cliente.fields.Email) {
+      return NextResponse.json({ error: 'El cliente no tiene email configurado en Airtable' }, { status: 400 })
+    }
 
-    const records = await getReportesByClienteId(clienteId, 8)
+    const records = await getReportesByClienteEmail(cliente.fields.Email, 8)
     const reportes = records.map((r) => ({
       id: r.id,
       fecha: r.fields.Fecha,

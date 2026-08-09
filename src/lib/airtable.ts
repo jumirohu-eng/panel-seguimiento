@@ -75,9 +75,9 @@ export async function getClienteById(id: string): Promise<AirtableRecord<Cliente
   return res.json()
 }
 
-export async function getReportesByClienteId(clienteId: string, maxRecords = 8) {
+export async function getReportesByClienteEmail(clienteEmail: string, maxRecords = 8) {
   const params = new URLSearchParams()
-  params.set('filterByFormula', `FIND("${escapeFormulaValue(clienteId)}", ARRAYJOIN({Cliente})) > 0`)
+  params.set('filterByFormula', `FIND("${escapeFormulaValue(clienteEmail)}", ARRAYJOIN({Cliente_Email})) > 0`)
   params.set('sort[0][field]', 'Fecha')
   params.set('sort[0][direction]', 'desc')
   params.set('maxRecords', String(maxRecords))

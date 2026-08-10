@@ -6,6 +6,7 @@ const TABLE_REPORTES = 'tbljT33LCBLT6NoKf'
 const TABLE_INVITACIONES = 'tblzr50mLzLgnIsVg'
 const TABLE_ENTRENADORES = 'tblo7dLrfaOxcPppY'
 const TABLE_SNAPSHOTS = 'tbliaBxJa4GIYoHId'
+const TABLE_SNAPSHOTS_ENTRENADORES = 'tblEaBtZvUXyzPk8y'
 
 export interface AirtableRecord<T> {
   id: string
@@ -65,6 +66,13 @@ export interface SnapshotFields {
   Entrenador_email: string
   Fecha: string
   Clientes_activos: number
+}
+
+export interface SnapshotEntrenadorFields {
+  Fecha: string
+  Total_entrenadores: number
+  Total_activos: number
+  Total_prueba: number
 }
 
 function airtableHeaders() {
@@ -298,6 +306,17 @@ export async function getAllSnapshots() {
   params.set('sort[0][direction]', 'asc')
   const data = await airtableGet<{ records: AirtableRecord<SnapshotFields>[] }>(
     TABLE_SNAPSHOTS,
+    params
+  )
+  return data.records
+}
+
+export async function getAllSnapshotsEntrenadores() {
+  const params = new URLSearchParams()
+  params.set('sort[0][field]', 'Fecha')
+  params.set('sort[0][direction]', 'asc')
+  const data = await airtableGet<{ records: AirtableRecord<SnapshotEntrenadorFields>[] }>(
+    TABLE_SNAPSHOTS_ENTRENADORES,
     params
   )
   return data.records

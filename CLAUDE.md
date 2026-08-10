@@ -35,7 +35,7 @@ Tabla Archivo (backup): tblgwKrbv6kRYqrAt
 Tabla Invitaciones: tblzr50mLzLgnIsVg
 Tabla Entrenadores: tblo7dLrfaOxcPppY
 Tabla Snapshots: tbliaBxJa4GIYoHId
-Tabla Snapshots_entrenadores: [pendiente de crear, ver sección "Tabla Snapshots_entrenadores" más abajo]
+Tabla Snapshots_entrenadores: tblEaBtZvUXyzPk8y
 Token: [en Vercel env vars, NO en repo]
 
 

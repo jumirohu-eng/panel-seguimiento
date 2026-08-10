@@ -181,13 +181,15 @@ panel-seguimiento/
 │ │ ├── reset-password/
 │ │ │ └── page.tsx # Reset password
 │ │ ├── dashboard/
-│ │ │ └── page.tsx # Entrenador: sus clientes. Admin: AdminResumenView (resumen del negocio)
+│ │ │ └── page.tsx # Entrenador: sus clientes. Admin: DashboardResumenView (resumen ejecutivo)
 │ │ ├── admin/
-│ │ │ ├── page.tsx # Lista de entrenadores + alta (solo jumirohu@gmail.com). ?nuevo=1 abre el form
+│ │ │ ├── page.tsx # Lista de entrenadores + alta + AlertasPanel + AplicacionesPanel (solo jumirohu@gmail.com). ?nuevo=1 abre el form
 │ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña
+│ │ ├── metricas/
+│ │ │ └── page.tsx # MetricasView: histórico (solo jumirohu@gmail.com)
 │ │ └── api/
 │ │ ├── clientes/route.ts # GET clientes filtrados por entrenador
-│ │ ├── reportes/route.ts # GET reportes del cliente
+│ │ ├── reportes/route.ts # GET reportes del cliente (incluye linkAlerta)
 │ │ └── admin/
 │ │ ├── invite/route.ts # POST generar invitación
 │ │ ├── invitaciones/route.ts # GET historial invitaciones
@@ -196,7 +198,10 @@ panel-seguimiento/
 │ │ ├── create-user/route.ts # POST crear usuario Supabase directo (evita rate limit)
 │ │ ├── reset-password/route.ts # POST genera password temporal y la aplica en Supabase
 │ │ ├── log-activity/route.ts # POST actualiza Último_login (fire-and-forget desde login)
-│ │ ├── resumen-negocio/route.ts # GET métricas de negocio, alertas y métricas de impacto
+│ │ ├── resumen-negocio/route.ts # GET tarjetas + evolución entrenadores + soluciones (consumido por /dashboard)
+│ │ ├── alertas/route.ts # GET alertas "requiere tu atención" (consumido por /admin)
+│ │ ├── metricas-negocio/route.ts # GET clientes históricos + evolución clientes + métricas de impacto (consumido por /metricas)
+│ │ ├── alertas-stats/route.ts # GET histórico de alertas: total, por mes, por entrenador (consumido por /metricas)
 │ │ └── entrenadores/
 │ │ ├── route.ts # GET lista + POST crear entrenador
 │ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar
@@ -204,18 +209,25 @@ panel-seguimiento/
 │ │ ├── EnergyChart.tsx
 │ │ ├── WorkoutsChart.tsx
 │ │ ├── WeightChart.tsx
-│ │ ├── StatusBadge.tsx
+│ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta
 │ │ ├── SuggestedMessage.tsx
 │ │ ├── AIAnalysis.tsx
 │ │ ├── ClientSelector.tsx
-│ │ ├── Header.tsx
-│ │ ├── AdminResumenView.tsx # Tarjetas, gráficas, alertas y accesos rápidos del /dashboard admin
-│ │ └── ExportPDF.tsx
+│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin
+│ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
+│ │ ├── Tooltip.tsx # Tooltip genérico reutilizable (hover/focus)
+│ │ ├── ExportPDF.tsx # Usa html2canvas-pro (soporta color-mix() de Tailwind v4)
+│ │ └── admin/
+│ │ ├── DashboardResumenView.tsx # Tarjetas + evolución entrenadores + soluciones (/dashboard)
+│ │ ├── AlertasPanel.tsx # Sección "Requiere tu atención" (/admin)
+│ │ ├── AplicacionesPanel.tsx # Links a Airtable/n8n/Supabase (/admin)
+│ │ └── MetricasView.tsx # Tarjetas + evolución clientes + alertas por mes + métricas de impacto (/metricas)
 │ └── lib/
 │ ├── supabase.ts # Cliente Supabase (anon key)
 │ ├── supabase-server.ts # Cliente Supabase servidor (service role key)
 │ ├── auth-server.ts # Lógica de auth backend
 │ ├── admin.ts # Constante ADMIN_EMAIL (NEXT_PUBLIC_ADMIN_EMAIL con fallback)
+│ ├── alertas.ts # calcularAlertasNegocio() — lógica pura, compartida por /api/admin/alertas
 │ └── airtable.ts # Helpers para Airtable API
 └── public/
 └── [favicons, etc.]

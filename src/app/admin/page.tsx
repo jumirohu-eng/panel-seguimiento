@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { Entrenador } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
 import Header from '@/components/Header'
+import AlertasPanel from '@/components/admin/AlertasPanel'
+import AplicacionesPanel from '@/components/admin/AplicacionesPanel'
 
 const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos']
 const ESTADOS = ['Activo', 'Prueba', 'Inactivo'] as const
@@ -335,6 +337,9 @@ function AdminPageContent() {
             </div>
           )}
         </section>
+
+        <AlertasPanel />
+        <AplicacionesPanel />
       </main>
     </div>
   )

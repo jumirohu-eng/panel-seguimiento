@@ -14,7 +14,7 @@ import StatusBadge from '@/components/StatusBadge'
 import SuggestedMessage from '@/components/SuggestedMessage'
 import AIAnalysis from '@/components/AIAnalysis'
 import ExportPDF from '@/components/ExportPDF'
-import AdminResumenView from '@/components/AdminResumenView'
+import DashboardResumenView from '@/components/admin/DashboardResumenView'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -110,7 +110,7 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-background">
         {email && <Header email={email} />}
         <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-          <AdminResumenView />
+          <DashboardResumenView />
         </main>
       </div>
     )

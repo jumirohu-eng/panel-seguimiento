@@ -73,13 +73,28 @@ export interface AlertasStats {
   alertas_por_entrenador: { entrenador_email: string; entrenador_nombre: string; count: number }[]
 }
 
+export interface EvolucionEntrenadoresPunto {
+  mes: string
+  total_entrenadores: number
+  total_activos: number
+  total_prueba: number
+}
+
 export interface ResumenNegocio {
   total_entrenadores_activos: number
   total_clientes_gestionados: number
   mrr_estimado: number
   entrenadores_prueba: number
-  evolucion_clientes_mensual: { mes: string; total_clientes: number }[]
+  evolucion_entrenadores_mensual: EvolucionEntrenadoresPunto[]
   distribucion_soluciones: { solucion: string; count: number }[]
+}
+
+export interface AtencionResponse {
   alertas: AlertaNegocio[]
+}
+
+export interface MetricasNegocio {
+  total_clientes_historicos: number
+  evolucion_clientes_mensual: { mes: string; total_clientes: number }[]
   metricas_impacto: MetricasImpacto | null
 }

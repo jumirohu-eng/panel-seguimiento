@@ -49,7 +49,7 @@ export interface InvitacionFields {
 }
 
 export type EstadoEntrenador = 'Activo' | 'Prueba' | 'Inactivo'
-export type SolucionEntrenador = 'Seguimiento' | 'Captación' | 'Recuperación' | 'Referidos'
+export type SolucionEntrenador = 'Seguimiento' | 'Captación' | 'Recuperación' | 'Referidos' | 'Metricas'
 
 export interface EntrenadorFields {
   Email: string
@@ -63,6 +63,8 @@ export interface EntrenadorFields {
   Link_whatsapp?: string
   'Último_login'?: string
   Permite_marketing?: boolean
+  Consentimiento_IA?: boolean
+  Consentimiento_IA_fecha?: string
 }
 
 export interface SnapshotFields {

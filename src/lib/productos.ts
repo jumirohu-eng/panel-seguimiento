@@ -61,6 +61,19 @@ export const PRODUCTOS: ProductoInfo[] = [
     aQuienLeSirve:
       'A entrenadores que pierden clientes por falta de seguimiento y quieren una segunda oportunidad de recuperarlos sin esfuerzo extra.',
   },
+  {
+    id: 'Metricas',
+    nombre: 'Métricas y Estadísticas',
+    icono: '📈',
+    descripcionCorta: 'Gráficas de evolución, ranking de clientes y métricas de negocio.',
+    lanzado: false,
+    incluye:
+      'Gráficas de peso, entrenamientos y energía por cliente, un ranking de clientes por evolución, y métricas de negocio: MRR, retención y clientes activos.',
+    comoFunciona:
+      'Se añade una sección de métricas a la ficha de cada cliente y un panel agregado para ti como entrenador, calculado automáticamente a partir de los check-ins que ya recibes.',
+    aQuienLeSirve:
+      'A entrenadores que quieren ver la evolución de sus clientes de un vistazo y entender la salud de su negocio (MRR, retención) sin montar hojas de cálculo.',
+  },
 ]
 
 export type EstadoProducto = 'en_uso' | 'disponible' | 'proximamente'

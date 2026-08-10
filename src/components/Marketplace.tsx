@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { PRODUCTOS, ProductoInfo, calcularEstadoProducto, EstadoProducto } from '@/lib/productos'
 
@@ -20,10 +21,14 @@ function linkActivarAhora(producto: ProductoInfo): string | null {
 }
 
 export default function Marketplace() {
+  const router = useRouter()
   const [soluciones, setSoluciones] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [productoInfo, setProductoInfo] = useState<ProductoInfo | null>(null)
+  const [mostrarConsentimiento, setMostrarConsentimiento] = useState(false)
+  const [aceptaConsentimiento, setAceptaConsentimiento] = useState(false)
+  const [guardandoConsentimiento, setGuardandoConsentimiento] = useState(false)
 
   useEffect(() => {
     async function cargar() {
@@ -46,9 +51,33 @@ export default function Marketplace() {
   }, [])
 
   const handleActivarAhora = useCallback((producto: ProductoInfo) => {
+    if (producto.id === 'Seguimiento') {
+      setAceptaConsentimiento(false)
+      setMostrarConsentimiento(true)
+      return
+    }
     const href = linkActivarAhora(producto)
     if (href) window.open(href, '_blank', 'noopener,noreferrer')
   }, [])
+
+  const handleConfirmarConsentimiento = useCallback(async () => {
+    setGuardandoConsentimiento(true)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      const res = await fetch('/api/entrenador/consentimiento-ia', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('No se pudo guardar el consentimiento')
+      router.push('/dashboard')
+    } catch {
+      setError('Error al guardar el consentimiento. Inténtalo de nuevo.')
+      setMostrarConsentimiento(false)
+    } finally {
+      setGuardandoConsentimiento(false)
+    }
+  }, [router])
 
   if (loading) return <p className="text-sm text-muted">Cargando marketplace…</p>
   if (error) return <p className="text-sm text-danger">{error}</p>
@@ -78,13 +107,15 @@ export default function Marketplace() {
                 <p className="mt-1 text-sm text-muted">{producto.descripcionCorta}</p>
               </div>
               <div className="mt-auto flex flex-wrap gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleActivarAhora(producto)}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90"
-                >
-                  Activar ahora
-                </button>
+                {estado !== 'en_uso' && (
+                  <button
+                    type="button"
+                    onClick={() => handleActivarAhora(producto)}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90"
+                  >
+                    Activar ahora
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setProductoInfo(producto)}
@@ -137,15 +168,52 @@ export default function Marketplace() {
               </div>
             </div>
 
+            {calcularEstadoProducto(productoInfo, soluciones) !== 'en_uso' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setProductoInfo(null)
+                  handleActivarAhora(productoInfo)
+                }}
+                className="mt-5 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              >
+                Activar ahora
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {mostrarConsentimiento && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => !guardandoConsentimiento && setMostrarConsentimiento(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-4 text-lg font-semibold text-card-foreground">Antes de activar Seguimiento</h3>
+            <p className="mb-4 text-sm text-card-foreground">
+              Al activar Seguimiento, confirmo que informaré a mis clientes que usamos IA (Claude) para analizar
+              datos de entrenamiento y detectar riesgos de abandono.
+            </p>
+            <label className="mb-5 flex items-start gap-2 text-sm text-card-foreground">
+              <input
+                type="checkbox"
+                checked={aceptaConsentimiento}
+                onChange={(e) => setAceptaConsentimiento(e.target.checked)}
+                className="mt-0.5"
+              />
+              He leído y acepto
+            </label>
             <button
               type="button"
-              onClick={() => {
-                setProductoInfo(null)
-                handleActivarAhora(productoInfo)
-              }}
-              className="mt-5 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              disabled={!aceptaConsentimiento || guardandoConsentimiento}
+              onClick={handleConfirmarConsentimiento}
+              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Activar ahora
+              {guardandoConsentimiento ? 'Guardando…' : 'Activar'}
             </button>
           </div>
         </div>

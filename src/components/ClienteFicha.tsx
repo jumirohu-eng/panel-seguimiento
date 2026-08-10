@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente, Reporte, ReportesResponse } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
@@ -21,16 +22,35 @@ const ENERGIA_BADGE: Record<string, string> = {
 }
 
 export default function ClienteFicha({ cliente, onBack }: { cliente: Cliente; onBack: () => void }) {
+  const router = useRouter()
   const [reportes, setReportes] = useState<Reporte[]>([])
   const [offset, setOffset] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tieneMetricas, setTieneMetricas] = useState(false)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token ?? null
   }, [])
+
+  useEffect(() => {
+    async function cargarPerfil() {
+      const token = await getToken()
+      try {
+        const res = await fetch('/api/entrenador/perfil', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const perfil = await res.json()
+        setTieneMetricas((perfil.soluciones ?? []).includes('Metricas'))
+      } catch {
+        // Si falla, simplemente no se muestra el botón de métricas
+      }
+    }
+    cargarPerfil()
+  }, [getToken])
 
   const cargarReportes = useCallback(
     async (offsetActual?: string | null) => {
@@ -92,6 +112,15 @@ export default function ClienteFicha({ cliente, onBack }: { cliente: Cliente; on
           >
             {cliente.estado || '—'}
           </span>
+          {tieneMetricas && (
+            <button
+              type="button"
+              onClick={() => router.push(`/trainer/metricas/${cliente.id}`)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
+            >
+              📊 Ver métricas
+            </button>
+          )}
           {linkWhatsapp && (
             <a
               href={linkWhatsapp}
@@ -137,7 +166,7 @@ export default function ClienteFicha({ cliente, onBack }: { cliente: Cliente; on
               </div>
               {r.notas && <p className="mb-3 whitespace-pre-wrap text-sm text-muted">{r.notas}</p>}
               <div className="flex flex-col gap-3">
-                <AIAnalysis analysis={r.analisisIA} />
+                <AIAnalysis analysis={r.analisisIA} tieneAlerta={Boolean(r.mensajeSugerido?.trim())} />
                 <SuggestedMessage message={r.mensajeSugerido} />
               </div>
             </div>

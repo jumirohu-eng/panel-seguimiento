@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_EMAIL } from '@/lib/admin'
 import AdminNavDropdown from './AdminNavDropdown'
+import Marketplace from './Marketplace'
 
 function getInitialDark(): boolean {
   if (typeof window === 'undefined') return false
@@ -16,6 +17,7 @@ function getInitialDark(): boolean {
 export default function Header({ email }: { email: string }) {
   const router = useRouter()
   const [dark, setDark] = useState(getInitialDark)
+  const [showMarketplace, setShowMarketplace] = useState(false)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -42,6 +44,15 @@ export default function Header({ email }: { email: string }) {
       </div>
       <div className="flex items-center gap-2">
         {isAdmin && <AdminNavDropdown />}
+        {!isAdmin && (
+          <button
+            onClick={() => setShowMarketplace(true)}
+            aria-label="Abrir marketplace"
+            className="rounded-lg border border-border p-2 text-sm text-card-foreground hover:bg-background"
+          >
+            🏪
+          </button>
+        )}
         <button
           onClick={toggleDark}
           aria-label="Cambiar modo oscuro"
@@ -56,6 +67,31 @@ export default function Header({ email }: { email: string }) {
           Cerrar sesión
         </button>
       </div>
+
+      {showMarketplace && (
+        <div
+          className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-10"
+          onClick={() => setShowMarketplace(false)}
+        >
+          <div
+            className="w-full max-w-4xl rounded-xl border border-border bg-card p-6 shadow-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-card-foreground">Marketplace</h2>
+              <button
+                type="button"
+                onClick={() => setShowMarketplace(false)}
+                aria-label="Cerrar"
+                className="text-muted hover:text-card-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            <Marketplace />
+          </div>
+        </div>
+      )}
     </header>
   )
 }

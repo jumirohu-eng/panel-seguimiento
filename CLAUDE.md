@@ -132,7 +132,7 @@ Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Ent
 | Email | Texto (PRIMARY) | Clave que conecta con Clientes.Entrenador e Invitaciones.Email_entrenador |
 | Nombre | Texto | |
 | Teléfono | Teléfono | +34... formato |
-| Soluciones | Multi-select | Seguimiento / Captación / Recuperación / Referidos |
+| Soluciones | Multi-select | Seguimiento / Captación / Recuperación / Referidos / Metricas. **"Metricas" se añadió por código de la app (`lib/productos.ts`, `calcularEstadoProducto`) pero NO se pudo añadir como choice del campo vía API** — ninguna herramienta MCP disponible permite editar opciones de un campo `multipleSelects` existente (`update_field` de Airtable solo edita `name`/`description`/fórmula). Añadirla manualmente en Airtable → campo Soluciones → editar opciones → añadir "Metricas" (5 min, no bloquea nada mientras tanto: la lógica de la app funciona igual, simplemente nadie puede tener esa solución asignada hasta entonces) |
 | Estado | Select | Activo / Prueba / Inactivo |
 | Fecha_alta | Date | Formato europeo D/M/YYYY |
 | Precio_mensual | Currency | € precisión 0 |
@@ -140,6 +140,8 @@ Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Ent
 | Link_whatsapp | Formula | `https://wa.me/<tel sin símbolos>?text=<mensaje>` a partir de Teléfono + Nombre |
 | Último_login | DateTime | Europe/Madrid. Se actualiza desde código (POST /api/admin/log-activity), NO es fórmula |
 | Permite_marketing | Checkbox | Consentimiento para usar métricas en agregados de marketing. Default desmarcado |
+| Consentimiento_IA | Checkbox (NEW) | Confirmación del entrenador de que informará a sus clientes sobre el uso de IA, al activar Seguimiento. Se guarda desde `POST /api/entrenador/consentimiento-ia` |
+| Consentimiento_IA_fecha | DateTime (NEW) | Europe/Madrid. Timestamp de cuándo se aceptó el consentimiento |
 
 ### Tabla "Snapshots" (tbliaBxJa4GIYoHId)
 | Campo | Tipo | Notas |
@@ -188,10 +190,13 @@ panel-seguimiento/
 │ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña
 │ │ ├── metricas/
 │ │ │ └── page.tsx # MetricasView: histórico (solo jumirohu@gmail.com)
+│ │ ├── trainer/
+│ │ │ └── metricas/[clienteId]/page.tsx # Placeholder "Próximamente" (NEW). Destino del botón "Ver métricas" de ClienteFicha, gateado por Soluciones incluye "Metricas"
 │ │ └── api/
 │ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta)
 │ │ ├── reportes/route.ts # GET reportes paginados del cliente ({reportes, offset}, pageSize=7, ?offset= para "Ver más")
-│ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace) (NEW)
+│ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace)
+│ │ ├── entrenador/consentimiento-ia/route.ts # POST guarda Consentimiento_IA + Consentimiento_IA_fecha del entrenador logueado (NEW)
 │ │ └── admin/
 │ │ ├── invite/route.ts # POST generar invitación
 │ │ ├── invitaciones/route.ts # GET historial invitaciones
@@ -209,12 +214,12 @@ panel-seguimiento/
 │ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar
 │ ├── components/
 │ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filas (Nombre/Objetivo/Estado/alerta), click abre ficha (NEW)
-│ │ ├── ClienteFicha.tsx # Vista entrenador: info + últimos 7 reportes + "Ver más" + botón WhatsApp (NEW)
-│ │ ├── Marketplace.tsx # Grid de productos, cruce con Soluciones del entrenador, modal "Más información" (NEW)
+│ │ ├── ClienteFicha.tsx # Vista entrenador: info + últimos 7 reportes + "Ver más" + botón WhatsApp + botón "Ver métricas" (si Soluciones incluye Metricas)
+│ │ ├── Marketplace.tsx # Grid de productos, cruce con Soluciones del entrenador, modal "Más información". "Activar ahora" oculto si en_uso; para Seguimiento abre el modal de consentimiento IA en vez de WhatsApp
 │ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta. Usa lib/estadoReporte.ts
 │ │ ├── SuggestedMessage.tsx
-│ │ ├── AIAnalysis.tsx
-│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin
+│ │ ├── AIAnalysis.tsx # Badge colapsable "💡 Análisis IA disponible", fondo destacado si tieneAlerta=true (NEW prop)
+│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪 (no-admin) abre modal con <Marketplace /> (NEW)
 │ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
 │ │ ├── Tooltip.tsx # Tooltip genérico reutilizable (hover/focus)
 │ │ └── admin/
@@ -256,7 +261,22 @@ panel-seguimiento/
 15. **"Alerta reciente sin resolver"** = mismo criterio que `StatusBadge` (último reporte ≤8 días y con `Mensaje sugerido` no vacío), centralizado en `lib/estadoReporte.ts`. No hay campo de "resuelto" en Airtable — la alerta deja de mostrarse cuando llega un reporte nuevo sin mensaje sugerido
 16. **Botón WhatsApp de la ficha de cliente**: usa `Reportes.Link_alerta` del último reporte si su estado es "alerta"; si no, usa `Clientes.Link_recordatorio` (nunca reconstruir el link de Teléfono a mano)
 17. **Marketplace**: catálogo fijo en `lib/productos.ts` con un flag `lanzado` por producto (hoy solo `true` para Seguimiento). Estado de cada tarjeta = "En uso" si está en `Entrenadores.Soluciones`, si no "Disponible" cuando `lanzado`, si no "Próximamente". Para lanzar Captación/Referidos/Recuperación en el futuro basta con cambiar su `lanzado` a `true`, no hace falta tocar el resto de la lógica
-18. **Botón "Activar ahora" del Marketplace** abre WhatsApp a `NEXT_PUBLIC_JUANMI_WHATSAPP` con "Quiero activar [Producto]" — preparado para sustituirse por un link de checkout el día que exista plataforma de pago (`linkActivarAhora()` en `Marketplace.tsx` es el único punto a cambiar)
+18. **Botón "Activar ahora" del Marketplace** abre WhatsApp a `NEXT_PUBLIC_JUANMI_WHATSAPP` con "Quiero activar [Producto]" — preparado para sustituirse por un link de checkout el día que exista plataforma de pago (`linkActivarAhora()` en `Marketplace.tsx` es el único punto a cambiar). **Excepción: para el producto "Seguimiento"**, "Activar ahora" no abre WhatsApp — abre el modal de consentimiento IA (decisión 19); WhatsApp sigue siendo el flujo para el resto de productos
+19. **Consentimiento IA (Seguimiento)**: al hacer click en "Activar ahora" sobre el producto Seguimiento (solo si no está ya en uso), se muestra un modal con checkbox obligatorio antes de poder continuar. Al confirmar, se guarda `Consentimiento_IA`/`Consentimiento_IA_fecha` en Airtable vía `POST /api/entrenador/consentimiento-ia` y se navega a `/dashboard`. Esto NO añade "Seguimiento" a `Entrenadores.Soluciones` — esa asignación sigue siendo manual (vía admin), el modal solo registra el consentimiento legal
+20. **Botón "Ver métricas" (ficha de cliente) y producto "Métricas y Estadísticas" (Marketplace)**: ambos gateados por `Entrenadores.Soluciones` incluye `"Metricas"` (sin acento, así está en Airtable). Hoy ningún entrenador la tiene — la funcionalidad real (gráficas, ranking, MRR, retención) no está implementada, solo el gating y el placeholder (`/trainer/metricas/[clienteId]`, "Próximamente")
+
+---
+
+## RESEND TEMPLATES
+
+Dominio verificado: `retaincoach.com` (ID `f6663f78-c119-4bce-b426-f80184ea2620`, región eu-west-1). From por defecto de los templates: `RetainCoach <hola@retaincoach.com>`.
+
+| Template | ID | Alias | Variables | Uso |
+|----------|----|----|-----------|-----|
+| Bienvenida Entrenador | `f69bc00d-259b-4146-9f70-79276c23490d` | `bienvenida-entrenador` | `NOMBRE` (fallback "entrenador"), `EMAIL` (reservada, automática) | n8n "Recepción entrenador" al crear registro nuevo en Entrenadores |
+| Reset Contraseña | `7ba271b2-1f0a-423c-91d4-26e4c9848b12` | `reset-contrasena` | `NOMBRE` (fallback "usuario"), `RESET_LINK` (obligatoria) | Disponible para flujo de reset (hoy `/api/admin/reset-password` genera password temporal directo en Supabase; no envía email — usar este template si se añade notificación por email a ese flujo) |
+
+Ambos publicados (no en draft). Variables se pasan al enviar con `{{{NOMBRE}}}` etc. — usar `resend:send-email` con `templateId` (o alias) + `variables`.
 
 ---
 
@@ -271,16 +291,32 @@ Cada lunes 9am → Clientes activos → Claude analiza → actualiza Análisis I
 ### "Seguimiento - Limpieza de datos antiguos" ⏸️ INACTIVO
 Backup de reportes >60 días, mantener inactivo.
 
-### "Recepción entrenador" ⏸️ INACTIVO (NEW, id D3Jnswx0Hh5THEev)
-Webhook Tally (path `TallyEntrenadores`) → Formatear datos → Crear entrenador (Airtable, tabla Entrenadores)
-Crea el registro con Estado="Prueba" fijo, sin Precio_mensual, sin generar invitación automática. Extrae del formulario: Nombre, Email, Teléfono, Soluciones_interes, Num_clientes_actual, Como_conocio.
-**Pendiente:** crear el formulario en Tally con esos labels de campo exactos y conectarlo al webhook. Activar manualmente cuando esté listo.
+### "Recepción entrenador" ⏸️ INACTIVO (id D3Jnswx0Hh5THEev)
+Webhook Tally (path `TallyEntrenadores`) → Formatear datos → Buscar entrenador (Airtable search por Email) → Comprobar existencia (Code, normaliza a 1 item con `existe: boolean` — necesario porque Airtable Search devuelve 0 items si no hay match, y un IF con 0 items de entrada no ejecuta ninguna rama) → IF "¿Ya registrado?":
+- **true** (ya existe) → Email ya registrado (HTTP Request a Resend, HTML inline con link a `/login`)
+- **false** (no existe) → Crear entrenador (Airtable, Estado="Prueba" fijo, sin Precio_mensual, sin invitación automática) → Email bienvenida (HTTP Request a Resend, template `bienvenida-entrenador`)
+
+Extrae del formulario: Nombre, Email, Teléfono, Soluciones_interes, Num_clientes_actual, Como_conocio.
+
+Los dos nodos de email usan HTTP Request directo a `https://api.resend.com/emails` (no el nodo comunitario "Resend" — sus propiedades de operación "send" no están bien indexadas en n8n-mcp, así que se optó por la API REST documentada para no adivinar nombres de campo). Autenticación: credencial `httpHeaderAuth` "Resend API (Header Auth)" (id `HKcpklE9LbcDgder`) con header `Authorization`. **Pendiente: el valor de esa credencial es un placeholder (`Bearer PEGA_AQUI_TU_RESEND_API_KEY`) — hay que editarlo en n8n → Credentials con la API key real de Resend antes de que los emails puedan enviarse.**
+
+**Probado end-to-end con payload simulado** (activaciones temporales + `n8n_test_workflow` + desactivación inmediata; registro de prueba creado y luego borrado de Airtable): las dos ramas verificadas correctamente —
+1. Email nuevo → `Buscar entrenador` (0 resultados) → `Comprobar existencia` (`existe: false`) → rama `false` → `Crear entrenador` (registro creado con todos los campos correctos) → `Email bienvenida` (body con `template.id` + `variables.NOMBRE` correcto).
+2. Mismo email reenviado → `Buscar entrenador` (1 resultado) → `existe: true` → rama `true` → `Email ya registrado` (HTML correcto).
+
+Ambos envíos de email fallaron con 401 solo por ser la credencial Resend un placeholder — comportamiento esperado, ver pendiente de API key abajo.
+
+**Bug encontrado y corregido durante la prueba:** cuando `Buscar entrenador` no encuentra coincidencias, Airtable Search devuelve 0 items, y n8n no ejecuta ningún nodo aguas abajo con 0 items de entrada (ni siquiera un Code en modo "runOnceForAllItems") — así que `Comprobar existencia` nunca llegaba a correr. Fix: `alwaysOutputData: true` en `Buscar entrenador` (fuerza 1 item vacío si no hay resultados) + `Comprobar existencia` ahora detecta existencia por presencia de `item.json.id` en vez de por longitud del array.
+
+**Pendiente:** (1) pegar la API key real de Resend en la credencial `HKcpklE9LbcDgder` ("Resend API (Header Auth)") — hoy tiene un valor placeholder, (2) crear el formulario en Tally con esos labels de campo exactos y conectarlo al webhook, (3) activar manualmente cuando lo anterior esté verificado.
 
 ### Workflow "Recordatorios viernes" ⏳ NO CONSTRUIDO
 Pendiente para después.
 
 ### Workflow "Snapshot mensual" ⏸️ INACTIVO (id h8L4RfQg8nXp4ve7)
 Cron día 1 de cada mes a las 3am → Leer entrenadores (tblo7dLrfaOxcPppY) → Contar por estado (Code: Total_entrenadores/Total_activos/Total_prueba) → Crear snapshot entrenadores (Snapshots_entrenadores, retryOnFail) → Leer clientes activos (Clientes, filterByFormula Estado=Activo, una sola llamada) → Agrupar por entrenador (Code) → Crear snapshots por entrenador (Snapshots, un registro por entrenador, retryOnFail). Creado inactivo — activar manualmente tras revisar una ejecución de prueba.
+
+**Validación estructural OK** (`validate_workflow`: 0 errores, 7 nodos, 6 conexiones válidas). **No se pudo ejecutar la prueba manual desde aquí**: el trigger es un Schedule Trigger, y la herramienta de test de n8n-mcp solo puede disparar workflows con trigger webhook/form/chat — un Schedule Trigger solo se puede ejecutar manualmente desde el botón "Test workflow" en el editor de n8n. Además usa la misma credencial Airtable que está caída (ver alerta 🚨 arriba), así que fallaría igualmente ahora mismo. **Pendiente real: (1) arreglar la credencial Airtable, (2) tú (o yo en otra sesión con acceso al editor) ejecutar manualmente desde n8n UI, (3) verificar el conteo contra Airtable y documentar el resultado aquí, (4) mantener inactivo hasta entonces.**
 
 ---
 
@@ -351,6 +387,7 @@ try {
 
 ## PENDIENTES INMEDIATOS
 
+- [x] Credencial Airtable en n8n (`airtableTokenApi`, id `rPj3DVDABuqwIv24`) devolvía 401 desde ~2026-08-09 — **arreglada en esta sesión** (el usuario regeneró el token). Verificado con una ejecución de prueba de "Recepción entrenador" tras el fix: Airtable OK de nuevo.
 - [x] Admin dashboard: generar invitaciones + historial
 - [x] Login/signup vía token
 - [x] Admin: tabla Entrenadores + Snapshots, ficha completa por entrenador, dark mode, logout
@@ -366,6 +403,14 @@ try {
 - [ ] **Añadir `https://retaincoach.com/signup/confirm` (y el equivalente de preview/localhost) a Supabase Auth → URL Configuration → Redirect URLs** — manual, fuera de Claude Code. Sin esto, `emailRedirectTo` cae al Site URL por defecto y `/signup/confirm` no llega a usarse
 - [ ] **Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` con el número real** en `.env.local` y en Vercel (hoy vacío) — el botón "Activar ahora" del Marketplace no hace nada sin este valor
 - [ ] Crear formulario en Tally para "Recepción entrenador" y conectar al webhook — manual
+- [x] Templates de email en Resend: "Bienvenida Entrenador" y "Reset Contraseña" creados y publicados — ver sección RESEND TEMPLATES
+- [x] Workflow n8n "Recepción entrenador" completado (búsqueda + rama existe/no existe + emails) y probado end-to-end con payload simulado — ver N8N WORKFLOWS
+- [ ] **Pegar la API key real de Resend** en la credencial n8n `HKcpklE9LbcDgder` ("Resend API (Header Auth)") — hoy tiene un placeholder, sin esto los emails de "Recepción entrenador" no se envían — manual, fuera de Claude Code
+- [ ] Ejecutar manualmente el workflow n8n "Snapshot mensual" desde el editor de n8n (Schedule Trigger, no se puede disparar por API) y documentar el resultado aquí — manual
+- [ ] **Añadir "Metricas" como opción del campo `Entrenadores.Soluciones`** en Airtable UI — ninguna herramienta MCP disponible permite editar choices de un select existente. No bloquea nada (la lógica de la app ya la contempla), simplemente nadie puede tener esa solución asignada hasta entonces — manual
+- [x] Cambios UX: badge "💡 Análisis IA disponible" + botón "Ver métricas" en ficha de cliente, botón marketplace en Header, ocultar "Activar ahora" si en_uso, producto "Métricas y Estadísticas", modal de consentimiento IA para Seguimiento — ver decisiones técnicas 19-20. **No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión) — solo verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Probar el golden path manualmente: login como `espartakofake@gmail.com`, abrir ficha de cliente, expandir el badge de análisis IA, click en 🏪 del Header, y si algún entrenador de prueba tuviera Soluciones=Metricas, el botón "Ver métricas"
+- [ ] Cambiar password de María (`maria@example.com`) desde el panel admin — manual, no lo hizo Claude Code por ser dato sensible (ver Bloque 4.3 del brief)
+- [ ] Verificar Bloque 6 del brief manualmente: valores de `Clientes.Estado`/`Entrenadores.Estado` sin residuos antiguos, nombre de la base Airtable (no "Untitled Base") — manual, checklist rápido
 - [ ] Privacidad + política (Termly/Iubenda)
 - [ ] Cláusula onboarding (DPA, procesamiento IA)
 - [ ] Pre-venta con 3 entrenadores reales

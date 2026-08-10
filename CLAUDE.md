@@ -35,6 +35,7 @@ Tabla Archivo (backup): tblgwKrbv6kRYqrAt
 Tabla Invitaciones: tblzr50mLzLgnIsVg
 Tabla Entrenadores: tblo7dLrfaOxcPppY
 Tabla Snapshots: tbliaBxJa4GIYoHId
+Tabla Snapshots_entrenadores: [pendiente de crear, ver sección "Tabla Snapshots_entrenadores" más abajo]
 Token: [en Vercel env vars, NO en repo]
 
 
@@ -87,11 +88,13 @@ jumirohu@gmail.com → admin del dashboard
 | Nombre | Texto (PRIMARY) | Cliente |
 | Email | Texto | Del cliente |
 | Teléfono | Texto | +34... formato |
-| Entrenador | Texto | **EMAIL del entrenador** (no nombre, no Colaborador) |
+| Entrenador | Texto | **EMAIL del entrenador** (no nombre, no Colaborador) — fuente de verdad para resolver el entrenador de un cliente |
 | Objetivo | Select | Hipertrofia / Pérdida de peso / Tonificar / Rehabilitación |
 | Estado | Select | Activo / Pausado / Perdido |
 | Entrenamientos_objetivo | Número | Cuántos/semana planificados |
 | Reportes | Link | Auto a tabla Reportes |
+| Link_recordatorio | Fórmula | Link de WhatsApp (wa.me) con mensaje de recordatorio semanal precargado. Distinto de `Reportes.Link_alerta` (ese usa el Mensaje sugerido) |
+| Entrenador_nuevo | Colaborador único | **Vestigial, no usar.** Casi nunca está poblado en datos reales (solo 1 de 4 clientes de prueba). No es fuente fiable de entrenador — usar siempre el campo `Entrenador` (texto) |
 
 ### Tabla "Reportes" (tbljT33LCBLT6NoKf)
 | Campo | Tipo | Notas |
@@ -105,6 +108,11 @@ jumirohu@gmail.com → admin del dashboard
 | Análisis IA | Texto largo | Rellenado por n8n/Claude |
 | Mensaje sugerido | Texto largo | Rellenado por n8n/Claude (solo si alerta) |
 | Cliente_Email | Lookup | Del campo Email de Clientes (para filtrado fiable) |
+| Cliente_Teléfono | Lookup | Teléfono del cliente, traído desde Clientes. Usado como insumo de `Link_alerta` |
+| Link_alerta | Fórmula | Link de WhatsApp (wa.me) con el `Mensaje sugerido` precargado, solo si ese campo no está vacío. Consumido directamente por el botón WhatsApp en `/dashboard` (vista de cliente) — no reconstruir el link a mano en el código |
+| Cliente_Estado | Lookup | Estado (Activo/Pausado/Perdido) del cliente, para la Interface de Airtable "Resumen lunes". No se usa desde esta app |
+| Estado semanal | Fórmula | Badge calculado (Pendiente/Alerta/Bien) para la Interface de Airtable, replica la lógica de `StatusBadge.tsx`. No se usa desde esta app |
+| Cliente_Entrenador | Lookup (vía `Entrenador_nuevo`) | **No fiable, no usar para agrupar por entrenador.** Depende del campo vestigial `Entrenador_nuevo` de Clientes, casi nunca poblado. Para resolver el entrenador de un reporte, cruzar `Cliente_Email` contra `Clientes.Entrenador` |
 
 ### Tabla "Invitaciones" (tblzr50mLzLgnIsVg)
 | Campo | Tipo | Notas |
@@ -138,7 +146,17 @@ Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Ent
 |-------|------|-------|
 | Entrenador_email | Texto (PRIMARY) | |
 | Fecha | Date | Formato europeo, un registro por mes por entrenador |
-| Clientes_activos | Number | Precisión 0, usado para el sparkline en la ficha de entrenador |
+| Clientes_activos | Number | Precisión 0, usado para el sparkline en la ficha de entrenador y para "Evolución de clientes" en /metricas |
+
+### Tabla "Snapshots_entrenadores" (agregado global, no por entrenador)
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| Fecha | DateTime (PRIMARY) | Un registro por mes (agregado de todos los entrenadores) |
+| Total_entrenadores | Número | Precisión 0 |
+| Total_activos | Número | Precisión 0, entrenadores con Estado=Activo |
+| Total_prueba | Número | Precisión 0, entrenadores con Estado=Prueba |
+
+Usada para la gráfica "Evolución de entrenadores" en `/dashboard`. Poblada mensualmente por el workflow n8n "Snapshot mensual" (ver sección N8N WORKFLOWS). Empieza vacía.
 
 ---
 
@@ -218,6 +236,8 @@ panel-seguimiento/
 9. **Regenerar token = borra anterior + crea nuevo**
 10. **NO hay signup pública** (solo vía token)
 11. **Campo Email en Entrenadores/Snapshots.Entrenador_email = email texto** (mismo patrón que Clientes.Entrenador, NO linked record — es la clave que conecta Entrenadores, Clientes, Invitaciones y Snapshots)
+12. **Para resolver el entrenador de un cliente o reporte, usar siempre `Clientes.Entrenador` (texto) o `Cliente_Email` cruzado contra `getAllClientes()`** — nunca `Entrenador_nuevo` (Clientes) ni `Cliente_Entrenador` (Reportes), son campos vestigiales de un experimento de colaboradores que casi nunca están poblados
+13. **Páginas admin separadas por responsabilidad** (todas solo accesibles a `jumirohu@gmail.com`): `/dashboard` = resumen ejecutivo (tarjetas + evolución entrenadores + soluciones), `/admin` = gestión operativa (lista de entrenadores, alertas que requieren atención, accesos a apps externas), `/metricas` = histórico (clientes históricos, alertas históricas, métricas de impacto). Navegación entre ellas vía dropdown en el Header, no vía botones sueltos en cada página
 
 ---
 
@@ -239,6 +259,9 @@ Crea el registro con Estado="Prueba" fijo, sin Precio_mensual, sin generar invit
 
 ### Workflow "Recordatorios viernes" ⏳ NO CONSTRUIDO
 Pendiente para después.
+
+### Workflow "Snapshot mensual" ⏳ pendiente en esta sesión
+Cron día 1 de cada mes 9am (revisar hora exacta al crearlo) → lee Entrenadores → cuenta por Estado (Activo/Prueba) → crea registro en Snapshots_entrenadores (Fecha, Total_entrenadores, Total_activos, Total_prueba) → lee Clientes activos (una sola llamada, agrupados por Entrenador) → crea un registro en Snapshots por entrenador (Entrenador_email, Fecha, Clientes_activos). Se crea INACTIVO, sin activarlo.
 
 ---
 
@@ -313,8 +336,11 @@ try {
 - [x] Login/signup vía token
 - [x] Admin: tabla Entrenadores + Snapshots, ficha completa por entrenador, dark mode, logout
 - [x] Reset de contraseña + registro de Último_login + botón WhatsApp
-- [x] /dashboard admin: resumen del negocio (tarjetas, gráficas, alertas, métricas de impacto)
+- [x] /dashboard admin: resumen del negocio (tarjetas, gráficas, alertas, métricas de impacto) — **reestructurado en esta sesión en 3 páginas** (`/dashboard`, `/admin`, `/metricas`), ver decisión técnica 13
 - [x] Workflow n8n "Recepción entrenador" (queda INACTIVO)
+- [x] Bugs de vista de cliente: exportar PDF, orden Análisis IA/Mensaje sugerido, botón WhatsApp directo, tooltip en badge Alerta
+- [x] Endpoint `/api/admin/alertas-stats` (histórico de alertas para /metricas)
+- [x] Tabla Airtable "Snapshots_entrenadores" + workflow n8n "Snapshot mensual" (INACTIVO) que la puebla
 - [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code
 - [ ] Crear formulario en Tally para "Recepción entrenador" y conectar al webhook — manual
 - [ ] Privacidad + política (Termly/Iubenda)

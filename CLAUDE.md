@@ -272,8 +272,8 @@ Crea el registro con Estado="Prueba" fijo, sin Precio_mensual, sin generar invit
 ### Workflow "Recordatorios viernes" ⏳ NO CONSTRUIDO
 Pendiente para después.
 
-### Workflow "Snapshot mensual" ⏳ pendiente en esta sesión
-Cron día 1 de cada mes 9am (revisar hora exacta al crearlo) → lee Entrenadores → cuenta por Estado (Activo/Prueba) → crea registro en Snapshots_entrenadores (Fecha, Total_entrenadores, Total_activos, Total_prueba) → lee Clientes activos (una sola llamada, agrupados por Entrenador) → crea un registro en Snapshots por entrenador (Entrenador_email, Fecha, Clientes_activos). Se crea INACTIVO, sin activarlo.
+### Workflow "Snapshot mensual" ⏸️ INACTIVO (id h8L4RfQg8nXp4ve7)
+Cron día 1 de cada mes a las 3am → Leer entrenadores (tblo7dLrfaOxcPppY) → Contar por estado (Code: Total_entrenadores/Total_activos/Total_prueba) → Crear snapshot entrenadores (Snapshots_entrenadores, retryOnFail) → Leer clientes activos (Clientes, filterByFormula Estado=Activo, una sola llamada) → Agrupar por entrenador (Code) → Crear snapshots por entrenador (Snapshots, un registro por entrenador, retryOnFail). Creado inactivo — activar manualmente tras revisar una ejecución de prueba.
 
 ---
 

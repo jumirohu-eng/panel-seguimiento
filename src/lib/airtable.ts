@@ -7,6 +7,7 @@ const TABLE_INVITACIONES = 'tblzr50mLzLgnIsVg'
 const TABLE_ENTRENADORES = 'tblo7dLrfaOxcPppY'
 const TABLE_SNAPSHOTS = 'tbliaBxJa4GIYoHId'
 const TABLE_SNAPSHOTS_ENTRENADORES = 'tblEaBtZvUXyzPk8y'
+const TABLE_ARCHIVO = 'tblgwKrbv6kRYqrAt'
 
 export interface AirtableRecord<T> {
   id: string
@@ -334,14 +335,31 @@ export async function getAllClientes() {
 
 export interface ReporteConMensajeFields {
   Cliente_Email?: string[]
+  Fecha?: string
 }
 
 export async function getReportesConMensajeSugerido() {
   const params = new URLSearchParams()
   params.set('filterByFormula', `{Mensaje sugerido} != ""`)
-  params.append('fields[]', 'Cliente_Email')
+  ;['Cliente_Email', 'Fecha'].forEach((f) => params.append('fields[]', f))
   const data = await airtableGet<{ records: AirtableRecord<ReporteConMensajeFields>[] }>(
     TABLE_REPORTES,
+    params
+  )
+  return data.records
+}
+
+export interface ArchivoConMensajeFields {
+  Cliente_Email?: string
+  Fecha?: string
+}
+
+export async function getArchivoConMensajeSugerido() {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Mensaje_sugerido} != ""`)
+  ;['Cliente_Email', 'Fecha'].forEach((f) => params.append('fields[]', f))
+  const data = await airtableGet<{ records: AirtableRecord<ArchivoConMensajeFields>[] }>(
+    TABLE_ARCHIVO,
     params
   )
   return data.records

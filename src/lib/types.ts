@@ -67,6 +67,12 @@ export interface MetricasImpacto {
   alertas_riesgo_historicas: number
 }
 
+export interface AlertasStats {
+  total_alertas_historico: number
+  alertas_por_mes: { mes: string; count: number }[]
+  alertas_por_entrenador: { entrenador_email: string; entrenador_nombre: string; count: number }[]
+}
+
 export interface ResumenNegocio {
   total_entrenadores_activos: number
   total_clientes_gestionados: number

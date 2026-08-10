@@ -82,6 +82,8 @@ export default function Marketplace() {
         const body = await res.json().catch(() => null)
         throw new Error(body?.error ?? `No se pudo guardar el consentimiento (${res.status})`)
       }
+      const body = await res.json()
+      if (Array.isArray(body.soluciones)) setSoluciones(body.soluciones)
       setMostrarConsentimiento(false)
       router.push('/dashboard')
     } catch (err) {

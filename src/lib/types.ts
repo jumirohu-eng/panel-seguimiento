@@ -2,9 +2,12 @@ export interface Cliente {
   id: string
   nombre: string
   email: string
+  telefono: string
   objetivo: string
   estado: string
   entrenamientos_objetivo: number
+  linkRecordatorio: string
+  tieneAlerta: boolean
 }
 
 export interface Reporte {
@@ -17,6 +20,11 @@ export interface Reporte {
   analisisIA: string
   mensajeSugerido: string
   linkAlerta: string
+}
+
+export interface ReportesResponse {
+  reportes: Reporte[]
+  offset: string | null
 }
 
 export interface Invitacion {

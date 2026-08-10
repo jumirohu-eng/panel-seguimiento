@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   if (!clienteId) {
     return NextResponse.json({ error: 'Falta el parámetro clienteId' }, { status: 400 })
   }
+  const offsetParam = request.nextUrl.searchParams.get('offset') ?? undefined
 
   try {
     const cliente = await getClienteById(clienteId)
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'El cliente no tiene email configurado en Airtable' }, { status: 400 })
     }
 
-    const records = await getReportesByClienteEmail(cliente.fields.Email, 8)
+    const { records, offset } = await getReportesByClienteEmail(cliente.fields.Email, 7, offsetParam)
     const reportes = records.map((r) => ({
       id: r.id,
       fecha: r.fields.Fecha,
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
       mensajeSugerido: r.fields['Mensaje sugerido'] ?? '',
       linkAlerta: r.fields.Link_alerta ?? '',
     }))
-    return NextResponse.json(reportes)
+    return NextResponse.json({ reportes, offset: offset ?? null })
   } catch (err) {
     console.error('Error al obtener reportes de Airtable', err)
     return NextResponse.json({ error: 'Error al obtener reportes' }, { status: 500 })

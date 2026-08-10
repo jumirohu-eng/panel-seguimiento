@@ -15,8 +15,7 @@ Auth: Supabase Auth (nativo, sin JWT casero)
 Backend: Vercel API Routes (Next.js)
 Datos: Airtable (base appZ7NZWDl6haw8pK)
 Hosting: Vercel (plan Hobby)
-Gráficas: Recharts
-PDF: html2canvas + jspdf
+Gráficas: Recharts (solo en ficha de entrenador `/admin/entrenador/[email]`, sparkline de clientes activos)
 IA: Claude API (claude-sonnet-4-5)
 Formularios: Tally.so (tally.so/r/5BYDQM)
 Automatización: n8n self-hosted (InstaPods)
@@ -52,6 +51,7 @@ URL: https://dashboard-seguimiento-two.vercel.app
 Environment Variables: [configuradas en Vercel UI]
 - ADMIN_EMAIL (server-side, ya existía) → usado por API routes para autorizar /api/admin/*
 - NEXT_PUBLIC_ADMIN_EMAIL (NEW) → mismo valor, expuesto al frontend para mostrar el botón "Admin" en el Header. Añadir en Vercel si no está.
+- NEXT_PUBLIC_JUANMI_WHATSAPP (NEW) → número de WhatsApp de Juanmi en formato internacional, solo dígitos (ej. 34600000000), usado por el botón "Activar ahora" del Marketplace. **Pendiente: añadir el valor real en Vercel** (en `.env.local` está vacío, ver PENDIENTES INMEDIATOS).
 Framework: Next.js (detectado automáticamente)
 
 
@@ -87,13 +87,13 @@ jumirohu@gmail.com → admin del dashboard
 |-------|------|-------|
 | Nombre | Texto (PRIMARY) | Cliente |
 | Email | Texto | Del cliente |
-| Teléfono | Texto | +34... formato |
-| Entrenador | Texto | **EMAIL del entrenador** (no nombre, no Colaborador) — fuente de verdad para resolver el entrenador de un cliente |
+| Teléfono | Texto | +34... formato. Consumido por la app solo indirectamente vía `Link_recordatorio` (no se reconstruye el link a mano en el código) |
+| Entrenador | Texto | **EMAIL del entrenador** (no nombre, no Colaborador) — fuente de verdad para resolver el entrenador de un cliente. Los registros de prueba deben usar el email exacto, no el nombre (se detectó y corrigió un caso real: Carlos/Sofia tenían "María" en vez de "maria@example.com") |
 | Objetivo | Select | Hipertrofia / Pérdida de peso / Tonificar / Rehabilitación |
 | Estado | Select | Activo / Pausado / Perdido |
 | Entrenamientos_objetivo | Número | Cuántos/semana planificados |
 | Reportes | Link | Auto a tabla Reportes |
-| Link_recordatorio | Fórmula | Link de WhatsApp (wa.me) con mensaje de recordatorio semanal precargado. Distinto de `Reportes.Link_alerta` (ese usa el Mensaje sugerido) |
+| Link_recordatorio | Fórmula | Link de WhatsApp (wa.me) con mensaje de recordatorio semanal precargado. Distinto de `Reportes.Link_alerta` (ese usa el Mensaje sugerido). Usado como fallback del botón WhatsApp en la ficha de cliente (`/dashboard`) cuando el último reporte no tiene alerta activa — no reconstruir el link a mano en el código |
 | Entrenador_nuevo | Colaborador único | **Vestigial, no usar.** Casi nunca está poblado en datos reales (solo 1 de 4 clientes de prueba). No es fuente fiable de entrenador — usar siempre el campo `Entrenador` (texto) |
 
 ### Tabla "Reportes" (tbljT33LCBLT6NoKf)
@@ -109,7 +109,7 @@ jumirohu@gmail.com → admin del dashboard
 | Mensaje sugerido | Texto largo | Rellenado por n8n/Claude (solo si alerta) |
 | Cliente_Email | Lookup | Del campo Email de Clientes (para filtrado fiable) |
 | Cliente_Teléfono | Lookup | Teléfono del cliente, traído desde Clientes. Usado como insumo de `Link_alerta` |
-| Link_alerta | Fórmula | Link de WhatsApp (wa.me) con el `Mensaje sugerido` precargado, solo si ese campo no está vacío. Consumido directamente por el botón WhatsApp en `/dashboard` (vista de cliente) — no reconstruir el link a mano en el código |
+| Link_alerta | Fórmula | Link de WhatsApp (wa.me) con el `Mensaje sugerido` precargado, solo si ese campo no está vacío. Consumido directamente por el botón WhatsApp en la ficha de cliente de `/dashboard` cuando el último reporte tiene alerta activa (si no, fallback a `Clientes.Link_recordatorio`) — no reconstruir el link a mano en el código |
 | Cliente_Estado | Lookup | Estado (Activo/Pausado/Perdido) del cliente, para la Interface de Airtable "Resumen lunes". No se usa desde esta app |
 | Estado semanal | Fórmula | Badge calculado (Pendiente/Alerta/Bien) para la Interface de Airtable, replica la lógica de `StatusBadge.tsx`. No se usa desde esta app |
 | Cliente_Entrenador | Lookup (vía `Entrenador_nuevo`) | **No fiable, no usar para agrupar por entrenador.** Depende del campo vestigial `Entrenador_nuevo` de Clientes, casi nunca poblado. Para resolver el entrenador de un reporte, cruzar `Cliente_Email` contra `Clientes.Entrenador` |
@@ -177,19 +177,21 @@ panel-seguimiento/
 │ │ ├── login/
 │ │ │ └── page.tsx # Login page (Supabase)
 │ │ ├── signup/
-│ │ │ └── page.tsx # Signup vía token (NEW)
+│ │ │ ├── page.tsx # Signup vía token
+│ │ │ └── confirm/page.tsx # Callback de confirmación de email de Supabase (NEW). emailRedirectTo del signUp() apunta aquí
 │ │ ├── reset-password/
 │ │ │ └── page.tsx # Reset password
 │ │ ├── dashboard/
-│ │ │ └── page.tsx # Entrenador: sus clientes. Admin: DashboardResumenView (resumen ejecutivo)
+│ │ │ └── page.tsx # Entrenador: tabs Clientes (lista+ficha, sin gráficas) / Marketplace. Admin: DashboardResumenView (resumen ejecutivo)
 │ │ ├── admin/
 │ │ │ ├── page.tsx # Lista de entrenadores + alta + AlertasPanel + AplicacionesPanel (solo jumirohu@gmail.com). ?nuevo=1 abre el form
 │ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña
 │ │ ├── metricas/
 │ │ │ └── page.tsx # MetricasView: histórico (solo jumirohu@gmail.com)
 │ │ └── api/
-│ │ ├── clientes/route.ts # GET clientes filtrados por entrenador
-│ │ ├── reportes/route.ts # GET reportes del cliente (incluye linkAlerta)
+│ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta)
+│ │ ├── reportes/route.ts # GET reportes paginados del cliente ({reportes, offset}, pageSize=7, ?offset= para "Ver más")
+│ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace) (NEW)
 │ │ └── admin/
 │ │ ├── invite/route.ts # POST generar invitación
 │ │ ├── invitaciones/route.ts # GET historial invitaciones
@@ -206,17 +208,15 @@ panel-seguimiento/
 │ │ ├── route.ts # GET lista + POST crear entrenador
 │ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar
 │ ├── components/
-│ │ ├── EnergyChart.tsx
-│ │ ├── WorkoutsChart.tsx
-│ │ ├── WeightChart.tsx
-│ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta
+│ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filas (Nombre/Objetivo/Estado/alerta), click abre ficha (NEW)
+│ │ ├── ClienteFicha.tsx # Vista entrenador: info + últimos 7 reportes + "Ver más" + botón WhatsApp (NEW)
+│ │ ├── Marketplace.tsx # Grid de productos, cruce con Soluciones del entrenador, modal "Más información" (NEW)
+│ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta. Usa lib/estadoReporte.ts
 │ │ ├── SuggestedMessage.tsx
 │ │ ├── AIAnalysis.tsx
-│ │ ├── ClientSelector.tsx
 │ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin
 │ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
 │ │ ├── Tooltip.tsx # Tooltip genérico reutilizable (hover/focus)
-│ │ ├── ExportPDF.tsx # Usa html2canvas-pro (soporta color-mix() de Tailwind v4)
 │ │ └── admin/
 │ │ ├── DashboardResumenView.tsx # Tarjetas + evolución entrenadores + soluciones (/dashboard)
 │ │ ├── AlertasPanel.tsx # Sección "Requiere tu atención" (/admin)
@@ -228,6 +228,8 @@ panel-seguimiento/
 │ ├── auth-server.ts # Lógica de auth backend
 │ ├── admin.ts # Constante ADMIN_EMAIL (NEXT_PUBLIC_ADMIN_EMAIL con fallback)
 │ ├── alertas.ts # calcularAlertasNegocio() — lógica pura, compartida por /api/admin/alertas
+│ ├── estadoReporte.ts # calcularEstadoReporte() — pendiente/alerta/bien, compartida por StatusBadge, ClienteFicha y /api/clientes (NEW)
+│ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente) (NEW)
 │ └── airtable.ts # Helpers para Airtable API
 └── public/
 └── [favicons, etc.]
@@ -250,6 +252,11 @@ panel-seguimiento/
 11. **Campo Email en Entrenadores/Snapshots.Entrenador_email = email texto** (mismo patrón que Clientes.Entrenador, NO linked record — es la clave que conecta Entrenadores, Clientes, Invitaciones y Snapshots)
 12. **Para resolver el entrenador de un cliente o reporte, usar siempre `Clientes.Entrenador` (texto) o `Cliente_Email` cruzado contra `getAllClientes()`** — nunca `Entrenador_nuevo` (Clientes) ni `Cliente_Entrenador` (Reportes), son campos vestigiales de un experimento de colaboradores que casi nunca están poblados
 13. **Páginas admin separadas por responsabilidad** (todas solo accesibles a `jumirohu@gmail.com`): `/dashboard` = resumen ejecutivo (tarjetas + evolución entrenadores + soluciones), `/admin` = gestión operativa (lista de entrenadores, alertas que requieren atención, accesos a apps externas), `/metricas` = histórico (clientes históricos, alertas históricas, métricas de impacto). Navegación entre ellas vía dropdown en el Header, no vía botones sueltos en cada página
+14. **Vista entrenador de `/dashboard` sin gráficas**: lista de clientes (buscador + alerta) → ficha de cliente (últimos 7 reportes + "Ver más" paginado) → Marketplace. Se quitaron `EnergyChart`/`WorkoutsChart`/`WeightChart`/`ClientSelector`/`ExportPDF` (y las deps `recharts` para esta vista, `html2canvas-pro`, `jspdf`) por no tener ya consumidores
+15. **"Alerta reciente sin resolver"** = mismo criterio que `StatusBadge` (último reporte ≤8 días y con `Mensaje sugerido` no vacío), centralizado en `lib/estadoReporte.ts`. No hay campo de "resuelto" en Airtable — la alerta deja de mostrarse cuando llega un reporte nuevo sin mensaje sugerido
+16. **Botón WhatsApp de la ficha de cliente**: usa `Reportes.Link_alerta` del último reporte si su estado es "alerta"; si no, usa `Clientes.Link_recordatorio` (nunca reconstruir el link de Teléfono a mano)
+17. **Marketplace**: catálogo fijo en `lib/productos.ts` con un flag `lanzado` por producto (hoy solo `true` para Seguimiento). Estado de cada tarjeta = "En uso" si está en `Entrenadores.Soluciones`, si no "Disponible" cuando `lanzado`, si no "Próximamente". Para lanzar Captación/Referidos/Recuperación en el futuro basta con cambiar su `lanzado` a `true`, no hace falta tocar el resto de la lógica
+18. **Botón "Activar ahora" del Marketplace** abre WhatsApp a `NEXT_PUBLIC_JUANMI_WHATSAPP` con "Quiero activar [Producto]" — preparado para sustituirse por un link de checkout el día que exista plataforma de pago (`linkActivarAhora()` en `Marketplace.tsx` es el único punto a cambiar)
 
 ---
 
@@ -353,7 +360,11 @@ try {
 - [x] Bugs de vista de cliente: exportar PDF, orden Análisis IA/Mensaje sugerido, botón WhatsApp directo, tooltip en badge Alerta
 - [x] Endpoint `/api/admin/alertas-stats` (histórico de alertas para /metricas)
 - [x] Tabla Airtable "Snapshots_entrenadores" + workflow n8n "Snapshot mensual" (INACTIVO) que la puebla
+- [x] Vista entrenador de `/dashboard`: lista de clientes + ficha + Marketplace (reemplaza vista de gráficas)
+- [x] Bugfix "null es inaccesible" en confirmación de email: `/signup/confirm` maneja el callback de Supabase de forma defensiva (hash implicit + params de error), `signUp()` pasa `emailRedirectTo` explícito
 - [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code
+- [ ] **Añadir `https://retaincoach.com/signup/confirm` (y el equivalente de preview/localhost) a Supabase Auth → URL Configuration → Redirect URLs** — manual, fuera de Claude Code. Sin esto, `emailRedirectTo` cae al Site URL por defecto y `/signup/confirm` no llega a usarse
+- [ ] **Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` con el número real** en `.env.local` y en Vercel (hoy vacío) — el botón "Activar ahora" del Marketplace no hace nada sin este valor
 - [ ] Crear formulario en Tally para "Recepción entrenador" y conectar al webhook — manual
 - [ ] Privacidad + política (Termly/Iubenda)
 - [ ] Cláusula onboarding (DPA, procesamiento IA)

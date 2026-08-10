@@ -1,18 +1,10 @@
 import { Reporte } from '@/lib/types'
+import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import Tooltip from './Tooltip'
-
-function calcularEstado(ultimo: Reporte | undefined): 'pendiente' | 'alerta' | 'bien' {
-  if (!ultimo) return 'pendiente'
-
-  const dias = (Date.now() - new Date(ultimo.fecha).getTime()) / (1000 * 60 * 60 * 24)
-  if (dias > 8) return 'pendiente'
-  if (ultimo.mensajeSugerido && ultimo.mensajeSugerido.trim() !== '') return 'alerta'
-  return 'bien'
-}
 
 export default function StatusBadge({ reportes }: { reportes: Reporte[] }) {
   const ultimo = reportes[0]
-  const estado = calcularEstado(ultimo)
+  const estado = calcularEstadoReporte(ultimo?.fecha, ultimo?.mensajeSugerido)
 
   const config = {
     pendiente: {

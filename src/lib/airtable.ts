@@ -18,10 +18,12 @@ export interface AirtableRecord<T> {
 export interface ClienteFields {
   Nombre: string
   Email?: string
+  'Teléfono'?: string
   Objetivo: string
   Estado?: string
   Entrenamientos_objetivo: number
   Entrenador: string
+  Link_recordatorio?: string
 }
 
 export interface ReporteFields {
@@ -121,9 +123,16 @@ async function airtableWrite<T>(
 export async function getClientesByEntrenador(email: string) {
   const params = new URLSearchParams()
   params.set('filterByFormula', `{Entrenador} = "${escapeFormulaValue(email)}"`)
-  ;['Nombre', 'Email', 'Objetivo', 'Estado', 'Entrenamientos_objetivo', 'Entrenador'].forEach((f) =>
-    params.append('fields[]', f)
-  )
+  ;[
+    'Nombre',
+    'Email',
+    'Teléfono',
+    'Objetivo',
+    'Estado',
+    'Entrenamientos_objetivo',
+    'Entrenador',
+    'Link_recordatorio',
+  ].forEach((f) => params.append('fields[]', f))
   const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(TABLE_CLIENTES, params)
   return data.records
 }
@@ -140,17 +149,61 @@ export async function getClienteById(id: string): Promise<AirtableRecord<Cliente
   return res.json()
 }
 
-export async function getReportesByClienteEmail(clienteEmail: string, maxRecords = 8) {
+export async function getReportesByClienteEmail(
+  clienteEmail: string,
+  pageSize = 7,
+  offset?: string
+): Promise<{ records: AirtableRecord<ReporteFields>[]; offset?: string }> {
   const params = new URLSearchParams()
   params.set('filterByFormula', `FIND("${escapeFormulaValue(clienteEmail)}", ARRAYJOIN({Cliente_Email})) > 0`)
   params.set('sort[0][field]', 'Fecha')
   params.set('sort[0][direction]', 'desc')
-  params.set('maxRecords', String(maxRecords))
+  params.set('pageSize', String(pageSize))
+  if (offset) params.set('offset', offset)
   ;['Fecha', 'Peso', 'Entrenamientos', 'Energía', 'Notas', 'Análisis IA', 'Mensaje sugerido', 'Link_alerta'].forEach(
     (f) => params.append('fields[]', f)
   )
-  const data = await airtableGet<{ records: AirtableRecord<ReporteFields>[] }>(TABLE_REPORTES, params)
-  return data.records
+  const data = await airtableGet<{ records: AirtableRecord<ReporteFields>[]; offset?: string }>(
+    TABLE_REPORTES,
+    params
+  )
+  return { records: data.records, offset: data.offset }
+}
+
+export interface UltimoReporteResumen {
+  fecha?: string
+  mensajeSugerido?: string
+}
+
+export async function getUltimosReportesPorClientes(
+  emails: string[]
+): Promise<Record<string, UltimoReporteResumen>> {
+  if (emails.length === 0) return {}
+
+  const formula = `OR(${emails
+    .map((email) => `FIND("${escapeFormulaValue(email)}", ARRAYJOIN({Cliente_Email})) > 0`)
+    .join(', ')})`
+  const params = new URLSearchParams()
+  params.set('filterByFormula', formula)
+  params.set('sort[0][field]', 'Fecha')
+  params.set('sort[0][direction]', 'desc')
+  ;['Cliente_Email', 'Fecha', 'Mensaje sugerido'].forEach((f) => params.append('fields[]', f))
+
+  const data = await airtableGet<{ records: AirtableRecord<ReporteFields & { Cliente_Email?: string[] }>[] }>(
+    TABLE_REPORTES,
+    params
+  )
+
+  const porCliente: Record<string, UltimoReporteResumen> = {}
+  for (const record of data.records) {
+    const email = record.fields.Cliente_Email?.[0]
+    if (!email || porCliente[email]) continue
+    porCliente[email] = {
+      fecha: record.fields.Fecha,
+      mensajeSugerido: record.fields['Mensaje sugerido'],
+    }
+  }
+  return porCliente
 }
 
 export async function getInvitacionActivaByEmail(

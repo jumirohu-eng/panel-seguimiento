@@ -57,7 +57,11 @@ function SignupForm() {
 
     setLoading(true)
 
-    const { error: signUpError } = await supabase.auth.signUp({ email, password })
+    const { error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${window.location.origin}/signup/confirm` },
+    })
     if (signUpError) {
       setLoading(false)
       setError('No se pudo crear la cuenta. Puede que el email ya esté registrado.')

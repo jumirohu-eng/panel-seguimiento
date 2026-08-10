@@ -148,7 +148,21 @@ export default function DashboardPage() {
                 </h2>
                 <p className="text-sm text-muted">{clienteSeleccionado.objetivo}</p>
               </div>
-              {!loadingReportes && <StatusBadge reportes={reportes} />}
+              {!loadingReportes && (
+                <div className="flex items-center gap-2">
+                  <StatusBadge reportes={reportes} />
+                  {ultimoReporte?.linkAlerta && (
+                    <a
+                      href={ultimoReporte.linkAlerta}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
+                    >
+                      WhatsApp
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
 
             {loadingReportes ? (
@@ -166,11 +180,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
+                {ultimoReporte?.analisisIA && <AIAnalysis analysis={ultimoReporte.analisisIA} />}
+
                 {ultimoReporte?.mensajeSugerido && (
                   <SuggestedMessage message={ultimoReporte.mensajeSugerido} />
                 )}
-
-                {ultimoReporte?.analisisIA && <AIAnalysis analysis={ultimoReporte.analisisIA} />}
               </>
             )}
           </div>

@@ -16,6 +16,7 @@ export interface Reporte {
   notas: string
   analisisIA: string
   mensajeSugerido: string
+  linkAlerta: string
 }
 
 export interface Invitacion {

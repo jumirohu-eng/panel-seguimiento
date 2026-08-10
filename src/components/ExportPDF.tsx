@@ -10,13 +10,18 @@ export default function ExportPDF({
   fileName: string
 }) {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleExport() {
     if (!targetRef.current) return
     setLoading(true)
+    setError(null)
     try {
+      // Tailwind v4 compila utilidades con opacidad (bg-x/10, border-x/30…) a
+      // color-mix(in oklab, ...), que html2canvas no sabe parsear ("Attempting to
+      // parse an unsupported color function"). html2canvas-pro sí lo soporta.
       const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
+        import('html2canvas-pro'),
         import('jspdf'),
       ])
 
@@ -33,18 +38,24 @@ export default function ExportPDF({
       })
       pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height)
       pdf.save(`${fileName}.pdf`)
+    } catch (err) {
+      console.error('Error al exportar PDF', err)
+      setError('No se pudo generar el PDF.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <button
-      onClick={handleExport}
-      disabled={loading}
-      className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background disabled:opacity-50"
-    >
-      {loading ? 'Generando…' : 'Exportar PDF'}
-    </button>
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleExport}
+        disabled={loading}
+        className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background disabled:opacity-50"
+      >
+        {loading ? 'Generando…' : 'Exportar PDF'}
+      </button>
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
   )
 }

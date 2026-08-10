@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       notas: r.fields.Notas ?? '',
       analisisIA: r.fields['Análisis IA'] ?? '',
       mensajeSugerido: r.fields['Mensaje sugerido'] ?? '',
+      linkAlerta: r.fields.Link_alerta ?? '',
     }))
     return NextResponse.json(reportes)
   } catch (err) {

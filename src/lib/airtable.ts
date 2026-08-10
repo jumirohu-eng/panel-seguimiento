@@ -31,6 +31,7 @@ export interface ReporteFields {
   Notas?: string
   'Análisis IA'?: string
   'Mensaje sugerido'?: string
+  Link_alerta?: string
 }
 
 export type EstadoInvitacion = 'Activo' | 'Usado' | 'Expirado' | 'Cancelado'
@@ -136,8 +137,8 @@ export async function getReportesByClienteEmail(clienteEmail: string, maxRecords
   params.set('sort[0][field]', 'Fecha')
   params.set('sort[0][direction]', 'desc')
   params.set('maxRecords', String(maxRecords))
-  ;['Fecha', 'Peso', 'Entrenamientos', 'Energía', 'Notas', 'Análisis IA', 'Mensaje sugerido'].forEach((f) =>
-    params.append('fields[]', f)
+  ;['Fecha', 'Peso', 'Entrenamientos', 'Energía', 'Notas', 'Análisis IA', 'Mensaje sugerido', 'Link_alerta'].forEach(
+    (f) => params.append('fields[]', f)
   )
   const data = await airtableGet<{ records: AirtableRecord<ReporteFields>[] }>(TABLE_REPORTES, params)
   return data.records

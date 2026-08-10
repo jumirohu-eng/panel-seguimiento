@@ -1,4 +1,5 @@
 import { Reporte } from '@/lib/types'
+import Tooltip from './Tooltip'
 
 function calcularEstado(ultimo: Reporte | undefined): 'pendiente' | 'alerta' | 'bien' {
   if (!ultimo) return 'pendiente'
@@ -31,7 +32,7 @@ export default function StatusBadge({ reportes }: { reportes: Reporte[] }) {
     },
   }[estado]
 
-  return (
+  const badge = (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium ${config.className}`}
     >
@@ -39,4 +40,11 @@ export default function StatusBadge({ reportes }: { reportes: Reporte[] }) {
       {config.label}
     </span>
   )
+
+  if (estado === 'alerta') {
+    const explicacion = ultimo?.analisisIA?.trim() || ultimo?.mensajeSugerido?.trim() || 'Sin detalle adicional'
+    return <Tooltip content={explicacion}>{badge}</Tooltip>
+  }
+
+  return badge
 }

@@ -83,3 +83,10 @@ export function calcularEstadoProducto(producto: ProductoInfo, soluciones: strin
   if (producto.lanzado) return 'disponible'
   return 'proximamente'
 }
+
+// "Plan base": da acceso al dashboard. Métricas es un upsell que requiere tener ya uno de estos.
+export const SOLUCIONES_BASE = ['Seguimiento', 'Captación', 'Recuperación'] as const
+
+export function tienePlanBase(soluciones: string[]): boolean {
+  return soluciones.some((s) => (SOLUCIONES_BASE as readonly string[]).includes(s))
+}

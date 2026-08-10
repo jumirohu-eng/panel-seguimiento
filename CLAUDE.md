@@ -175,16 +175,18 @@ panel-seguimiento/
 ├── src/
 │ ├── app/
 │ │ ├── layout.tsx # Dark mode, Inter font
-│ │ ├── page.tsx # "/" redirect a /login
+│ │ ├── page.tsx # "/" landing pública (hero + PlanesCards + Login + CTA WhatsApp), sin auth. Antes era un redirect a /login (NEW)
 │ │ ├── login/
 │ │ │ └── page.tsx # Login page (Supabase)
+│ │ ├── planes/
+│ │ │ └── page.tsx # Para logueados sin plan base: mismo PlanesCards + CTA "Solicita acceso" por WhatsApp. Header completo (incluye 🏪 Marketplace, desde donde SÍ se puede autoactivar Seguimiento) (NEW)
 │ │ ├── signup/
-│ │ │ ├── page.tsx # Signup vía token
-│ │ │ └── confirm/page.tsx # Callback de confirmación de email de Supabase (NEW). emailRedirectTo del signUp() apunta aquí
+│ │ │ ├── page.tsx # Signup vía token (`/signup?token=...`, email prefetched y read-only desde el token — no confundir con "/register", esa ruta no existe en este proyecto)
+│ │ │ └── confirm/page.tsx # Callback de confirmación de email de Supabase. emailRedirectTo del signUp() apunta aquí
 │ │ ├── reset-password/
 │ │ │ └── page.tsx # Reset password
 │ │ ├── dashboard/
-│ │ │ └── page.tsx # Entrenador: tabs Clientes (lista+ficha, sin gráficas) / Marketplace. Admin: DashboardResumenView (resumen ejecutivo)
+│ │ │ └── page.tsx # Entrenador: gate de plan base al entrar (si no tiene Seguimiento/Captación/Recuperación → redirect a /planes) (NEW), luego tabs Clientes (lista+ficha, sin gráficas) / Marketplace. Admin: DashboardResumenView (resumen ejecutivo)
 │ │ ├── admin/
 │ │ │ ├── page.tsx # Lista de entrenadores + alta + AlertasPanel + AplicacionesPanel (solo jumirohu@gmail.com). ?nuevo=1 abre el form
 │ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña
@@ -221,6 +223,7 @@ panel-seguimiento/
 │ │ ├── AIAnalysis.tsx # Badge colapsable "💡 Análisis IA disponible", fondo destacado si tieneAlerta=true (NEW prop)
 │ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪 (no-admin) abre modal con <Marketplace />. Botón 🔑 (todos) abre <ChangePasswordModal /> (NEW)
 │ │ ├── ChangePasswordModal.tsx # Self-service: pide contraseña actual (revalida con signInWithPassword) + nueva + confirmar, updateUser() (NEW)
+│ │ ├── PlanesCards.tsx # Grid informativo de PRODUCTOS (icono/nombre/descripción + badge "Requiere plan base" en Metricas), sin auth ni acciones — usado por "/" y "/planes". Distinto de Marketplace.tsx (ese sí es interactivo/autenticado) (NEW)
 │ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
 │ │ ├── Tooltip.tsx # Tooltip genérico reutilizable (hover/focus)
 │ │ └── admin/
@@ -235,7 +238,7 @@ panel-seguimiento/
 │ ├── admin.ts # Constante ADMIN_EMAIL (NEXT_PUBLIC_ADMIN_EMAIL con fallback)
 │ ├── alertas.ts # calcularAlertasNegocio() — lógica pura, compartida por /api/admin/alertas
 │ ├── estadoReporte.ts # calcularEstadoReporte() — pendiente/alerta/bien, compartida por StatusBadge, ClienteFicha y /api/clientes (NEW)
-│ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente)
+│ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente) + SOLUCIONES_BASE/tienePlanBase() (NEW, ver decisión 24)
 │ └── airtable.ts # Helpers para Airtable API. borrarEntrenador() (NEW, DELETE) usado por /api/admin/entrenadores/[email]
 └── public/
 └── [favicons, etc.]
@@ -268,6 +271,9 @@ panel-seguimiento/
 21. **NO se crea usuario Supabase automáticamente desde el webhook de Tally** ("Recepción entrenador" en n8n) — decisión confirmada explícitamente en esta sesión, reafirma la decisión 10. El alta real de Supabase sigue siendo: Tally → Airtable (Estado="Prueba") → admin revisa manualmente → genera invitación desde `/admin/entrenador/[email]` → el entrenador crea su propia cuenta/contraseña vía `/signup?token=...`. No poner claves de Supabase (`service_role`, admin API) en nodos de n8n
 22. **Borrar entrenador** (`/admin/entrenador/[email]`, sección "Zona de peligro"): borra el registro de Airtable y, si existe, el usuario de Supabase (busca por email vía `findSupabaseUserByEmail`, paginando `listUsers`). **No borra sus Clientes ni Reportes** — fuera de alcance intencionalmente, evita borrados en cascada accidentales
 23. **Cambiar contraseña (self-service)**: botón 🔑 en el Header (`ChangePasswordModal.tsx`), disponible para cualquier usuario logueado (admin o entrenador). Revalida la contraseña actual reintentando `signInWithPassword` antes de llamar a `updateUser` — no hay endpoint backend nuevo, todo client-side con la sesión de Supabase ya autenticada. Distinto del flujo "¿Olvidaste tu contraseña?" de `/login` (ese es por email, para cuando no puedes entrar; este es para cambiarla estando ya dentro)
+24. **Modelo freemium con gate de "plan base"**: `SOLUCIONES_BASE = ['Seguimiento', 'Captación', 'Recuperación']` (`lib/productos.ts`). `/dashboard` (vista entrenador) exige tener al menos uno de estos en `Soluciones` — si no, redirige a `/planes`. **Sin middleware.ts**: la app usa Supabase 100% client-side (localStorage, sin cookies de sesión), así que un `middleware.ts` de Next.js no tendría forma de leer la sesión — el gate vive en el `useEffect` de `/dashboard/page.tsx`, mismo patrón que ya usan todas las páginas protegidas de este proyecto (comprobar `supabase.auth.getUser()` y hacer `router.push` si no cumple). Si en el futuro se migra a `@supabase/ssr` con cookies, ahí sí tendría sentido un middleware real
+25. **Métricas requiere plan base** (admin, ficha de entrenador): el botón "Metricas" del selector de Soluciones se deshabilita (con tooltip) si no hay ya un plan base seleccionado. Si se quita el último plan base estando Metricas activa, se desactiva automáticamente junto con él — el estado guardado nunca puede ser "solo Metricas, sin plan base". Se optó por esta variante (bloquear en el propio selector) en vez de un toast de error al guardar, por ser la alternativa de mejor UX
+26. **"Referidos" en `PlanesCards`**: se muestra en `/` y `/planes` igual que el resto del catálogo (una sola fuente de verdad, `PRODUCTOS`), aunque no estuviera pedido explícitamente en el brief de la landing — evita mantener dos listas de productos que puedan desincronizarse
 
 ---
 
@@ -409,6 +415,7 @@ try {
 - [x] BUG D: añadido "Metricas" al array hardcodeado `SOLUCIONES` de `/admin/entrenador/[email]/page.tsx` (antes solo tenía las 4 originales)
 - [x] BUG E: botón "Borrar entrenador" + `DELETE /api/admin/entrenadores/[email]` (borra Airtable + usuario Supabase si existe). Ver decisión técnica 22
 - [x] BUG A: cambio de contraseña self-service (`ChangePasswordModal.tsx`, botón 🔑 en Header). Ver decisión técnica 23
+- [x] Landing pública "/" + página "/planes" + gate de plan base en "/dashboard" + validación Métricas-requiere-plan-base en admin. Ver decisiones técnicas 24-26. Correcciones sobre el brief original: la ruta de registro por token ya existente es `/signup` (no `/register`, esa no existe); no se creó `middleware.ts` (incompatible con el modelo de auth 100% client-side de este proyecto, ver decisión 24); no se crearon `<SeguimientoTab>`/`<CaptacionTab>`/`<RecuperacionTab>` porque Captación y Recuperación no tienen ninguna funcionalidad construida todavía (siguen en BACKLOG PRODUCTOS) — la pestaña "Clientes" ya existente sigue siendo la única funcionalidad real (Seguimiento). **No probado en navegador**
 - [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code
 - [ ] **Añadir `https://retaincoach.com/signup/confirm` (y el equivalente de preview/localhost) a Supabase Auth → URL Configuration → Redirect URLs** — manual, fuera de Claude Code. Sin esto, `emailRedirectTo` cae al Site URL por defecto y `/signup/confirm` no llega a usarse
 - [ ] **Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` con el número real** en `.env.local` y en Vercel (hoy vacío) — el botón "Activar ahora" del Marketplace no hace nada sin este valor

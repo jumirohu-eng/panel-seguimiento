@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente } from '@/lib/types'
 import { ADMIN_EMAIL } from '@/lib/admin'
+import { tienePlanBase } from '@/lib/productos'
 import Header from '@/components/Header'
 import ClientesLista from '@/components/ClientesLista'
 import ClienteFicha from '@/components/ClienteFicha'
@@ -43,6 +44,21 @@ export default function DashboardPage() {
       if (!token) {
         router.push('/login')
         return
+      }
+
+      try {
+        const perfilRes = await fetch('/api/entrenador/perfil', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (perfilRes.ok) {
+          const perfil = await perfilRes.json()
+          if (!tienePlanBase(perfil.soluciones ?? [])) {
+            router.push('/planes')
+            return
+          }
+        }
+      } catch {
+        // Si falla la comprobación de plan, dejamos pasar y que /api/clientes falle si toca
       }
 
       try {

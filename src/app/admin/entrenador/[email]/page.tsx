@@ -6,7 +6,9 @@ import { LineChart, Line, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { EntrenadorDetalle } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
+import { SOLUCIONES_BASE } from '@/lib/productos'
 import Header from '@/components/Header'
+import InfoTooltip from '@/components/Tooltip'
 
 const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos', 'Metricas']
 const ESTADOS = ['Activo', 'Prueba', 'Inactivo'] as const
@@ -109,8 +111,19 @@ export default function EntrenadorFichaPage() {
     return () => clearTimeout(timer)
   }, [toast])
 
+  function tienePlanBaseSeleccionado(lista: string[]) {
+    return lista.some((s) => (SOLUCIONES_BASE as readonly string[]).includes(s))
+  }
+
   function toggleSolucion(sol: string) {
-    setSoluciones((prev) => (prev.includes(sol) ? prev.filter((s) => s !== sol) : [...prev, sol]))
+    if (sol === 'Metricas' && !soluciones.includes('Metricas') && !tienePlanBaseSeleccionado(soluciones)) {
+      return
+    }
+    setSoluciones((prev) => {
+      const next = prev.includes(sol) ? prev.filter((s) => s !== sol) : [...prev, sol]
+      // Metricas no puede quedar activa sin ningún plan base
+      return tienePlanBaseSeleccionado(next) ? next : next.filter((s) => s !== 'Metricas')
+    })
   }
 
   async function handleSave() {
@@ -420,20 +433,36 @@ export default function EntrenadorFichaPage() {
                   Soluciones contratadas
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {SOLUCIONES.map((sol) => (
-                    <button
-                      type="button"
-                      key={sol}
-                      onClick={() => toggleSolucion(sol)}
-                      className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
-                        soluciones.includes(sol)
-                          ? 'border-primary bg-primary text-white'
-                          : 'border-border text-card-foreground hover:bg-background'
-                      }`}
-                    >
-                      {sol}
-                    </button>
-                  ))}
+                  {SOLUCIONES.map((sol) => {
+                    const bloqueada =
+                      sol === 'Metricas' &&
+                      !soluciones.includes('Metricas') &&
+                      !tienePlanBaseSeleccionado(soluciones)
+                    const boton = (
+                      <button
+                        type="button"
+                        key={sol}
+                        onClick={() => toggleSolucion(sol)}
+                        disabled={bloqueada}
+                        className={`rounded-full border px-3 py-1 text-sm font-medium transition ${
+                          soluciones.includes(sol)
+                            ? 'border-primary bg-primary text-white'
+                            : bloqueada
+                              ? 'cursor-not-allowed border-border text-muted opacity-50'
+                              : 'border-border text-card-foreground hover:bg-background'
+                        }`}
+                      >
+                        {sol}
+                      </button>
+                    )
+                    return bloqueada ? (
+                      <InfoTooltip key={sol} content="Solo disponible con un plan base (Seguimiento, Captación o Recuperación)">
+                        {boton}
+                      </InfoTooltip>
+                    ) : (
+                      boton
+                    )
+                  })}
                 </div>
               </div>
 

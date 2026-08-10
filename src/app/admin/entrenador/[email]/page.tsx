@@ -8,7 +8,7 @@ import { EntrenadorDetalle } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
 import Header from '@/components/Header'
 
-const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos']
+const SOLUCIONES = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos', 'Metricas']
 const ESTADOS = ['Activo', 'Prueba', 'Inactivo'] as const
 
 const ESTADO_BADGE: Record<string, string> = {
@@ -51,6 +51,10 @@ export default function EntrenadorFichaPage() {
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState<string | null>(null)
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
@@ -219,6 +223,24 @@ export default function EntrenadorFichaPage() {
     setToast('Contraseña copiada')
   }
 
+  async function handleDelete() {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`/api/admin/entrenadores/${encodeURIComponent(emailParam)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error ?? 'Error al borrar el entrenador')
+      router.push('/admin')
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Error al borrar el entrenador')
+      setDeleting(false)
+    }
+  }
+
   const isDirty = entrenador
     ? estado !== entrenador.estado ||
       precio !== String(entrenador.precioMensual) ||
@@ -242,6 +264,37 @@ export default function EntrenadorFichaPage() {
         {toast && (
           <div className="fixed right-4 top-4 z-50 rounded-lg border border-border bg-card px-4 py-2 text-sm text-card-foreground shadow-sm">
             {toast}
+          </div>
+        )}
+
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-sm">
+              <h3 className="mb-2 text-lg font-semibold text-card-foreground">
+                ¿Borrar a {entrenador?.nombre}?
+              </h3>
+              <p className="mb-4 text-sm text-muted">
+                Esta acción no se puede deshacer. Se borrará su registro de Airtable y, si tiene
+                cuenta creada, su usuario de Supabase (ya no podrá iniciar sesión).
+              </p>
+              {deleteError && <p className="mb-3 text-sm text-danger">{deleteError}</p>}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleting}
+                  className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {deleting ? 'Borrando…' : 'Sí, borrar'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -519,6 +572,23 @@ export default function EntrenadorFichaPage() {
                   </div>
                 )}
               </div>
+            </section>
+
+            <section className="rounded-xl border border-danger/30 bg-card p-6 shadow-sm">
+              <h2 className="mb-2 text-lg font-semibold text-card-foreground">Zona de peligro</h2>
+              <p className="mb-4 text-sm text-muted">
+                Borra a este entrenador de Airtable y su cuenta de Supabase. Útil para limpiar
+                registros de prueba. No borra sus clientes ni reportes.
+              </p>
+              <button
+                onClick={() => {
+                  setDeleteError(null)
+                  setShowDeleteConfirm(true)
+                }}
+                className="w-fit rounded-lg border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/10"
+              >
+                Borrar entrenador
+              </button>
             </section>
           </>
         )}

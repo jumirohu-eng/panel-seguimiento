@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedAdminEmail } from '@/lib/auth-server'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { supabaseAdmin, findSupabaseUserByEmail } from '@/lib/supabase-server'
 
 const PASSWORD_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
 
 function generateTempPassword(length = 12) {
   const bytes = crypto.getRandomValues(new Uint8Array(length))
   return Array.from(bytes, (b) => PASSWORD_CHARS[b % PASSWORD_CHARS.length]).join('')
-}
-
-async function findUserByEmail(email: string) {
-  const target = email.toLowerCase()
-  const perPage = 200
-  let page = 1
-  while (true) {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
-    if (error) throw error
-    const match = data.users.find((u) => u.email?.toLowerCase() === target)
-    if (match) return match
-    if (data.users.length < perPage) return null
-    page += 1
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -36,7 +22,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const user = await findUserByEmail(email)
+    const user = await findSupabaseUserByEmail(email)
     if (!user) {
       return NextResponse.json(
         { error: 'Este entrenador todavía no ha completado su registro' },

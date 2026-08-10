@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { ADMIN_EMAIL } from '@/lib/admin'
 import AdminNavDropdown from './AdminNavDropdown'
 import Marketplace from './Marketplace'
+import ChangePasswordModal from './ChangePasswordModal'
 
 function getInitialDark(): boolean {
   if (typeof window === 'undefined') return false
@@ -18,6 +19,7 @@ export default function Header({ email }: { email: string }) {
   const router = useRouter()
   const [dark, setDark] = useState(getInitialDark)
   const [showMarketplace, setShowMarketplace] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -53,6 +55,13 @@ export default function Header({ email }: { email: string }) {
             🏪
           </button>
         )}
+        <button
+          onClick={() => setShowChangePassword(true)}
+          aria-label="Cambiar contraseña"
+          className="rounded-lg border border-border p-2 text-sm text-card-foreground hover:bg-background"
+        >
+          🔑
+        </button>
         <button
           onClick={toggleDark}
           aria-label="Cambiar modo oscuro"
@@ -91,6 +100,10 @@ export default function Header({ email }: { email: string }) {
             <Marketplace />
           </div>
         </div>
+      )}
+
+      {showChangePassword && (
+        <ChangePasswordModal email={email} onClose={() => setShowChangePassword(false)} />
       )}
     </header>
   )

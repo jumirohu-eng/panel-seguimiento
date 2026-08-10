@@ -196,14 +196,14 @@ panel-seguimiento/
 │ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta)
 │ │ ├── reportes/route.ts # GET reportes paginados del cliente ({reportes, offset}, pageSize=7, ?offset= para "Ver más")
 │ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace)
-│ │ ├── entrenador/consentimiento-ia/route.ts # POST guarda Consentimiento_IA + Consentimiento_IA_fecha del entrenador logueado (NEW)
+│ │ ├── entrenador/consentimiento-ia/route.ts # POST guarda Consentimiento_IA + Consentimiento_IA_fecha del entrenador logueado
 │ │ └── admin/
 │ │ ├── invite/route.ts # POST generar invitación
 │ │ ├── invitaciones/route.ts # GET historial invitaciones
 │ │ ├── regenerate/route.ts # POST regenerar token
 │ │ ├── cancel/route.ts # POST cancelar invitación
 │ │ ├── create-user/route.ts # POST crear usuario Supabase directo (evita rate limit)
-│ │ ├── reset-password/route.ts # POST genera password temporal y la aplica en Supabase
+│ │ ├── reset-password/route.ts # POST genera password temporal y la aplica en Supabase. Usa findSupabaseUserByEmail (lib/supabase-server.ts)
 │ │ ├── log-activity/route.ts # POST actualiza Último_login (fire-and-forget desde login)
 │ │ ├── resumen-negocio/route.ts # GET tarjetas + evolución entrenadores + soluciones (consumido por /dashboard)
 │ │ ├── alertas/route.ts # GET alertas "requiere tu atención" (consumido por /admin)
@@ -211,7 +211,7 @@ panel-seguimiento/
 │ │ ├── alertas-stats/route.ts # GET histórico de alertas: total, por mes, por entrenador (consumido por /metricas)
 │ │ └── entrenadores/
 │ │ ├── route.ts # GET lista + POST crear entrenador
-│ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar
+│ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar + DELETE (borra Airtable + usuario Supabase si existe) (NEW)
 │ ├── components/
 │ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filas (Nombre/Objetivo/Estado/alerta), click abre ficha (NEW)
 │ │ ├── ClienteFicha.tsx # Vista entrenador: info + últimos 7 reportes + "Ver más" + botón WhatsApp + botón "Ver métricas" (si Soluciones incluye Metricas)
@@ -219,7 +219,8 @@ panel-seguimiento/
 │ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta. Usa lib/estadoReporte.ts
 │ │ ├── SuggestedMessage.tsx
 │ │ ├── AIAnalysis.tsx # Badge colapsable "💡 Análisis IA disponible", fondo destacado si tieneAlerta=true (NEW prop)
-│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪 (no-admin) abre modal con <Marketplace /> (NEW)
+│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪 (no-admin) abre modal con <Marketplace />. Botón 🔑 (todos) abre <ChangePasswordModal /> (NEW)
+│ │ ├── ChangePasswordModal.tsx # Self-service: pide contraseña actual (revalida con signInWithPassword) + nueva + confirmar, updateUser() (NEW)
 │ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
 │ │ ├── Tooltip.tsx # Tooltip genérico reutilizable (hover/focus)
 │ │ └── admin/
@@ -229,13 +230,13 @@ panel-seguimiento/
 │ │ └── MetricasView.tsx # Tarjetas + evolución clientes + alertas por mes + métricas de impacto (/metricas)
 │ └── lib/
 │ ├── supabase.ts # Cliente Supabase (anon key)
-│ ├── supabase-server.ts # Cliente Supabase servidor (service role key)
+│ ├── supabase-server.ts # Cliente Supabase servidor (service role key) + findSupabaseUserByEmail() (paginación sobre listUsers, compartido por reset-password y el DELETE de entrenadores) (NEW)
 │ ├── auth-server.ts # Lógica de auth backend
 │ ├── admin.ts # Constante ADMIN_EMAIL (NEXT_PUBLIC_ADMIN_EMAIL con fallback)
 │ ├── alertas.ts # calcularAlertasNegocio() — lógica pura, compartida por /api/admin/alertas
 │ ├── estadoReporte.ts # calcularEstadoReporte() — pendiente/alerta/bien, compartida por StatusBadge, ClienteFicha y /api/clientes (NEW)
-│ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente) (NEW)
-│ └── airtable.ts # Helpers para Airtable API
+│ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente)
+│ └── airtable.ts # Helpers para Airtable API. borrarEntrenador() (NEW, DELETE) usado por /api/admin/entrenadores/[email]
 └── public/
 └── [favicons, etc.]
 
@@ -264,6 +265,9 @@ panel-seguimiento/
 18. **Botón "Activar ahora" del Marketplace** abre WhatsApp a `NEXT_PUBLIC_JUANMI_WHATSAPP` con "Quiero activar [Producto]" — preparado para sustituirse por un link de checkout el día que exista plataforma de pago (`linkActivarAhora()` en `Marketplace.tsx` es el único punto a cambiar). **Excepción: para el producto "Seguimiento"**, "Activar ahora" no abre WhatsApp — abre el modal de consentimiento IA (decisión 19); WhatsApp sigue siendo el flujo para el resto de productos
 19. **Consentimiento IA (Seguimiento)**: al hacer click en "Activar ahora" sobre el producto Seguimiento (solo si no está ya en uso), se muestra un modal con checkbox obligatorio antes de poder continuar. Al confirmar, se guarda `Consentimiento_IA`/`Consentimiento_IA_fecha` en Airtable vía `POST /api/entrenador/consentimiento-ia` y se navega a `/dashboard`. Esto NO añade "Seguimiento" a `Entrenadores.Soluciones` — esa asignación sigue siendo manual (vía admin), el modal solo registra el consentimiento legal
 20. **Botón "Ver métricas" (ficha de cliente) y producto "Métricas y Estadísticas" (Marketplace)**: ambos gateados por `Entrenadores.Soluciones` incluye `"Metricas"` (sin acento, así está en Airtable). Hoy ningún entrenador la tiene — la funcionalidad real (gráficas, ranking, MRR, retención) no está implementada, solo el gating y el placeholder (`/trainer/metricas/[clienteId]`, "Próximamente")
+21. **NO se crea usuario Supabase automáticamente desde el webhook de Tally** ("Recepción entrenador" en n8n) — decisión confirmada explícitamente en esta sesión, reafirma la decisión 10. El alta real de Supabase sigue siendo: Tally → Airtable (Estado="Prueba") → admin revisa manualmente → genera invitación desde `/admin/entrenador/[email]` → el entrenador crea su propia cuenta/contraseña vía `/signup?token=...`. No poner claves de Supabase (`service_role`, admin API) en nodos de n8n
+22. **Borrar entrenador** (`/admin/entrenador/[email]`, sección "Zona de peligro"): borra el registro de Airtable y, si existe, el usuario de Supabase (busca por email vía `findSupabaseUserByEmail`, paginando `listUsers`). **No borra sus Clientes ni Reportes** — fuera de alcance intencionalmente, evita borrados en cascada accidentales
+23. **Cambiar contraseña (self-service)**: botón 🔑 en el Header (`ChangePasswordModal.tsx`), disponible para cualquier usuario logueado (admin o entrenador). Revalida la contraseña actual reintentando `signInWithPassword` antes de llamar a `updateUser` — no hay endpoint backend nuevo, todo client-side con la sesión de Supabase ya autenticada. Distinto del flujo "¿Olvidaste tu contraseña?" de `/login` (ese es por email, para cuando no puedes entrar; este es para cambiarla estando ya dentro)
 
 ---
 
@@ -399,6 +403,11 @@ try {
 - [x] Tabla Airtable "Snapshots_entrenadores" + workflow n8n "Snapshot mensual" (INACTIVO) que la puebla
 - [x] Vista entrenador de `/dashboard`: lista de clientes + ficha + Marketplace (reemplaza vista de gráficas)
 - [x] Bugfix "null es inaccesible" en confirmación de email: `/signup/confirm` maneja el callback de Supabase de forma defensiva (hash implicit + params de error), `signUp()` pasa `emailRedirectTo` explícito
+- [x] Revisado un brief que pedía crear usuario Supabase directo desde n8n (webhook Tally) — **rechazado deliberadamente**: el endpoint propuesto no existe en la API real de Supabase, `$randomString()` no existe en n8n, y contradecía la decisión 10 (no signup pública). Se mantiene el flujo de invitación manual. Ver decisión técnica 21
+- [x] Bug real en el modal de consentimiento IA: el botón "Activar" se quedaba en "Guardando…" sin terminar (confirmado probando en navegador). Fix: `AbortController` con timeout de 15s en el fetch, error mostrado dentro del propio modal (antes usaba el `error` global de Marketplace, que sustituía toda la vista), y cierre garantizado del modal en el camino de éxito antes del `router.push`
+- [x] BUG D: añadido "Metricas" al array hardcodeado `SOLUCIONES` de `/admin/entrenador/[email]/page.tsx` (antes solo tenía las 4 originales)
+- [x] BUG E: botón "Borrar entrenador" + `DELETE /api/admin/entrenadores/[email]` (borra Airtable + usuario Supabase si existe). Ver decisión técnica 22
+- [x] BUG A: cambio de contraseña self-service (`ChangePasswordModal.tsx`, botón 🔑 en Header). Ver decisión técnica 23
 - [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code
 - [ ] **Añadir `https://retaincoach.com/signup/confirm` (y el equivalente de preview/localhost) a Supabase Auth → URL Configuration → Redirect URLs** — manual, fuera de Claude Code. Sin esto, `emailRedirectTo` cae al Site URL por defecto y `/signup/confirm` no llega a usarse
 - [ ] **Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` con el número real** en `.env.local` y en Vercel (hoy vacío) — el botón "Activar ahora" del Marketplace no hace nada sin este valor

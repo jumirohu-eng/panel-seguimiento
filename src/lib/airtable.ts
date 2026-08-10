@@ -312,6 +312,17 @@ export async function actualizarEntrenador(recordId: string, fields: Partial<Ent
   )
 }
 
+export async function borrarEntrenador(recordId: string) {
+  const baseId = process.env.AIRTABLE_BASE_ID
+  const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_ENTRENADORES}/${recordId}`
+  const res = await fetch(url, { method: 'DELETE', headers: airtableHeaders() })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Airtable error ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<{ id: string; deleted: boolean }>
+}
+
 export async function getClientesActivosPorEntrenador(): Promise<Record<string, number>> {
   const params = new URLSearchParams()
   params.set('filterByFormula', `{Estado} = "Activo"`)

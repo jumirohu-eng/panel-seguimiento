@@ -3,11 +3,13 @@ import { getAuthenticatedAdminEmail } from '@/lib/auth-server'
 import {
   getEntrenadorByEmail,
   actualizarEntrenador,
+  borrarEntrenador,
   getClientesActivosPorEntrenador,
   getSnapshotsByEntrenador,
   getInvitacionMasRecienteByEmail,
   EntrenadorFields,
 } from '@/lib/airtable'
+import { supabaseAdmin, findSupabaseUserByEmail } from '@/lib/supabase-server'
 import { EntrenadorDetalle, Invitacion } from '@/lib/types'
 
 function serializeInvitacion(
@@ -115,5 +117,38 @@ export async function PUT(
   } catch (err) {
     console.error('Error al actualizar entrenador', err)
     return NextResponse.json({ error: 'Error al actualizar entrenador' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ email: string }> }
+) {
+  const adminEmail = await getAuthenticatedAdminEmail(request)
+  if (!adminEmail) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  }
+
+  const { email: rawEmail } = await params
+  const email = decodeURIComponent(rawEmail)
+
+  try {
+    const entrenadorRecord = await getEntrenadorByEmail(email)
+    if (!entrenadorRecord) {
+      return NextResponse.json({ error: 'Entrenador no encontrado' }, { status: 404 })
+    }
+
+    const usuarioSupabase = await findSupabaseUserByEmail(email)
+    if (usuarioSupabase) {
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(usuarioSupabase.id)
+      if (error) throw error
+    }
+
+    await borrarEntrenador(entrenadorRecord.id)
+
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('Error al borrar entrenador', err)
+    return NextResponse.json({ error: 'Error al borrar entrenador' }, { status: 500 })
   }
 }

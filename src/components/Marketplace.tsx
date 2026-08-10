@@ -29,6 +29,7 @@ export default function Marketplace() {
   const [mostrarConsentimiento, setMostrarConsentimiento] = useState(false)
   const [aceptaConsentimiento, setAceptaConsentimiento] = useState(false)
   const [guardandoConsentimiento, setGuardandoConsentimiento] = useState(false)
+  const [errorConsentimiento, setErrorConsentimiento] = useState<string | null>(null)
 
   useEffect(() => {
     async function cargar() {
@@ -53,6 +54,7 @@ export default function Marketplace() {
   const handleActivarAhora = useCallback((producto: ProductoInfo) => {
     if (producto.id === 'Seguimiento') {
       setAceptaConsentimiento(false)
+      setErrorConsentimiento(null)
       setMostrarConsentimiento(true)
       return
     }
@@ -62,19 +64,37 @@ export default function Marketplace() {
 
   const handleConfirmarConsentimiento = useCallback(async () => {
     setGuardandoConsentimiento(true)
+    setErrorConsentimiento(null)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
     try {
-      const { data } = await supabase.auth.getSession()
+      const { data, error: sessionError } = await supabase.auth.getSession()
       const token = data.session?.access_token
+      if (sessionError || !token) {
+        throw new Error('Tu sesión ha caducado. Vuelve a iniciar sesión e inténtalo de nuevo.')
+      }
       const res = await fetch('/api/entrenador/consentimiento-ia', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       })
-      if (!res.ok) throw new Error('No se pudo guardar el consentimiento')
-      router.push('/dashboard')
-    } catch {
-      setError('Error al guardar el consentimiento. Inténtalo de nuevo.')
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `No se pudo guardar el consentimiento (${res.status})`)
+      }
       setMostrarConsentimiento(false)
+      router.push('/dashboard')
+    } catch (err) {
+      const aborted = err instanceof DOMException && err.name === 'AbortError'
+      setErrorConsentimiento(
+        aborted
+          ? 'La solicitud tardó demasiado. Comprueba tu conexión e inténtalo de nuevo.'
+          : err instanceof Error
+            ? err.message
+            : 'Error al guardar el consentimiento. Inténtalo de nuevo.'
+      )
     } finally {
+      clearTimeout(timeout)
       setGuardandoConsentimiento(false)
     }
   }, [router])
@@ -207,6 +227,7 @@ export default function Marketplace() {
               />
               He leído y acepto
             </label>
+            {errorConsentimiento && <p className="mb-3 text-sm text-danger">{errorConsentimiento}</p>}
             <button
               type="button"
               disabled={!aceptaConsentimiento || guardandoConsentimiento}

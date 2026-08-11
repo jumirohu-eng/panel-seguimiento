@@ -9,17 +9,12 @@ import { tienePlanBase } from '@/lib/productos'
 import Header from '@/components/Header'
 import ClientesLista from '@/components/ClientesLista'
 import ClienteFicha from '@/components/ClienteFicha'
-import Marketplace from '@/components/Marketplace'
-import PlanesActivosResumen from '@/components/PlanesActivosResumen'
 import DashboardResumenView from '@/components/admin/DashboardResumenView'
-
-type Tab = 'clientes' | 'marketplace'
 
 export default function DashboardPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [tab, setTab] = useState<Tab>('clientes')
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loadingClientes, setLoadingClientes] = useState(true)
@@ -113,55 +108,22 @@ export default function DashboardPage() {
       {email && <Header email={email} />}
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-        <PlanesActivosResumen />
-
-        <div className="mb-6 flex gap-2 border-b border-border">
-          <button
-            type="button"
-            onClick={() => {
-              setTab('clientes')
-              setSelectedId(null)
-            }}
-            className={`px-3 py-2 text-sm font-medium ${
-              tab === 'clientes'
-                ? 'border-b-2 border-primary text-primary'
-                : 'text-muted hover:text-card-foreground'
-            }`}
-          >
-            Clientes
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('marketplace')}
-            className={`px-3 py-2 text-sm font-medium ${
-              tab === 'marketplace'
-                ? 'border-b-2 border-primary text-primary'
-                : 'text-muted hover:text-card-foreground'
-            }`}
-          >
-            Marketplace
-          </button>
-        </div>
-
         {error && <p className="mb-4 text-sm text-danger">{error}</p>}
 
-        {tab === 'clientes' &&
-          (clienteSeleccionado ? (
-            <ClienteFicha
-              key={clienteSeleccionado.id}
-              cliente={clienteSeleccionado}
-              onBack={handleBack}
-              onUpdated={handleClienteActualizado}
-            />
-          ) : (
-            <ClientesLista
-              clientes={clientes}
-              onSelect={handleSelect}
-              onClienteCreado={handleClienteCreado}
-            />
-          ))}
-
-        {tab === 'marketplace' && <Marketplace />}
+        {clienteSeleccionado ? (
+          <ClienteFicha
+            key={clienteSeleccionado.id}
+            cliente={clienteSeleccionado}
+            onBack={handleBack}
+            onUpdated={handleClienteActualizado}
+          />
+        ) : (
+          <ClientesLista
+            clientes={clientes}
+            onSelect={handleSelect}
+            onClienteCreado={handleClienteCreado}
+          />
+        )}
       </main>
     </div>
   )

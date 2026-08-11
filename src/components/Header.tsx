@@ -46,15 +46,6 @@ export default function Header({ email, showMarketplace = true }: { email: strin
       </div>
       <div className="flex items-center gap-2">
         {isAdmin && <AdminNavDropdown />}
-        {!isAdmin && showMarketplace && (
-          <button
-            onClick={() => setMostrarMarketplace(true)}
-            aria-label="Abrir marketplace"
-            className="rounded-lg border border-border p-2 text-sm text-card-foreground hover:bg-background"
-          >
-            🏪
-          </button>
-        )}
         <button
           onClick={() => setShowChangePassword(true)}
           aria-label="Cambiar contraseña"
@@ -104,6 +95,17 @@ export default function Header({ email, showMarketplace = true }: { email: strin
 
       {showChangePassword && (
         <ChangePasswordModal email={email} onClose={() => setShowChangePassword(false)} />
+      )}
+
+      {!isAdmin && showMarketplace && (
+        <button
+          onClick={() => setMostrarMarketplace(true)}
+          aria-label="Abrir marketplace"
+          className="fixed bottom-4 left-4 z-30 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-3 text-base font-medium text-card-foreground shadow-md hover:bg-background"
+        >
+          <span className="text-xl">🏪</span>
+          Marketplace
+        </button>
       )}
     </header>
   )

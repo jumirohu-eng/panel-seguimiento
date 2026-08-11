@@ -109,6 +109,7 @@ export interface AtencionResponse {
 
 export interface MetricasEntrenadores {
   total_entrenadores_historico: number
+  total_entrenadores_actuales: number
   evolucion_entrenadores_mensual: EvolucionEntrenadoresPunto[]
   entrenadores_por_estado: { estado: string; count: number }[]
   entrenadores_por_plan: { solucion: string; count: number }[]
@@ -116,6 +117,7 @@ export interface MetricasEntrenadores {
 
 export interface MetricasNegocio {
   total_clientes_historicos: number
+  total_clientes_actuales: number
   evolucion_clientes_mensual: { mes: string; total_clientes: number }[]
   metricas_impacto: MetricasImpacto | null
   metricas_entrenadores: MetricasEntrenadores

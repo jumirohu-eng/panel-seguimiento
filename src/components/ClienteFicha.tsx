@@ -96,7 +96,14 @@ export default function ClienteFicha({
         body: JSON.stringify({ estado: 'Perdido', lastModified: cliente.lastModified }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error ?? 'No se pudo dar de baja al cliente')
+      if (!res.ok) {
+        if (res.status === 409) {
+          setConflictoError(data?.error ?? 'Conflicto al guardar.')
+          setConfirmandoBaja(false)
+          return
+        }
+        throw new Error(data?.error ?? 'No se pudo dar de baja al cliente')
+      }
       onUpdated?.({ id: cliente.id, estado: 'Perdido', lastModified: data?.lastModified })
       onBack()
     } catch (err) {

@@ -11,7 +11,7 @@ import {
 } from '@/lib/airtable'
 import { MetricasEntrenadores, MetricasImpacto, MetricasNegocio } from '@/lib/types'
 
-const PLANES: SolucionEntrenador[] = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos']
+const PLANES: SolucionEntrenador[] = ['Seguimiento', 'Captación', 'Recuperación', 'Referidos', 'Metricas']
 const ESTADOS_ENTRENADOR = ['Activo', 'Prueba', 'Inactivo'] as const
 
 export async function GET(request: NextRequest) {
@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       ])
 
     const total_clientes_historicos = clientes.length
+    const total_clientes_actuales = clientes.filter((c) => c.fields.Estado === 'Activo').length
 
     const porMes: Record<string, number> = {}
     for (const s of snapshots) {
@@ -89,6 +90,7 @@ export async function GET(request: NextRequest) {
 
     const metricas_entrenadores: MetricasEntrenadores = {
       total_entrenadores_historico: entrenadores.length,
+      total_entrenadores_actuales: entrenadores.length,
       evolucion_entrenadores_mensual,
       entrenadores_por_estado,
       entrenadores_por_plan,
@@ -96,6 +98,7 @@ export async function GET(request: NextRequest) {
 
     const metricas: MetricasNegocio = {
       total_clientes_historicos,
+      total_clientes_actuales,
       evolucion_clientes_mensual,
       metricas_impacto,
       metricas_entrenadores,

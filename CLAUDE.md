@@ -1,8 +1,21 @@
 # 🚀 CLAUDE.md — Dashboard Seguimiento para Entrenadores
 
-## ESTADO ACTUAL (11 ago 2026 — noche, sesión 4)
+## ESTADO ACTUAL (11 ago 2026 — noche)
 
-Commit: `9931c13`
+Commit: pendiente de referenciar (ver commit siguiente)
+
+### Resumen de hoy
+
+**Terminado:**
+- Chequeo de drift CLAUDE.md ↔ n8n (las 7 entradas de workflows) — sin discrepancias
+- Limpieza de la tabla `Clientes` en Airtable — 6 registros de prueba/basura borrados, 3 fixtures reales conservadas
+- Diagnóstico completo (con evidencia de logs) de por qué el link de reset de contraseña apuntaba a localhost, con corrección de dos suposiciones erróneas del brief (no existe `/auth/callback`; el template usa `{{ .ConfirmationURL }}`, no `{{ .SiteURL }}`)
+
+**Falta (bloqueante, manual, fuera del alcance de Claude Code):** configurar `Site URL` y `Redirect URLs` en el Dashboard de Supabase Auth — ver el bloque de abajo para el paso a paso exacto. Es el único pendiente urgente abierto ahora mismo.
+
+**Decisiones nuevas de hoy:** ninguna decisión técnica de arquitectura nueva (sesión de verificación/limpieza/diagnóstico, no de feature) — sí quedan documentadas dos correcciones a suposiciones incorrectas de briefs recibidos (ver bloque del blocker abajo).
+
+---
 
 🚨 **BLOCKER URGENTE ABIERTO — requiere acción manual de Juanmi en el Dashboard de Supabase, Claude Code no tiene forma de hacerlo** — link de reset de contraseña apuntando a localhost:
 
@@ -24,11 +37,11 @@ Commit: `9931c13`
 3. Auth → Email Templates → plantilla "Reset Password" → confirmar que usa `{{ .ConfirmationURL }}` (variable estándar de Supabase, no un dominio hardcodeado) — si alguien la editó a mano con una URL literal a localhost, corregirla ahí también
 4. Una vez cambiado: probar de verdad desde `https://retaincoach.com/login` → "¿Olvidaste tu contraseña?" → abrir el email → confirmar que el link apunta a `retaincoach.com/reset-password` y no a localhost. Puedo volver a revisar los logs de Auth después de esa prueba para confirmar en los datos (`referer`/`redirect_to`) que ya no aparece localhost, si se hace la prueba y se me pide verificar
 
-✅ COMPLETADO (sesión anterior):
-- **Chequeo de drift CLAUDE.md vs n8n**: comparadas las 7 entradas de la sección N8N WORKFLOWS contra el estado real de la instancia (vía `n8n_list_workflows`). **Sin drift** — las 5 activas, la 1 inactiva ("Limpieza de datos antiguos") y la no construida ("Recordatorios viernes") coinciden exactamente con la documentación (tiene sentido: en la sesión anterior se corrigieron las únicas 2 discrepancias reales que había y se actualizó la doc a la vez)
+✅ COMPLETADO (hoy, antes del diagnóstico de reset password):
+- **Chequeo de drift CLAUDE.md vs n8n**: comparadas las 7 entradas de la sección N8N WORKFLOWS contra el estado real de la instancia (vía `n8n_list_workflows`). **Sin drift** — las 5 activas, la 1 inactiva ("Limpieza de datos antiguos") y la no construida ("Recordatorios viernes") coinciden exactamente con la documentación (tiene sentido: en una sesión anterior se corrigieron las únicas 2 discrepancias reales que había y se actualizó la doc a la vez)
 - **Limpieza de la tabla `Clientes` en Airtable**: borrados 6 registros de prueba/basura (ver PENDIENTES INMEDIATOS para el detalle exacto de cuáles). Se mantuvieron los 3 clientes documentados como fixtures intencionales (Juanmi, Carlos, Sofia) — no se tocaron por estar explícitamente listados como "de verdad" en este mismo archivo, ligados a logins reales de Supabase. Sin cambios de código en el repo (tarea puramente de datos en Airtable)
 
-✅ COMPLETADO (sesión anterior — brief "Próximo sprint: email + check-in" + bug de tooltip):
+✅ COMPLETADO (sesión anterior, día anterior de trabajo — brief "Próximo sprint: email + check-in" + bug de tooltip):
 
 **Nota:** el archivo del brief (`/mnt/user-data/outputs/brief-proximo-sprint-email-checkin.md`) no existía en este entorno (esa ruta no existe aquí) — se trabajó a partir de la descripción de las 2 tareas + el bug que el usuario pegó directamente en el mensaje, que era suficientemente detallada.
 

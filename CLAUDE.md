@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — noche, sesión 2)
 
-Commit: pendiente de referenciar (ver commit siguiente)
+Commit: `460f291`
 
 ✅ COMPLETADO (brief "Próximo sprint: email + check-in" + bug de tooltip, esta sesión):
 

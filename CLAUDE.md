@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — noche, sesión 3)
 
-Commit: pendiente de referenciar (ver commit siguiente)
+Commit: `5cdbd1f`
 
 ✅ COMPLETADO (esta sesión):
 - **Chequeo de drift CLAUDE.md vs n8n**: comparadas las 7 entradas de la sección N8N WORKFLOWS contra el estado real de la instancia (vía `n8n_list_workflows`). **Sin drift** — las 5 activas, la 1 inactiva ("Limpieza de datos antiguos") y la no construida ("Recordatorios viernes") coinciden exactamente con la documentación (tiene sentido: en la sesión anterior se corrigieron las únicas 2 discrepancias reales que había y se actualizó la doc a la vez)

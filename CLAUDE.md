@@ -1,10 +1,26 @@
 # 🚀 CLAUDE.md — Dashboard Seguimiento para Entrenadores
 
-## ESTADO ACTUAL (11 ago 2026 — noche, sesión 3)
+## ESTADO ACTUAL (11 ago 2026 — noche, sesión 4)
 
-Commit: `5cdbd1f`
+Commit: pendiente de referenciar (ver commit siguiente)
 
-✅ COMPLETADO (esta sesión):
+⚠️ INVESTIGADO PERO NO RESUELTO DEL TODO (esta sesión) — **link de reset de contraseña apuntando a localhost**:
+
+**Diagnóstico (con evidencia real, no solo teoría):**
+- El código de `handleResetPassword` en `login/page.tsx` llama a `supabase.auth.resetPasswordForEmail(email, { redirectTo: \`${window.location.origin}/reset-password\` })` — **no hay ninguna URL hardcodeada a localhost en el código**, `redirectTo` se calcula dinámicamente a partir de dónde se está ejecutando la app.
+- Se revisaron los logs reales de Supabase Auth (`get_logs` service=`auth`) de esta misma semana: se encontró una petición real `POST /recover` (esto es lo que dispara `resetPasswordForEmail`) con `"referer":"http://localhost:3000"`, seguida de dos peticiones `GET /verify` (una falló con "Email link is invalid or has expired", la siguiente sí completó con `status:303` y generó un evento `Login` real para `jumirohu@gmail.com`). **Conclusión: el link apuntó a localhost porque quien probó el flujo lo hizo con la app corriendo en local (`npm run dev` → `localhost:3000`) y no contra `https://retaincoach.com`** — el comportamiento del código es correcto (dinámico), simplemente no se había probado nunca desde producción
+- **Corrección importante al brief**: no existe ninguna ruta `/auth/callback` en esta app (verificado listando `src/app`) — el callback real de recuperación de contraseña es `/reset-password` (maneja el evento `PASSWORD_RECOVERY` de Supabase) y el de confirmación de alta es `/signup/confirm`. Añadir `/auth/callback` a los Redirect URLs de Supabase no arreglaría nada porque esa página no existe; hay que usar las rutas reales
+- **Corrección importante 2**: estos emails de "¿Olvidaste tu contraseña?" **no pasan por Resend** — es el flujo nativo de Supabase Auth (mailer + templates propios de Supabase), distinto del template Resend "Reset Contraseña" documentado en RESEND TEMPLATES (ese hoy no se usa desde ningún flujo real, ver esa sección). Y como el pendiente "Configurar SMTP en Supabase (Resend)" sigue sin hacerse, estos emails hoy salen del mailer por defecto de Supabase, no de Resend
+
+**Por qué queda como pendiente manual (no lo pude terminar):** ninguna de las herramientas MCP disponibles en esta sesión (Airtable, n8n, Resend, ni las de Supabase — `execute_sql`, `get_logs`, `get_project`, etc.) da acceso a la configuración de Auth de Supabase (`Site URL`, `Redirect URLs`, `Email Templates`, SMTP) — eso vive solo en el Dashboard de Supabase o en la Management API con un token de acceso personal, ninguno disponible aquí. Es el mismo tipo de bloqueo ya documentado para el pendiente de `/signup/confirm` (ver abajo, ahora fusionado con este). Tampoco tengo acceso a la bandeja de `jumirohu@gmail.com` para poder clicar el link real y validar el paso 7 (prueba end-to-end) yo mismo.
+
+**Lo que hay que hacer manualmente en el Dashboard de Supabase (`https://supabase.com/dashboard/project/jcijxhxdjabxdujldzml`), con los valores correctos para ESTE repo:**
+1. Auth → URL Configuration → **Site URL** → `https://retaincoach.com`
+2. Auth → URL Configuration → **Redirect URLs** → añadir `https://retaincoach.com/reset-password` y `https://retaincoach.com/signup/confirm` (mantener también `http://localhost:3000/**` si se quiere poder seguir probando en local — no hace falta `/auth/callback`, esa ruta no existe en la app)
+3. Auth → Email Templates → plantilla "Reset Password" → confirmar que usa `{{ .ConfirmationURL }}` (variable estándar de Supabase, no un dominio hardcodeado) — si alguien la editó a mano con una URL literal a localhost, corregirla ahí también
+4. Una vez cambiado: probar de verdad desde `https://retaincoach.com/login` → "¿Olvidaste tu contraseña?" → abrir el email → confirmar que el link apunta a `retaincoach.com/reset-password` y no a localhost. Puedo volver a revisar los logs de Auth después de esa prueba para confirmar en los datos (`referer`/`redirect_to`) que ya no aparece localhost, si se hace la prueba y se me pide verificar
+
+✅ COMPLETADO (sesión anterior):
 - **Chequeo de drift CLAUDE.md vs n8n**: comparadas las 7 entradas de la sección N8N WORKFLOWS contra el estado real de la instancia (vía `n8n_list_workflows`). **Sin drift** — las 5 activas, la 1 inactiva ("Limpieza de datos antiguos") y la no construida ("Recordatorios viernes") coinciden exactamente con la documentación (tiene sentido: en la sesión anterior se corrigieron las únicas 2 discrepancias reales que había y se actualizó la doc a la vez)
 - **Limpieza de la tabla `Clientes` en Airtable**: borrados 6 registros de prueba/basura (ver PENDIENTES INMEDIATOS para el detalle exacto de cuáles). Se mantuvieron los 3 clientes documentados como fixtures intencionales (Juanmi, Carlos, Sofia) — no se tocaron por estar explícitamente listados como "de verdad" en este mismo archivo, ligados a logins reales de Supabase. Sin cambios de código en el repo (tarea puramente de datos en Airtable)
 
@@ -462,8 +478,8 @@ Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, f
 - [x] BUG E: botón "Borrar entrenador" + `DELETE /api/admin/entrenadores/[email]` (borra Airtable + usuario Supabase si existe). Ver decisión técnica 22
 - [x] BUG A: cambio de contraseña self-service (`ChangePasswordModal.tsx`, botón 🔑 en Header). Ver decisión técnica 23
 - [x] Landing pública "/" + página "/planes" + gate de plan base en "/dashboard" + validación Métricas-requiere-plan-base en admin. Ver decisiones técnicas 24-26. Correcciones sobre el brief original: la ruta de registro por token ya existente es `/signup` (no `/register`, esa no existe); no se creó `middleware.ts` (incompatible con el modelo de auth 100% client-side de este proyecto, ver decisión 24); no se crearon `<SeguimientoTab>`/`<CaptacionTab>`/`<RecuperacionTab>` porque Captación y Recuperación no tienen ninguna funcionalidad construida todavía (siguen en BACKLOG PRODUCTOS) — la pestaña "Clientes" ya existente sigue siendo la única funcionalidad real (Seguimiento). **No probado en navegador**
-- [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code
-- [ ] **Añadir `https://retaincoach.com/signup/confirm` (y el equivalente de preview/localhost) a Supabase Auth → URL Configuration → Redirect URLs** — manual, fuera de Claude Code. Sin esto, `emailRedirectTo` cae al Site URL por defecto y `/signup/confirm` no llega a usarse
+- [ ] Configurar SMTP en Supabase (Resend) — manual, fuera de Claude Code. Mientras no se haga, los emails de Supabase Auth (confirmación de alta, reset de contraseña) salen del mailer por defecto de Supabase, no de Resend
+- [ ] **Supabase Auth → URL Configuration: Site URL debe ser `https://retaincoach.com` y Redirect URLs debe incluir `https://retaincoach.com/signup/confirm` Y `https://retaincoach.com/reset-password`** (fusionado con el pendiente de "link de reset apuntando a localhost", ver ESTADO ACTUAL para el diagnóstico completo con evidencia de logs) — manual, fuera de Claude Code, ninguna herramienta MCP disponible da acceso a esta configuración. Sin esto, tanto `emailRedirectTo` (alta) como `redirectTo` (reset de contraseña) caen al Site URL por defecto en vez de a las páginas reales de la app. **No confundir con `/auth/callback`** — esa ruta no existe en este repo, las rutas reales son `/signup/confirm` y `/reset-password`
 - [ ] **Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` con el número real** en `.env.local` y en Vercel (hoy vacío) — el botón "Activar ahora" del Marketplace no hace nada sin este valor
 - [x] Templates de email en Resend: "Bienvenida Entrenador" y "Reset Contraseña" creados y publicados — ver sección RESEND TEMPLATES
 - [x] Workflow n8n "Recepción entrenador" completado (búsqueda + rama existe/no existe + emails) y probado end-to-end con payload simulado — ver N8N WORKFLOWS

@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — noche)
 
-Commit: pendiente de referenciar (ver commit siguiente)
+Commit: `1a4661b`
 
 ✅ COMPLETADO (brief "Tareas Inmediatas" de esta sesión):
 - **Tarea 1 (verificación)**: las 5 piezas de la reestructuración admin ya existían y funcionan (`/dashboard`, `/admin`, `/metricas`, `GET /api/admin/alertas-stats`, `AdminNavDropdown`) — no se tocó nada

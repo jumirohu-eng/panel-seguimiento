@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — noche, sesión 4)
 
-Commit: pendiente de referenciar (ver commit siguiente)
+Commit: `9931c13`
 
 🚨 **BLOCKER URGENTE ABIERTO — requiere acción manual de Juanmi en el Dashboard de Supabase, Claude Code no tiene forma de hacerlo** — link de reset de contraseña apuntando a localhost:
 

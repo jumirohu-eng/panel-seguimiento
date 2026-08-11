@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — tarde)
 
-Commit: `3cebd69`
+Commit: (pendiente — ver commit siguiente, mismo patrón que b47ba23 → f585a16)
 
 ✅ COMPLETADO:
 - Feature 3: Registro de clientes con Tally pre-rellenado (modal + link + Airtable + webhook)
@@ -14,6 +14,8 @@ Commit: `3cebd69`
 - Sección "Tus planes" en /dashboard
 - Workflow "Snapshot mensual" activado (verificado en esta sesión vía API n8n: `active: true`)
 - End-to-end validado en navegador
+- **Bug fix workflow n8n "Seguimiento - Alta cliente"**: el nodo "Formatear datos" no extraía `objetivo`/`entrenamientos_objetivo`/`notas_iniciales` porque Tally envía el texto literal de la pregunta como `label`, no un slug (y `objetivo` es tipo `DROPDOWN`, no `MULTIPLE_CHOICE`). Corregido con mapeo de labels + resolución genérica de campos tipo choice, y probado end-to-end con datos reales (ejecuciones n8n 54/55/56, sin campos nulos). Ver N8N WORKFLOWS y decisión técnica 30
+- Verificado que "Recepción entrenador" está realmente **ACTIVO** en n8n (ya no era solo drift de documentación) — con la credencial Resend aún en placeholder, cualquier submission real fallaría al enviar el email
 
 ✅ PENDIENTES MANUALES (completados):
 - Crear Tally ODq4kK (verificado en esta sesión: ejecuciones reales del webhook con `formId: "ODq4kK"`, `formName: "Alta de cliente"`)
@@ -305,7 +307,8 @@ panel-seguimiento/
 26. **"Referidos" en `PlanesCards`**: se muestra en `/` y `/planes` igual que el resto del catálogo (una sola fuente de verdad, `PRODUCTOS`), aunque no estuviera pedido explícitamente en el brief de la landing — evita mantener dos listas de productos que puedan desincronizarse
 27. **Marketplace (con su self-service de Seguimiento, decisión 19) solo vive en `/dashboard`**: prop `showMarketplace` en `Header.tsx` (default `true`) controla el botón 🏪; solo `/planes` pasa `false`. Como `/planes` es la única página que ven entrenadores con 0 planes (gate `tienePlanBase()` en `/dashboard`) y `/dashboard` solo lo alcanzan quienes ya tienen ≥1 plan, esto cierra el hueco por el que un entrenador sin plan podía llegar al self-service de Seguimiento desde `/planes` — sin tocar la lógica de decisión 19. La nueva sección "Tus planes" de `/dashboard` (`PlanesActivosResumen.tsx`) es deliberadamente **siempre WhatsApp** para planes no contratados (nunca abre el modal de consentimiento), distinta del tab "Marketplace" que sigue siendo self-service para Seguimiento
 28. **"Dar de baja" cliente = `Estado` → `Perdido`, no "Inactivo"**: el campo `Clientes.Estado` es un `singleSelect` con solo Activo/Pausado/Perdido como choices, y ninguna herramienta MCP disponible permite añadir un choice nuevo a un select existente (mismo límite que el pendiente histórico de "Metricas" en `Entrenadores.Soluciones`). Se reusa `Perdido`, que además ya es el estado sobre el que `lib/productos.ts` define que actuará el futuro producto Recuperación — "dar de baja" y "candidato a recuperación" son el mismo estado. El filtro Activos/Inactivos de `ClientesLista.tsx` es `estado === 'Activo'` vs `estado !== 'Activo'` (cubre Pausado+Perdido), sin campos nuevos en Airtable
-29. **Alta de cliente vía Tally**: el Tally existente (`tally.so/r/5BYDQM`) es el check-in semanal (Peso/Entrenamientos/Energía/Notas → crea un `Reporte`) — no se reutiliza para altas. El flujo de alta usa un Tally **nuevo** (pendiente de crear, ver PENDIENTES INMEDIATOS): la app crea el `Cliente` en Airtable (Nombre/Email/Teléfono) desde `RegistrarClienteModal.tsx`, genera un link a ese Tally nuevo con esos 3 datos precargados como campos ocultos + `entrenador`, y el cliente solo rellena `Objetivo`/`Entrenamientos_objetivo`/`Notas_iniciales` — el workflow n8n "Seguimiento - Alta cliente" hace PATCH al `Cliente` ya existente (nunca crea uno nuevo)
+29. **Alta de cliente vía Tally**: el Tally existente (`tally.so/r/5BYDQM`) es el check-in semanal (Peso/Entrenamientos/Energía/Notas → crea un `Reporte`) — no se reutiliza para altas. El flujo de alta usa un Tally **nuevo**, ya creado (`tally.so/r/ODq4kK`, formId `ODq4kK`, ver N8N WORKFLOWS): la app crea el `Cliente` en Airtable (Nombre/Email/Teléfono) desde `RegistrarClienteModal.tsx`, genera un link a ese Tally con esos 3 datos precargados como campos ocultos + `entrenador`, y el cliente solo rellena `Objetivo`/`Entrenamientos_objetivo`/`Notas_iniciales` — el workflow n8n "Seguimiento - Alta cliente" hace PATCH al `Cliente` ya existente (nunca crea uno nuevo)
+30. **Matching de campos Tally por `label`, no por slug exacto**: en Tally, el "Reference ID" fijable a un slug corto (`nombre`, `email`, `telefono`, `entrenador`) solo existe para **Hidden Fields**. Los campos visibles que rellena el usuario (`objetivo`, `entrenamientos_objetivo`, `notas_iniciales`) llegan con el **texto literal de la pregunta** como `label` (p. ej. `"¿Cuál es tu objetivo?"`), no con el slug — descubierto al depurar el bug del nodo "Formatear datos" de "Seguimiento - Alta cliente" (ver N8N WORKFLOWS). Por eso el Code node matchea cada campo contra una lista de labels aceptados (slug + texto real de la pregunta), en vez de un único string exacto — sobrevive a que se reformule la pregunta en Tally sin tocar código, y sigue funcionando si en el futuro se le pone un slug real. Aplica al patrón general de cualquier workflow que lea un Tally por `label` (`Seguimiento - Resumen&Alerta` incluido, no auditado todavía con este mismo criterio)
 
 ---
 
@@ -333,7 +336,9 @@ Cada lunes 9am → Clientes activos → Claude analiza → actualiza Análisis I
 ### "Seguimiento - Limpieza de datos antiguos" ⏸️ INACTIVO
 Backup de reportes >60 días, mantener inactivo.
 
-### "Recepción entrenador" ⏸️ INACTIVO (id D3Jnswx0Hh5THEev)
+### "Recepción entrenador" ✅ ACTIVO (id D3Jnswx0Hh5THEev)
+**Verificado en esta sesión vía API n8n que está realmente `active: true`** — la nota de "drift" que había aquí abajo (documentado como inactivo pero activo en n8n) queda confirmada y resuelta: sí está activo. Riesgo real mientras la credencial Resend siga siendo un placeholder (ver pendiente más abajo): cualquier submission real de Tally crearía/detectaría el entrenador en Airtable correctamente, pero el email fallaría con 401 al no tener API key real.
+
 Webhook Tally (path `TallyEntrenadores`) → Formatear datos → Buscar entrenador (Airtable search por Email) → Comprobar existencia (Code, normaliza a 1 item con `existe: boolean` — necesario porque Airtable Search devuelve 0 items si no hay match, y un IF con 0 items de entrada no ejecuta ninguna rama) → IF "¿Ya registrado?":
 - **true** (ya existe) → Email ya registrado (HTTP Request a Resend, HTML inline con link a `/login`)
 - **false** (no existe) → Crear entrenador (Airtable, Estado="Prueba" fijo, sin Precio_mensual, sin invitación automática) → Email bienvenida (HTTP Request a Resend, template `bienvenida-entrenador`)
@@ -355,23 +360,27 @@ Ambos envíos de email fallaron con 401 solo por ser la credencial Resend un pla
 ### Workflow "Recordatorios viernes" ⏳ NO CONSTRUIDO
 Pendiente para después.
 
-### Workflow "Snapshot mensual" ⏸️ INACTIVO (id h8L4RfQg8nXp4ve7)
-Cron día 1 de cada mes a las 3am → Leer entrenadores (tblo7dLrfaOxcPppY) → Contar por estado (Code: Total_entrenadores/Total_activos/Total_prueba) → Crear snapshot entrenadores (Snapshots_entrenadores, retryOnFail) → Leer clientes activos (Clientes, filterByFormula Estado=Activo, una sola llamada) → Agrupar por entrenador (Code) → Crear snapshots por entrenador (Snapshots, un registro por entrenador, retryOnFail). Creado inactivo — activar manualmente tras revisar una ejecución de prueba.
+### Workflow "Snapshot mensual" ✅ ACTIVO (id h8L4RfQg8nXp4ve7)
+Cron día 1 de cada mes a las 3am → Leer entrenadores (tblo7dLrfaOxcPppY) → Contar por estado (Code: Total_entrenadores/Total_activos/Total_prueba) → Crear snapshot entrenadores (Snapshots_entrenadores, retryOnFail) → Leer clientes activos (Clientes, filterByFormula Estado=Activo, una sola llamada) → Agrupar por entrenador (Code) → Crear snapshots por entrenador (Snapshots, un registro por entrenador, retryOnFail).
 
-**Validación estructural OK** (`validate_workflow`: 0 errores, 7 nodos, 6 conexiones válidas). **No se pudo ejecutar la prueba manual desde aquí**: el trigger es un Schedule Trigger, y la herramienta de test de n8n-mcp solo puede disparar workflows con trigger webhook/form/chat — un Schedule Trigger solo se puede ejecutar manualmente desde el botón "Test workflow" en el editor de n8n. Además usa la misma credencial Airtable que está caída (ver alerta 🚨 arriba), así que fallaría igualmente ahora mismo. **Pendiente real: (1) arreglar la credencial Airtable, (2) tú (o yo en otra sesión con acceso al editor) ejecutar manualmente desde n8n UI, (3) verificar el conteo contra Airtable y documentar el resultado aquí, (4) mantener inactivo hasta entonces.**
+**Validación estructural OK** (`validate_workflow`: 0 errores, 7 nodos, 6 conexiones válidas). **Activado en esta sesión** (verificado vía API n8n: `active: true`). La credencial Airtable que lo bloqueaba (compartida con "Recepción entrenador") ya está arreglada. El trigger es un Schedule Trigger, así que `n8n_test_workflow` no puede dispararlo por API — solo desde el botón "Test workflow" en el editor de n8n o esperando a la próxima ejecución automática (día 1 de mes, 3am). **Pendiente real: verificar el conteo de la primera ejecución real contra Airtable y documentar el resultado aquí.**
 
-### Workflow "Seguimiento - Alta cliente" ⏸️ INACTIVO (id `e0DrzrSqRryaJloc`)
-Webhook (path `TallyAltaCliente`, pendiente de conectar a un Tally nuevo) → Formatear datos (Code, lee `body.data.fields` por label igual que "Seguimiento - Resumen&Alerta") → Buscar cliente (Airtable search por Email) → Actualizar cliente (Airtable update: `Objetivo`, `Entrenamientos_objetivo`, `Notas_iniciales`, matching por `id` del registro encontrado). Ver decisión técnica 29 — nunca crea un `Cliente` nuevo, solo completa el que la app ya creó vía `POST /api/clientes`.
+### Workflow "Seguimiento - Alta cliente" ✅ ACTIVO (id `e0DrzrSqRryaJloc`)
+Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, formId `ODq4kK`, formName "Alta de cliente") → Formatear datos (Code, lee `body.data.fields` por `label`) → Buscar cliente (Airtable search por Email) → Actualizar cliente (Airtable update: `Objetivo`, `Entrenamientos_objetivo`, `Notas_iniciales`, matching por `id` del registro encontrado). Ver decisión técnica 29 — nunca crea un `Cliente` nuevo, solo completa el que la app ya creó vía `POST /api/clientes`.
 
-**Validado estructuralmente** (`validate_workflow`: 0 errores, 4 nodos, 3 conexiones) y conexiones verificadas con `n8n_get_workflow`. **No probado end-to-end**: depende de un Tally que todavía no existe.
+**El Tally ya existe y está conectado** (ya no es el pendiente que documentaba esta sección antes) — visto directamente en ejecuciones reales del webhook (n8n executions 54, 55). Estructura real que envía Tally, para referencia (distinta de lo que se había asumido originalmente):
+- 4 campos ocultos (Hidden Fields, `label` = slug exacto): `nombre`, `email`, `telefono`, `entrenador`
+- 3 campos visibles, con `label` = **texto literal de la pregunta**, no un slug: `"¿Cuál es tu objetivo?"` (`type: "DROPDOWN"`, valor = array de IDs de opción a resolver contra `field.options`), `"¿Cuántos entrenamientos por semana?"` (`type: "INPUT_NUMBER"`), `"Notas iniciales"` (`type: "TEXTAREA"`)
 
-**Pendiente manual — spec exacta para crear el Tally** (`tally.so`, nuevo formulario, distinto de `5BYDQM`):
-- 4 campos ocultos, con **Reference ID** (no solo el label) puesto exactamente a: `nombre`, `email`, `telefono`, `entrenador` — se prellenan vía query params (`?nombre=&email=&telefono=&entrenador=`) que genera `RegistrarClienteModal.tsx`
-- 3 campos visibles que rellena el cliente, con **label exacto** (el Code node del workflow matchea por label, igual que hace hoy "Formatear datos1" del check-in semanal):
-  - `objetivo` — choice, con las 4 opciones exactas de `Clientes.Objetivo` (Hipertrofia / Pérdida de peso / Tonificar / Rehabilitación)
-  - `entrenamientos_objetivo` — number
-  - `notas_iniciales` — texto largo
-- Tras crear el formulario: (1) copiar su URL a `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` en `.env.local` y Vercel, (2) conectar su webhook al endpoint `TallyAltaCliente` de este workflow, (3) probar de extremo a extremo, (4) activar el workflow.
+**Bug encontrado y corregido en esta sesión:** el nodo "Formatear datos" original buscaba las etiquetas `objetivo`/`entrenamientos_objetivo`/`notas_iniciales` tal cual (y solo resolvía a texto los campos `type: "MULTIPLE_CHOICE"`), así que con el payload real de Tally esos 3 campos —y `nombre`/`telefono`/`entrenador`, que ni se leían— salían `null`. Fix aplicado:
+- Mapeo `LABELS` por campo de salida: acepta tanto el slug como el texto real de la pregunta (ver decisión técnica 30)
+- Resolución de valor generalizada a cualquier campo con `options` (no solo `MULTIPLE_CHOICE`), cubre también `DROPDOWN`
+- Ahora también extrae `nombre`, `telefono`, `entrenador`
+- `telefono` se recorta con `.trim()` (Tally lo manda con un espacio inicial)
+
+**Probado end-to-end con datos reales**: `validate_workflow` (0 errores) + ejecución de prueba (n8n execution 56, payload real capturado) → `Formatear datos` devolvió los 7 campos correctos sin nulos (`objetivo: "Hipertrofia"` resuelto correctamente desde el DROPDOWN). `Buscar cliente` no encontró coincidencia con el email de prueba, así que `Actualizar cliente` no llegó a ejecutarse (sin efectos secundarios reales en Airtable).
+
+`NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` ya está rellenada (`https://tally.so/r/ODq4kK`) en `.env.local` y, según confirma el usuario, en Vercel.
 
 ---
 
@@ -399,10 +408,10 @@ Webhook (path `TallyAltaCliente`, pendiente de conectar a un Tally nuevo) → Fo
 - [x] Admin: tabla Entrenadores + Snapshots, ficha completa por entrenador, dark mode, logout
 - [x] Reset de contraseña + registro de Último_login + botón WhatsApp
 - [x] /dashboard admin: resumen del negocio (tarjetas, gráficas, alertas, métricas de impacto) — **reestructurado en esta sesión en 3 páginas** (`/dashboard`, `/admin`, `/metricas`), ver decisión técnica 13
-- [x] Workflow n8n "Recepción entrenador" (queda INACTIVO)
+- [x] Workflow n8n "Recepción entrenador" (creado inactivo en su momento; confirmado ACTIVO en esta sesión, ver N8N WORKFLOWS)
 - [x] Bugs de vista de cliente: exportar PDF, orden Análisis IA/Mensaje sugerido, botón WhatsApp directo, tooltip en badge Alerta
 - [x] Endpoint `/api/admin/alertas-stats` (histórico de alertas para /metricas)
-- [x] Tabla Airtable "Snapshots_entrenadores" + workflow n8n "Snapshot mensual" (INACTIVO) que la puebla
+- [x] Tabla Airtable "Snapshots_entrenadores" + workflow n8n "Snapshot mensual" (creado inactivo en su momento; activado en esta sesión, ver N8N WORKFLOWS) que la puebla
 - [x] Vista entrenador de `/dashboard`: lista de clientes + ficha + Marketplace (reemplaza vista de gráficas)
 - [x] Bugfix "null es inaccesible" en confirmación de email: `/signup/confirm` maneja el callback de Supabase de forma defensiva (hash implicit + params de error), `signUp()` pasa `emailRedirectTo` explícito
 - [x] Revisado un brief que pedía crear usuario Supabase directo desde n8n (webhook Tally) — **rechazado deliberadamente**: el endpoint propuesto no existe en la API real de Supabase, `$randomString()` no existe en n8n, y contradecía la decisión 10 (no signup pública). Se mantiene el flujo de invitación manual. Ver decisión técnica 21
@@ -429,9 +438,11 @@ Webhook (path `TallyAltaCliente`, pendiente de conectar a un Tally nuevo) → Fo
 - [ ] Pre-venta con 3 entrenadores reales
 - [ ] Limite de gasto Claude API ($10-15/mes)
 - [x] Brief "/planes + Features dashboard/clientes + Admin check" (commit `b47ba23`, pusheado a `main`): `/planes` informativa-solo (Header sin Marketplace, headline/comparativa persuasivos de `content/plans-copy.ts`) + `/dashboard` con nueva sección "Tus planes" (WhatsApp CTA, nunca self-service) + 5 features en clientes (mensaje sugerido colapsable, notas del entrenador, registrar cliente con Tally pre-rellenado, dar de baja, filtro Activos/Inactivos) + verificado que la reestructuración admin previa ya existía (no se tocó). Ver decisiones técnicas 27-29. **No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión) — solo verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores
-- [ ] **Crear el Tally nuevo de alta de cliente** siguiendo la spec exacta documentada en N8N WORKFLOWS → "Seguimiento - Alta cliente" (campos ocultos `nombre`/`email`/`telefono`/`entrenador` + visibles `objetivo`/`entrenamientos_objetivo`/`notas_iniciales`), conectar su webhook, y activar el workflow — manual, fuera de Claude Code
-- [ ] **Rellenar `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL`** en `.env.local` y Vercel con la URL de ese Tally — sin esto, `RegistrarClienteModal.tsx` crea el cliente en Airtable pero no puede mostrar el link de alta
-- [ ] Nota aparte (no es parte de este brief): el workflow n8n "Recepción entrenador" aparece **activo** en n8n aunque esta sección lo documenta como INACTIVO — drift a revisar en otra sesión
+- [x] Tally nuevo de alta de cliente creado (`tally.so/r/ODq4kK`) y webhook conectado a "Seguimiento - Alta cliente" — verificado con ejecuciones reales. La estructura real difiere de la spec original (los campos visibles llegan con el texto de la pregunta, no un slug) — ver N8N WORKFLOWS y decisión técnica 30
+- [x] `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` rellenada en `.env.local` (`https://tally.so/r/ODq4kK`) y en Vercel (confirmado por el usuario)
+- [x] Bug en nodo "Formatear datos" de "Seguimiento - Alta cliente": no extraía `objetivo`/`entrenamientos_objetivo`/`notas_iniciales`/`nombre`/`telefono`/`entrenador` — corregido y probado end-to-end con datos reales en esta sesión. Ver N8N WORKFLOWS y decisión técnica 30
+- [x] Workflow n8n "Snapshot mensual" activado — verificado vía API n8n (`active: true`). Sigue pendiente verificar el conteo de su primera ejecución real contra Airtable (ver N8N WORKFLOWS)
+- [x] Nota de drift resuelta: "Recepción entrenador" está confirmado **activo** en n8n (no era solo desactualización de docs) — riesgo real: la credencial Resend sigue siendo un placeholder, así que los emails de ese workflow fallarían hoy con submissions reales (ver pendiente de API key arriba)
 
 ---
 

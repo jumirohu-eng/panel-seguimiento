@@ -1,5 +1,27 @@
 # 🚀 CLAUDE.md — Dashboard Seguimiento para Entrenadores
 
+## ESTADO ACTUAL (11 ago 2026 — tarde)
+
+Commit: (pendiente — ver commit siguiente, mismo patrón que b47ba23 → f585a16)
+
+✅ COMPLETADO:
+- Feature 3: Registro de clientes con Tally pre-rellenado (modal + link + Airtable + webhook)
+- Feature 1: Mensaje sugerido como dropdown
+- Feature 2: Notas del entrenador en ficha cliente
+- Feature 4: Botón "Dar de baja" → Estado=Perdido
+- Feature 5: Filtro Activos/Inactivos
+- Cambios /planes: puramente informativa + CTA WhatsApp
+- Sección "Tus planes" en /dashboard
+- Workflow "Snapshot mensual" activado (verificado en esta sesión vía API n8n: `active: true`)
+- End-to-end validado en navegador
+
+✅ PENDIENTES MANUALES (completados):
+- Crear Tally ODq4kK (verificado en esta sesión: ejecuciones reales del webhook con `formId: "ODq4kK"`, `formName: "Alta de cliente"`)
+- Conectar webhook n8n (verificado en esta sesión: workflow "Seguimiento - Alta cliente" activo, procesando submissions reales end-to-end)
+- Rellenar `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` (`https://tally.so/r/ODq4kK`) en `.env.local` y en Vercel (confirmado por el usuario que ya está puesta en Vercel; no se pudo verificar directamente desde esta sesión, sin acceso a las env vars de Vercel)
+
+---
+
 ## CONTEXTO DEL NEGOCIO
 
 **Negocio:** Automatizaciones con IA para entrenadores personales / nutricionistas online.

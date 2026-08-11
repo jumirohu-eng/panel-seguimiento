@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — noche, sesión 4)
 
-Commit: pendiente de referenciar (ver commit siguiente)
+Commit: `01e5cb2`
 
 ⚠️ INVESTIGADO PERO NO RESUELTO DEL TODO (esta sesión) — **link de reset de contraseña apuntando a localhost**:
 

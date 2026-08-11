@@ -36,12 +36,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 })
   }
 
+  // Optimistic locking: si el cliente trae el last_modified que leyó y ya no coincide
+  // con el actual, alguien más (Airtable UI, n8n, otra pestaña) tocó el registro entretanto.
+  if (
+    typeof body?.lastModified === 'string' &&
+    cliente.fields.Last_modified &&
+    body.lastModified !== cliente.fields.Last_modified
+  ) {
+    return NextResponse.json(
+      { error: 'Este registro fue modificado por otra persona. Recarga e intenta de nuevo.' },
+      { status: 409 }
+    )
+  }
+
   try {
     const actualizado = await actualizarCliente(id, fields)
     return NextResponse.json({
       id: actualizado.id,
       estado: actualizado.fields.Estado ?? '',
       notasEntrenador: actualizado.fields.Notas_entrenador ?? '',
+      lastModified: actualizado.fields.Last_modified ?? '',
     })
   } catch (err) {
     console.error('Error al actualizar cliente en Airtable', err)

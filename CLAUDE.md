@@ -1,26 +1,34 @@
 # 🚀 CLAUDE.md — Dashboard Seguimiento para Entrenadores
 
-## ESTADO ACTUAL (11 ago 2026 — tarde)
+## ESTADO ACTUAL (11 ago 2026 — noche)
 
-Commit: `f3fe44e`
+Commit: pendiente de referenciar (ver commit siguiente)
 
-✅ COMPLETADO:
+✅ COMPLETADO (brief "Tareas Inmediatas" de esta sesión):
+- **Tarea 1 (verificación)**: las 5 piezas de la reestructuración admin ya existían y funcionan (`/dashboard`, `/admin`, `/metricas`, `GET /api/admin/alertas-stats`, `AdminNavDropdown`) — no se tocó nada
+- **Tarea 5**: filtro de `ClientesLista` ahora tiene 4 opciones en orden Alertas/Activos/Inactivos/Todos (antes solo Activos/Inactivos/Todos), default sigue siendo Activos. "Alertas" = `tieneAlerta`
+- **Tarea 4**: tooltip real (no `title` nativo) sobre el icono ⚠️ de la lista de clientes, con resumen de hasta 100 caracteres de `Análisis IA` del último reporte con alerta (fallback a `Mensaje sugerido` si el análisis viniera vacío). Nuevo campo `alertaResumen` en `Cliente` y helper `truncateResumen()` en `lib/format.ts`
+- **Tarea 3**: el link de Tally de alta ahora se genera **server-side** en `POST /api/clientes` (antes se generaba en el cliente, en `RegistrarClienteModal`) y se guarda en el nuevo campo Airtable `Link_tally_alta`. Se muestra en `ClienteFicha` con botón "Copiar", así el entrenador puede reenviarlo sin pasar por el modal de alta. Verificado en n8n que "Seguimiento - Alta cliente" → nodo "Actualizar cliente" hace un `update` directo (sobrescribe, nunca acumula) — sin cambios necesarios en el workflow
+- **Tarea 6**: nueva sección "Métricas de entrenadores" en `/metricas` (total histórico, evolución mensual Total/Activos/Prueba, desglose por Estado, entrenadores por plan) — sin tocar las métricas de clientes que ya existían. Nuevo tipo `MetricasEntrenadores`, ampliado `/api/admin/metricas-negocio`
+- **Tarea 2**: optimistic locking en `PATCH /api/clientes/[id]` y `PUT /api/admin/entrenadores/[email]`. Ver decisión técnica 31 (por qué no es un campo "Last modified time" nativo) y 32 (patrón de conflicto)
+- Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. **No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión, igual que en sesiones anteriores)
+
+✅ COMPLETADO (sesión anterior):
 - Feature 3: Registro de clientes con Tally pre-rellenado (modal + link + Airtable + webhook)
 - Feature 1: Mensaje sugerido como dropdown
 - Feature 2: Notas del entrenador en ficha cliente
 - Feature 4: Botón "Dar de baja" → Estado=Perdido
-- Feature 5: Filtro Activos/Inactivos
+- Feature 5: Filtro Activos/Inactivos (ver Tarea 5 arriba, ampliado en esta sesión)
 - Cambios /planes: puramente informativa + CTA WhatsApp
 - Sección "Tus planes" en /dashboard
-- Workflow "Snapshot mensual" activado (verificado en esta sesión vía API n8n: `active: true`)
-- End-to-end validado en navegador
+- Workflow "Snapshot mensual" activado (verificado vía API n8n: `active: true`)
 - **Bug fix workflow n8n "Seguimiento - Alta cliente"**: el nodo "Formatear datos" no extraía `objetivo`/`entrenamientos_objetivo`/`notas_iniciales` porque Tally envía el texto literal de la pregunta como `label`, no un slug (y `objetivo` es tipo `DROPDOWN`, no `MULTIPLE_CHOICE`). Corregido con mapeo de labels + resolución genérica de campos tipo choice, y probado end-to-end con datos reales (ejecuciones n8n 54/55/56, sin campos nulos). Ver N8N WORKFLOWS y decisión técnica 30
 - Verificado que "Recepción entrenador" está realmente **ACTIVO** en n8n (ya no era solo drift de documentación) — con la credencial Resend aún en placeholder, cualquier submission real fallaría al enviar el email
 
 ✅ PENDIENTES MANUALES (completados):
-- Crear Tally ODq4kK (verificado en esta sesión: ejecuciones reales del webhook con `formId: "ODq4kK"`, `formName: "Alta de cliente"`)
-- Conectar webhook n8n (verificado en esta sesión: workflow "Seguimiento - Alta cliente" activo, procesando submissions reales end-to-end)
-- Rellenar `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` (`https://tally.so/r/ODq4kK`) en `.env.local` y en Vercel (confirmado por el usuario que ya está puesta en Vercel; no se pudo verificar directamente desde esta sesión, sin acceso a las env vars de Vercel)
+- Crear Tally ODq4kK (verificado: ejecuciones reales del webhook con `formId: "ODq4kK"`, `formName: "Alta de cliente"`)
+- Conectar webhook n8n (verificado: workflow "Seguimiento - Alta cliente" activo, procesando submissions reales end-to-end)
+- Rellenar `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` (`https://tally.so/r/ODq4kK`) en `.env.local` y en Vercel (confirmado por el usuario que ya está puesta en Vercel)
 
 ---
 
@@ -121,6 +129,8 @@ jumirohu@gmail.com → admin del dashboard
 | Entrenador_nuevo | Colaborador único | **Vestigial, no usar.** Casi nunca está poblado en datos reales (solo 1 de 4 clientes de prueba). No es fuente fiable de entrenador — usar siempre el campo `Entrenador` (texto) |
 | Notas_entrenador | Texto largo (NEW) | Notas privadas del entrenador sobre el cliente, editable desde la ficha de cliente (`/dashboard`), autoguardado con debounce. No es analizado por IA |
 | Notas_iniciales | Texto largo (NEW) | Lo que el cliente escribe al registrarse, vía el Tally nuevo de alta (ver N8N WORKFLOWS → "Seguimiento - Alta cliente"). Se muestra de solo lectura en la ficha de cliente |
+| Link_tally_alta | URL (NEW) | Link de Tally de alta pre-rellenado (nombre/email/telefono/entrenador), generado **server-side** en `POST /api/clientes` y guardado en el registro al crearlo. Se muestra en la ficha de cliente con botón "Copiar" para reenviarlo si el cliente necesita rellenar el formulario de nuevo (ver decisión técnica 33) |
+| Last_modified | Fórmula `DATETIME_FORMAT(LAST_MODIFIED_TIME(), 'YYYY-MM-DDTHH:mm:ss.SSS')` (NEW) | Timestamp de última modificación del registro, cualquier campo. Usado para optimistic locking (ver decisión técnica 31). No es un campo "Last modified time" nativo — ver por qué en esa decisión |
 
 ### Tabla "Reportes" (tbljT33LCBLT6NoKf)
 | Campo | Tipo | Notas |
@@ -139,6 +149,7 @@ jumirohu@gmail.com → admin del dashboard
 | Cliente_Estado | Lookup | Estado (Activo/Pausado/Perdido) del cliente, para la Interface de Airtable "Resumen lunes". No se usa desde esta app |
 | Estado semanal | Fórmula | Badge calculado (Pendiente/Alerta/Bien) para la Interface de Airtable, replica la lógica de `StatusBadge.tsx`. No se usa desde esta app |
 | Cliente_Entrenador | Lookup (vía `Entrenador_nuevo`) | **No fiable, no usar para agrupar por entrenador.** Depende del campo vestigial `Entrenador_nuevo` de Clientes, casi nunca poblado. Para resolver el entrenador de un reporte, cruzar `Cliente_Email` contra `Clientes.Entrenador` |
+| Last_modified | Fórmula (NEW, mismo patrón que Clientes/Entrenadores) | Timestamp de última modificación. Añadido por consistencia con las otras dos tablas afectadas por concurrencia (ver decisión técnica 31), pero **la app no escribe nunca en Reportes** (solo n8n), así que no hay optimistic locking real aplicado aquí — no hace falta, no hay endpoint de escritura en esta tabla desde la app |
 
 ### Tabla "Invitaciones" (tblzr50mLzLgnIsVg)
 | Campo | Tipo | Notas |
@@ -168,6 +179,7 @@ Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Ent
 | Permite_marketing | Checkbox | Consentimiento para usar métricas en agregados de marketing. Default desmarcado |
 | Consentimiento_IA | Checkbox (NEW) | Confirmación del entrenador de que informará a sus clientes sobre el uso de IA, al activar Seguimiento. Se guarda desde `POST /api/entrenador/consentimiento-ia` |
 | Consentimiento_IA_fecha | DateTime (NEW) | Europe/Madrid. Timestamp de cuándo se aceptó el consentimiento |
+| Last_modified | Fórmula (NEW) | Timestamp de última modificación del registro. Usado para optimistic locking en `PUT /api/admin/entrenadores/[email]` (ver decisión técnica 31) |
 
 ### Tabla "Snapshots" (tbliaBxJa4GIYoHId)
 | Campo | Tipo | Notas |
@@ -221,8 +233,8 @@ panel-seguimiento/
 │ │ ├── trainer/
 │ │ │ └── metricas/[clienteId]/page.tsx # Placeholder "Próximamente" (NEW). Destino del botón "Ver métricas" de ClienteFicha, gateado por Soluciones incluye "Metricas"
 │ │ └── api/
-│ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta, notasEntrenador, notasIniciales) + POST crea cliente (Nombre/Email/Teléfono, Entrenador=logueado, Estado=Activo) (NEW)
-│ │ ├── clientes/[id]/route.ts # PATCH notasEntrenador y/o estado, verifica ownership (Entrenador===email autenticado) (NEW)
+│ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta, alertaResumen, notasEntrenador, notasIniciales, linkTallyAlta, lastModified) + POST crea cliente (Nombre/Email/Teléfono, Entrenador=logueado, Estado=Activo) y genera+guarda Link_tally_alta server-side (NEW)
+│ │ ├── clientes/[id]/route.ts # PATCH notasEntrenador y/o estado, verifica ownership (Entrenador===email autenticado) + optimistic locking por lastModified (409 si no coincide) (NEW)
 │ │ ├── reportes/route.ts # GET reportes paginados del cliente ({reportes, offset}, pageSize=7, ?offset= para "Ver más")
 │ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace)
 │ │ ├── entrenador/consentimiento-ia/route.ts # POST guarda Consentimiento_IA + Consentimiento_IA_fecha del entrenador logueado
@@ -236,15 +248,15 @@ panel-seguimiento/
 │ │ ├── log-activity/route.ts # POST actualiza Último_login (fire-and-forget desde login)
 │ │ ├── resumen-negocio/route.ts # GET tarjetas + evolución entrenadores + soluciones (consumido por /dashboard)
 │ │ ├── alertas/route.ts # GET alertas "requiere tu atención" (consumido por /admin)
-│ │ ├── metricas-negocio/route.ts # GET clientes históricos + evolución clientes + métricas de impacto (consumido por /metricas)
+│ │ ├── metricas-negocio/route.ts # GET clientes históricos + evolución clientes + métricas de impacto + métricas de entrenadores (total histórico, evolución mensual, por estado, por plan) (consumido por /metricas) (NEW: bloque de entrenadores)
 │ │ ├── alertas-stats/route.ts # GET histórico de alertas: total, por mes, por entrenador (consumido por /metricas)
 │ │ └── entrenadores/
 │ │ ├── route.ts # GET lista + POST crear entrenador
-│ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar + DELETE (borra Airtable + usuario Supabase si existe) (NEW)
+│ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación, lastModified) + PUT actualizar (optimistic locking por lastModified, 409 si no coincide) + DELETE (borra Airtable + usuario Supabase si existe) (NEW: locking)
 │ ├── components/
-│ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filtro Todos/Activos/Inactivos (default Activos) + filas (Nombre/Objetivo/Estado/alerta), click abre ficha + botón "+ Registrar cliente" (NEW)
-│ │ ├── ClienteFicha.tsx # Vista entrenador: info + botón "Dar de baja" (confirmación inline, Estado→Perdido) + notas del entrenador (autoguardado) + notas iniciales del cliente (solo lectura) + últimos 7 reportes + "Ver más" + botón WhatsApp + botón "Ver métricas" (si Soluciones incluye Metricas)
-│ │ ├── RegistrarClienteModal.tsx # Modal Nombre/Email/Teléfono → POST /api/clientes → genera link Tally de alta (NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL + query params) + "Copiar al portapapeles" (NEW)
+│ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filtro Alertas/Activos/Inactivos/Todos (default Activos) + filas (Nombre/Objetivo/Estado/alerta con tooltip de resumen), click abre ficha + botón "+ Registrar cliente" (NEW: filtro Alertas + tooltip)
+│ │ ├── ClienteFicha.tsx # Vista entrenador: info + botón "Dar de baja" (confirmación inline, Estado→Perdido) + notas del entrenador (autoguardado, con optimistic locking) + notas iniciales del cliente (solo lectura) + link de Tally de alta (botón Copiar) + últimos 7 reportes + "Ver más" + botón WhatsApp + botón "Ver métricas" (si Soluciones incluye Metricas). Banner de conflicto con botón "Recargar" si otro proceso modificó el registro entretanto (NEW)
+│ │ ├── RegistrarClienteModal.tsx # Modal Nombre/Email/Teléfono → POST /api/clientes (genera y guarda Link_tally_alta server-side) → "Copiar al portapapeles" (NEW: link ya no se genera client-side)
 │ │ ├── Marketplace.tsx # Grid de productos, cruce con Soluciones del entrenador, modal "Más información". "Activar ahora" oculto si en_uso; para Seguimiento abre el modal de consentimiento IA en vez de WhatsApp. Solo accesible desde `/dashboard` (ver decisión 27)
 │ │ ├── PlanesActivosResumen.tsx # Primera sección de `/dashboard` (vista entrenador): tarjetas de PRODUCTOS (sin Referidos) con copy de content/plans-copy.ts, badge "En uso" o CTA WhatsApp (nunca self-service) (NEW)
 │ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta. Usa lib/estadoReporte.ts
@@ -259,7 +271,7 @@ panel-seguimiento/
 │ │ ├── DashboardResumenView.tsx # Tarjetas + evolución entrenadores + soluciones (/dashboard)
 │ │ ├── AlertasPanel.tsx # Sección "Requiere tu atención" (/admin)
 │ │ ├── AplicacionesPanel.tsx # Links a Airtable/n8n/Supabase (/admin)
-│ │ └── MetricasView.tsx # Tarjetas + evolución clientes + alertas por mes + métricas de impacto (/metricas)
+│ │ └── MetricasView.tsx # Tarjetas + evolución clientes + alertas por mes + métricas de impacto + sección "Métricas de entrenadores" (total histórico, evolución mensual, desglose por estado, por plan) (/metricas) (NEW: sección entrenadores)
 │ ├── content/
 │ │ └── plans-copy.ts # PLANES_COPY: headline/subheadline, copy por producto (problema/features/resultados), comparativa sin-vs-con automatización, pricingNote. Fuente única usada por PlanesCards.tsx y PlanesActivosResumen.tsx (NEW)
 │ └── lib/
@@ -308,7 +320,10 @@ panel-seguimiento/
 27. **Marketplace (con su self-service de Seguimiento, decisión 19) solo vive en `/dashboard`**: prop `showMarketplace` en `Header.tsx` (default `true`) controla el botón 🏪; solo `/planes` pasa `false`. Como `/planes` es la única página que ven entrenadores con 0 planes (gate `tienePlanBase()` en `/dashboard`) y `/dashboard` solo lo alcanzan quienes ya tienen ≥1 plan, esto cierra el hueco por el que un entrenador sin plan podía llegar al self-service de Seguimiento desde `/planes` — sin tocar la lógica de decisión 19. La nueva sección "Tus planes" de `/dashboard` (`PlanesActivosResumen.tsx`) es deliberadamente **siempre WhatsApp** para planes no contratados (nunca abre el modal de consentimiento), distinta del tab "Marketplace" que sigue siendo self-service para Seguimiento
 28. **"Dar de baja" cliente = `Estado` → `Perdido`, no "Inactivo"**: el campo `Clientes.Estado` es un `singleSelect` con solo Activo/Pausado/Perdido como choices, y ninguna herramienta MCP disponible permite añadir un choice nuevo a un select existente (mismo límite que el pendiente histórico de "Metricas" en `Entrenadores.Soluciones`). Se reusa `Perdido`, que además ya es el estado sobre el que `lib/productos.ts` define que actuará el futuro producto Recuperación — "dar de baja" y "candidato a recuperación" son el mismo estado. El filtro Activos/Inactivos de `ClientesLista.tsx` es `estado === 'Activo'` vs `estado !== 'Activo'` (cubre Pausado+Perdido), sin campos nuevos en Airtable
 29. **Alta de cliente vía Tally**: el Tally existente (`tally.so/r/5BYDQM`) es el check-in semanal (Peso/Entrenamientos/Energía/Notas → crea un `Reporte`) — no se reutiliza para altas. El flujo de alta usa un Tally **nuevo**, ya creado (`tally.so/r/ODq4kK`, formId `ODq4kK`, ver N8N WORKFLOWS): la app crea el `Cliente` en Airtable (Nombre/Email/Teléfono) desde `RegistrarClienteModal.tsx`, genera un link a ese Tally con esos 3 datos precargados como campos ocultos + `entrenador`, y el cliente solo rellena `Objetivo`/`Entrenamientos_objetivo`/`Notas_iniciales` — el workflow n8n "Seguimiento - Alta cliente" hace PATCH al `Cliente` ya existente (nunca crea uno nuevo)
-30. **Matching de campos Tally por `label`, no por slug exacto**: en Tally, el "Reference ID" fijable a un slug corto (`nombre`, `email`, `telefono`, `entrenador`) solo existe para **Hidden Fields**. Los campos visibles que rellena el usuario (`objetivo`, `entrenamientos_objetivo`, `notas_iniciales`) llegan con el **texto literal de la pregunta** como `label` (p. ej. `"¿Cuál es tu objetivo?"`), no con el slug — descubierto al depurar el bug del nodo "Formatear datos" de "Seguimiento - Alta cliente" (ver N8N WORKFLOWS). Por eso el Code node matchea cada campo contra una lista de labels aceptados (slug + texto real de la pregunta), en vez de un único string exacto — sobrevive a que se reformule la pregunta en Tally sin tocar código, y sigue funcionando si en el futuro se le pone un slug real. Aplica al patrón general de cualquier workflow que lea un Tally por `label` (`Seguimiento - Resumen&Alerta` incluido, no auditado todavía con este mismo criterio)
+31. **`Last_modified` es un campo fórmula `DATETIME_FORMAT(LAST_MODIFIED_TIME(), 'YYYY-MM-DDTHH:mm:ss.SSS')`, no un campo nativo "Last modified time"**: la Metadata API de Airtable (usada por las herramientas MCP disponibles) no permite crear campos de tipo `lastModifiedTime`/`createdTime` — el enum de tipos creables vía API no los incluye (mismo tipo de límite ya documentado para el choice "Metricas" y el estado "Perdido", ver decisiones 20/28). Workaround: un campo `formula` con `LAST_MODIFIED_TIME()` tiene exactamente el mismo comportamiento (se actualiza automáticamente ante cualquier edición del registro, sea desde la app, n8n o el UI de Airtable) y **sí** es creable vía API. Se envolvió en `DATETIME_FORMAT(...)` para forzar salida como texto ISO con milisegundos — sin esto, el campo se crea con formato de solo-fecha (`M/D/YYYY`) y perdería la precisión necesaria para detectar ediciones dentro del mismo día. Verificado leyendo un registro real tras crear el campo: devuelve `"2026-08-10T09:21:10.000"`. Aplicado a Clientes, Reportes y Entrenadores (tablas del brief de concurrencia)
+32. **Optimistic locking (concurrencia)**: `PATCH /api/clientes/[id]` y `PUT /api/admin/entrenadores/[email]` aceptan un campo `lastModified` en el body (el valor que el frontend leyó al cargar la ficha). Antes de escribir, el backend relee el registro (ya lo hacía para el chequeo de ownership/existencia) y compara su `Last_modified` actual contra el recibido — si ambos existen y difieren, responde `409` con `{ error: 'Este registro fue modificado por otra persona. Recarga e intenta de nuevo.' }` sin llegar a escribir. Si cualquiera de los dos valores está vacío (registro creado antes de que existiera el campo, o frontend que aún no lo tiene) se omite el chequeo y se permite escribir — evita bloquear registros antiguos sin histórico. Las respuestas de éxito devuelven el `lastModified` actualizado, que el frontend guarda en su estado (en `ClienteFicha` vía `onUpdated` → `dashboard/page.tsx` recalcula el cliente seleccionado desde la lista; en la ficha de entrenador vía `loadEntrenador()` tras cada guardado) para que la siguiente escritura de la misma sesión compare contra el valor correcto. En conflicto: `ClienteFicha` muestra un banner con botón "Recargar" (no hay endpoint de refetch de un único cliente); la ficha de entrenador refresca automáticamente (`loadEntrenador()`) porque sí tiene ese GET. **No aplica a Reportes** (la app no tiene ningún endpoint de escritura sobre esa tabla, solo n8n escribe ahí)
+33. **Link de Tally de alta ahora se genera server-side, no client-side**: antes `RegistrarClienteModal.tsx` construía el link con `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` + query params después de recibir la respuesta del POST. Ahora `POST /api/clientes` genera el mismo link (usando `process.env.NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL`, que también está disponible server-side pese al prefijo) y lo guarda en `Clientes.Link_tally_alta` en la misma escritura de creación — así queda persistido en Airtable y se puede reenviar desde la ficha del cliente sin depender de que el modal siga abierto. Efecto colateral: la prop `entrenadorEmail` de `RegistrarClienteModal`/`ClientesLista` quedó sin uso (ya no hace falta para construir el link) y se eliminó de los tres componentes de la cadena (`RegistrarClienteModal` → `ClientesLista` → `dashboard/page.tsx`)
+34. **Matching de campos Tally por `label`, no por slug exacto**: en Tally, el "Reference ID" fijable a un slug corto (`nombre`, `email`, `telefono`, `entrenador`) solo existe para **Hidden Fields**. Los campos visibles que rellena el usuario (`objetivo`, `entrenamientos_objetivo`, `notas_iniciales`) llegan con el **texto literal de la pregunta** como `label` (p. ej. `"¿Cuál es tu objetivo?"`), no con el slug — descubierto al depurar el bug del nodo "Formatear datos" de "Seguimiento - Alta cliente" (ver N8N WORKFLOWS). Por eso el Code node matchea cada campo contra una lista de labels aceptados (slug + texto real de la pregunta), en vez de un único string exacto — sobrevive a que se reformule la pregunta en Tally sin tocar código, y sigue funcionando si en el futuro se le pone un slug real. Aplica al patrón general de cualquier workflow que lea un Tally por `label` (`Seguimiento - Resumen&Alerta` incluido, no auditado todavía con este mismo criterio)
 
 ---
 
@@ -382,6 +397,8 @@ Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, f
 
 `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` ya está rellenada (`https://tally.so/r/ODq4kK`) en `.env.local` y, según confirma el usuario, en Vercel.
 
+**Verificado en esta sesión (Tarea 3 del brief de concurrencia/Tally) que el workflow sobrescribe, no acumula**: el nodo "Actualizar cliente" es una operación `update` de Airtable con los 3 campos mapeados directamente a los valores de la última submission (`$('Formatear datos').item.json...`) — no hay ninguna lógica de concatenación/append, así que si el cliente rellena el Tally más de una vez, `Objetivo`/`Entrenamientos_objetivo`/`Notas_iniciales` quedan con los valores de la última vez, tal como pedía el brief. No hizo falta tocar el workflow.
+
 ---
 
 ## FLUJO DE TRABAJO (Claude Code vs Este Chat)
@@ -443,6 +460,7 @@ Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, f
 - [x] Bug en nodo "Formatear datos" de "Seguimiento - Alta cliente": no extraía `objetivo`/`entrenamientos_objetivo`/`notas_iniciales`/`nombre`/`telefono`/`entrenador` — corregido y probado end-to-end con datos reales en esta sesión. Ver N8N WORKFLOWS y decisión técnica 30
 - [x] Workflow n8n "Snapshot mensual" activado — verificado vía API n8n (`active: true`). Sigue pendiente verificar el conteo de su primera ejecución real contra Airtable (ver N8N WORKFLOWS)
 - [x] Nota de drift resuelta: "Recepción entrenador" está confirmado **activo** en n8n (no era solo desactualización de docs) — riesgo real: la credencial Resend sigue siendo un placeholder, así que los emails de ese workflow fallarían hoy con submissions reales (ver pendiente de API key arriba)
+- [x] Brief "Tareas Inmediatas" (6 tareas, esta sesión): Tarea 1 verificada sin cambios, Tarea 5 (filtro Alertas), Tarea 4 (tooltip resumen de alerta), Tarea 3 (link Tally guardado server-side + botón Copiar en ficha, verificado que n8n sobrescribe), Tarea 6 (métricas de entrenadores en /metricas), Tarea 2 (optimistic locking con campo `Last_modified` fórmula en Clientes/Reportes/Entrenadores). Ver decisiones técnicas 31-33. **No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión) — solo verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Pendiente de probar manualmente: filtro Alertas, tooltip de resumen, botón Copiar del link Tally, gráficas nuevas de /metricas, y el flujo de conflicto 409 (editar el mismo cliente/entrenador desde Airtable UI mientras la app tiene la ficha abierta)
 
 ---
 

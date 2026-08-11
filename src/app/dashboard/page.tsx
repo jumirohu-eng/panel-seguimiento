@@ -157,7 +157,6 @@ export default function DashboardPage() {
             <ClientesLista
               clientes={clientes}
               onSelect={handleSelect}
-              entrenadorEmail={email ?? ''}
               onClienteCreado={handleClienteCreado}
             />
           ))}

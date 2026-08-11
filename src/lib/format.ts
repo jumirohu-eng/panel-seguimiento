@@ -19,3 +19,9 @@ export function formatDateTime(iso: string) {
     minute: '2-digit',
   })
 }
+
+export function truncateResumen(texto: string, maxLength = 100) {
+  const limpio = texto.trim().split('\n')[0].trim()
+  if (limpio.length <= maxLength) return limpio
+  return `${limpio.slice(0, maxLength - 1).trimEnd()}…`
+}

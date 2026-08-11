@@ -8,8 +8,11 @@ export interface Cliente {
   entrenamientos_objetivo: number
   linkRecordatorio: string
   tieneAlerta: boolean
+  alertaResumen: string
   notasEntrenador: string
   notasIniciales: string
+  linkTallyAlta: string
+  lastModified: string
 }
 
 export interface Reporte {
@@ -61,6 +64,7 @@ export interface SnapshotPunto {
 export interface EntrenadorDetalle extends Entrenador {
   snapshots: SnapshotPunto[]
   invitacion: Invitacion | null
+  lastModified: string
 }
 
 export interface AlertaNegocio {
@@ -103,8 +107,16 @@ export interface AtencionResponse {
   alertas: AlertaNegocio[]
 }
 
+export interface MetricasEntrenadores {
+  total_entrenadores_historico: number
+  evolucion_entrenadores_mensual: EvolucionEntrenadoresPunto[]
+  entrenadores_por_estado: { estado: string; count: number }[]
+  entrenadores_por_plan: { solucion: string; count: number }[]
+}
+
 export interface MetricasNegocio {
   total_clientes_historicos: number
   evolucion_clientes_mensual: { mes: string; total_clientes: number }[]
   metricas_impacto: MetricasImpacto | null
+  metricas_entrenadores: MetricasEntrenadores
 }

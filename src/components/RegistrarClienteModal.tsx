@@ -4,19 +4,10 @@ import { useState, FormEvent } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Cliente } from '@/lib/types'
 
-function linkTallyAlta(nombre: string, email: string, telefono: string, entrenador: string): string | null {
-  const base = process.env.NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL
-  if (!base) return null
-  const params = new URLSearchParams({ nombre, email, telefono, entrenador })
-  return `${base}?${params.toString()}`
-}
-
 export default function RegistrarClienteModal({
-  entrenadorEmail,
   onClose,
   onCreated,
 }: {
-  entrenadorEmail: string
   onClose: () => void
   onCreated: (cliente: Cliente) => void
 }) {
@@ -57,11 +48,14 @@ export default function RegistrarClienteModal({
         entrenamientos_objetivo: 0,
         linkRecordatorio: '',
         tieneAlerta: false,
+        alertaResumen: '',
         notasEntrenador: '',
         notasIniciales: '',
+        linkTallyAlta: creado.linkTallyAlta ?? '',
+        lastModified: creado.lastModified ?? '',
       })
 
-      setLink(linkTallyAlta(creado.nombre, creado.email, creado.telefono, entrenadorEmail))
+      setLink(creado.linkTallyAlta || null)
       setLinkGenerado(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al crear el cliente')

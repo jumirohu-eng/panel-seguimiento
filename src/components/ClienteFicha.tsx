@@ -42,6 +42,8 @@ export default function ClienteFicha({
   const [confirmandoBaja, setConfirmandoBaja] = useState(false)
   const [dandoBaja, setDandoBaja] = useState(false)
   const [errorBaja, setErrorBaja] = useState<string | null>(null)
+  const [copiadoLinkTally, setCopiadoLinkTally] = useState(false)
+  const [conflictoError, setConflictoError] = useState<string | null>(null)
   const notasTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getToken = useCallback(async () => {
@@ -66,17 +68,21 @@ export default function ClienteFicha({
           const res = await fetch(`/api/clientes/${cliente.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ notasEntrenador: value }),
+            body: JSON.stringify({ notasEntrenador: value, lastModified: cliente.lastModified }),
           })
-          if (!res.ok) throw new Error('No se pudieron guardar las notas')
+          const data = await res.json().catch(() => null)
+          if (!res.ok) {
+            if (res.status === 409) setConflictoError(data?.error ?? 'Conflicto al guardar.')
+            throw new Error(data?.error ?? 'No se pudieron guardar las notas')
+          }
           setEstadoGuardado('guardado')
-          onUpdated?.({ id: cliente.id, notasEntrenador: value })
+          onUpdated?.({ id: cliente.id, notasEntrenador: value, lastModified: data?.lastModified })
         } catch {
           setEstadoGuardado('idle')
         }
       }, 800)
     },
-    [cliente.id, getToken, onUpdated]
+    [cliente.id, cliente.lastModified, getToken, onUpdated]
   )
 
   const handleDarBaja = useCallback(async () => {
@@ -87,17 +93,25 @@ export default function ClienteFicha({
       const res = await fetch(`/api/clientes/${cliente.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ estado: 'Perdido' }),
+        body: JSON.stringify({ estado: 'Perdido', lastModified: cliente.lastModified }),
       })
-      if (!res.ok) throw new Error('No se pudo dar de baja al cliente')
-      onUpdated?.({ id: cliente.id, estado: 'Perdido' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error ?? 'No se pudo dar de baja al cliente')
+      onUpdated?.({ id: cliente.id, estado: 'Perdido', lastModified: data?.lastModified })
       onBack()
-    } catch {
-      setErrorBaja('Error al dar de baja al cliente. Inténtalo de nuevo.')
+    } catch (err) {
+      setErrorBaja(err instanceof Error ? err.message : 'Error al dar de baja al cliente. Inténtalo de nuevo.')
     } finally {
       setDandoBaja(false)
     }
-  }, [cliente.id, getToken, onBack, onUpdated])
+  }, [cliente.id, cliente.lastModified, getToken, onBack, onUpdated])
+
+  const handleCopyLinkTally = useCallback(async () => {
+    if (!cliente.linkTallyAlta) return
+    await navigator.clipboard.writeText(cliente.linkTallyAlta)
+    setCopiadoLinkTally(true)
+    setTimeout(() => setCopiadoLinkTally(false), 2000)
+  }, [cliente.linkTallyAlta])
 
   useEffect(() => {
     async function cargarPerfil() {
@@ -162,6 +176,19 @@ export default function ClienteFicha({
       <button type="button" onClick={onBack} className="w-fit text-sm text-muted hover:text-primary">
         ← Volver a clientes
       </button>
+
+      {conflictoError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger/10 p-4">
+          <p className="text-sm text-card-foreground">{conflictoError}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90"
+          >
+            Recargar
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
         <div>
@@ -255,6 +282,21 @@ export default function ClienteFicha({
           <div className="mt-1 rounded-lg bg-background p-3">
             <p className="mb-1 text-xs font-medium text-muted">Notas del cliente al registrarse</p>
             <p className="whitespace-pre-wrap text-sm text-card-foreground">{cliente.notasIniciales}</p>
+          </div>
+        )}
+        {cliente.linkTallyAlta && (
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background p-3">
+            <div className="min-w-0">
+              <p className="mb-1 text-xs font-medium text-muted">Link de alta (Tally)</p>
+              <p className="truncate text-xs text-muted">{cliente.linkTallyAlta}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyLinkTally}
+              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card"
+            >
+              {copiadoLinkTally ? '¡Copiado!' : 'Copiar'}
+            </button>
           </div>
         )}
       </div>

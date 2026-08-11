@@ -142,10 +142,16 @@ export default function EntrenadorFichaPage() {
           soluciones,
           precioMensual: precio ? Number(precio) : 0,
           notas,
+          lastModified: entrenador?.lastModified,
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Error al guardar los cambios')
+      if (!res.ok) {
+        setSaveError(data.error ?? 'Error al guardar los cambios')
+        // Conflicto: refrescamos para traer el lastModified vigente y los datos reales
+        if (res.status === 409) await loadEntrenador()
+        return
+      }
       setToast('✅ Cambios guardados')
       await loadEntrenador()
     } catch (err) {

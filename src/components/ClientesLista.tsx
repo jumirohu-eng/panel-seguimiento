@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Cliente } from '@/lib/types'
 import RegistrarClienteModal from './RegistrarClienteModal'
+import Tooltip from './Tooltip'
 
 const ESTADO_BADGE: Record<string, string> = {
   Activo: 'bg-success/10 text-success',
@@ -10,17 +11,15 @@ const ESTADO_BADGE: Record<string, string> = {
   Perdido: 'bg-danger/10 text-danger',
 }
 
-type FiltroEstado = 'todos' | 'activos' | 'inactivos'
+type FiltroEstado = 'alertas' | 'activos' | 'inactivos' | 'todos'
 
 export default function ClientesLista({
   clientes,
   onSelect,
-  entrenadorEmail,
   onClienteCreado,
 }: {
   clientes: Cliente[]
   onSelect: (id: string) => void
-  entrenadorEmail: string
   onClienteCreado: (cliente: Cliente) => void
 }) {
   const [busqueda, setBusqueda] = useState('')
@@ -31,6 +30,7 @@ export default function ClientesLista({
     const q = busqueda.trim().toLowerCase()
     return clientes.filter((c) => {
       if (q && !c.nombre.toLowerCase().includes(q)) return false
+      if (filtroEstado === 'alertas') return c.tieneAlerta
       if (filtroEstado === 'activos') return c.estado === 'Activo'
       if (filtroEstado === 'inactivos') return c.estado !== 'Activo'
       return true
@@ -52,6 +52,7 @@ export default function ClientesLista({
           onChange={(e) => setFiltroEstado(e.target.value as FiltroEstado)}
           className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground outline-none focus:border-primary"
         >
+          <option value="alertas">Alertas</option>
           <option value="activos">Activos</option>
           <option value="inactivos">Inactivos</option>
           <option value="todos">Todos</option>
@@ -83,9 +84,9 @@ export default function ClientesLista({
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     {c.tieneAlerta && (
-                      <span title="Alerta reciente sin resolver" className="shrink-0 text-warning">
-                        ⚠️
-                      </span>
+                      <Tooltip content={c.alertaResumen || 'Alerta reciente sin resolver'}>
+                        <span className="shrink-0 text-warning">⚠️</span>
+                      </Tooltip>
                     )}
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-card-foreground">{c.nombre}</p>
@@ -108,7 +109,6 @@ export default function ClientesLista({
 
       {mostrarRegistro && (
         <RegistrarClienteModal
-          entrenadorEmail={entrenadorEmail}
           onClose={() => setMostrarRegistro(false)}
           onCreated={onClienteCreado}
         />

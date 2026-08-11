@@ -11,6 +11,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
@@ -75,6 +76,12 @@ export default function MetricasView() {
   const alertasPorMes = alertasStats.alertas_por_mes.map((d) => ({
     mes: formatMonthLabel(d.mes),
     count: d.count,
+  }))
+  const evolucionEntrenadores = metricas.metricas_entrenadores.evolucion_entrenadores_mensual.map((d) => ({
+    mes: formatMonthLabel(d.mes),
+    total_entrenadores: d.total_entrenadores,
+    total_activos: d.total_activos,
+    total_prueba: d.total_prueba,
   }))
 
   return (
@@ -168,6 +175,86 @@ export default function MetricasView() {
           </p>
         </section>
       )}
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold text-card-foreground">Métricas de entrenadores</h2>
+
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <p className="text-xs text-muted">Entrenadores registrados (histórico)</p>
+            <p className="mt-1 text-2xl font-semibold text-card-foreground">
+              {metricas.metricas_entrenadores.total_entrenadores_historico}
+            </p>
+          </div>
+          {metricas.metricas_entrenadores.entrenadores_por_estado.map((d) => (
+            <div key={d.estado} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <p className="text-xs text-muted">{d.estado}</p>
+              <p className="mt-1 text-2xl font-semibold text-card-foreground">{d.count}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-card-foreground">
+              Evolución de entrenadores
+            </h3>
+            {evolucionEntrenadores.length === 0 ? (
+              <p className="py-10 text-center text-sm text-muted">Sin datos todavía</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={evolucionEntrenadores} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="mes" tick={{ fontSize: 12 }} stroke="var(--muted)" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} stroke="var(--muted)" />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="total_entrenadores"
+                    name="Total"
+                    stroke="var(--primary)"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="total_activos"
+                    name="Activos"
+                    stroke="var(--success)"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="total_prueba"
+                    name="Prueba"
+                    stroke="var(--warning)"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-card-foreground">Entrenadores por plan</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={metricas.metricas_entrenadores.entrenadores_por_plan}
+                margin={{ top: 8, right: 8, left: -10, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="solucion" tick={{ fontSize: 12 }} stroke="var(--muted)" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} stroke="var(--muted)" />
+                <Tooltip formatter={(value) => [value, 'Entrenadores']} />
+                <Bar dataKey="count" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

@@ -68,6 +68,7 @@ export async function GET(
       clientesActivos: clientesActivos[email] ?? 0,
       linkWhatsapp: entrenadorRecord.fields.Link_whatsapp ?? '',
       ultimoLogin: entrenadorRecord.fields['Último_login'] ?? null,
+      lastModified: entrenadorRecord.fields.Last_modified ?? '',
       snapshots: snapshots.map((s) => ({
         fecha: s.fields.Fecha,
         clientesActivos: s.fields.Clientes_activos,
@@ -105,6 +106,19 @@ export async function PUT(
       return NextResponse.json({ error: 'Entrenador no encontrado' }, { status: 404 })
     }
 
+    // Optimistic locking: si el entrenador trae el last_modified que leyó y ya no
+    // coincide con el actual, alguien más (Airtable UI, otra pestaña) tocó el registro entretanto.
+    if (
+      typeof body.lastModified === 'string' &&
+      entrenadorRecord.fields.Last_modified &&
+      body.lastModified !== entrenadorRecord.fields.Last_modified
+    ) {
+      return NextResponse.json(
+        { error: 'Este registro fue modificado por otra persona. Recarga e intenta de nuevo.' },
+        { status: 409 }
+      )
+    }
+
     const fields: Partial<EntrenadorFields> = {}
     if (Array.isArray(body.soluciones)) fields.Soluciones = body.soluciones
     if (typeof body.estado === 'string') fields.Estado = body.estado
@@ -113,7 +127,11 @@ export async function PUT(
 
     const updated = await actualizarEntrenador(entrenadorRecord.id, fields)
 
-    return NextResponse.json({ success: true, id: updated.id })
+    return NextResponse.json({
+      success: true,
+      id: updated.id,
+      lastModified: updated.fields.Last_modified ?? '',
+    })
   } catch (err) {
     console.error('Error al actualizar entrenador', err)
     return NextResponse.json({ error: 'Error al actualizar entrenador' }, { status: 500 })

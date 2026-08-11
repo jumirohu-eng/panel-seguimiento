@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
 import { getClientesByEntrenador, getUltimosReportesPorClientes, crearCliente } from '@/lib/airtable'
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
+import { truncateResumen } from '@/lib/format'
+
+function linkTallyAlta(nombre: string, email: string, telefono: string, entrenador: string): string {
+  const base = process.env.NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL
+  if (!base) return ''
+  const params = new URLSearchParams({ nombre, email, telefono, entrenador })
+  return `${base}?${params.toString()}`
+}
 
 export async function GET(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
@@ -17,6 +25,8 @@ export async function GET(request: NextRequest) {
     const clientes = records.map((r) => {
       const ultimo = r.fields.Email ? ultimosReportes[r.fields.Email] : undefined
       const estadoReporte = calcularEstadoReporte(ultimo?.fecha, ultimo?.mensajeSugerido)
+      const tieneAlerta = estadoReporte === 'alerta'
+      const textoResumen = ultimo?.analisisIA?.trim() || ultimo?.mensajeSugerido?.trim() || ''
       return {
         id: r.id,
         nombre: r.fields.Nombre,
@@ -26,9 +36,12 @@ export async function GET(request: NextRequest) {
         estado: r.fields.Estado ?? '',
         entrenamientos_objetivo: r.fields.Entrenamientos_objetivo ?? 0,
         linkRecordatorio: r.fields.Link_recordatorio ?? '',
-        tieneAlerta: estadoReporte === 'alerta',
+        tieneAlerta,
+        alertaResumen: tieneAlerta && textoResumen ? truncateResumen(textoResumen) : '',
         notasEntrenador: r.fields.Notas_entrenador ?? '',
         notasIniciales: r.fields.Notas_iniciales ?? '',
+        linkTallyAlta: r.fields.Link_tally_alta ?? '',
+        lastModified: r.fields.Last_modified ?? '',
       }
     })
     return NextResponse.json(clientes)
@@ -54,12 +67,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const link = linkTallyAlta(nombre, clienteEmail, telefono, email)
     const record = await crearCliente({
       Nombre: nombre,
       Email: clienteEmail,
       'Teléfono': telefono,
       Entrenador: email,
       Estado: 'Activo',
+      ...(link ? { Link_tally_alta: link } : {}),
     })
     return NextResponse.json({
       id: record.id,
@@ -67,6 +82,8 @@ export async function POST(request: NextRequest) {
       email: record.fields.Email ?? '',
       telefono: record.fields['Teléfono'] ?? '',
       entrenador: record.fields.Entrenador,
+      linkTallyAlta: record.fields.Link_tally_alta ?? '',
+      lastModified: record.fields.Last_modified ?? '',
     })
   } catch (err) {
     console.error('Error al crear cliente en Airtable', err)

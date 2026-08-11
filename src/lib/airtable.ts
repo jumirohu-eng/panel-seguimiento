@@ -26,6 +26,8 @@ export interface ClienteFields {
   Link_recordatorio?: string
   Notas_entrenador?: string
   Notas_iniciales?: string
+  Link_tally_alta?: string
+  Last_modified?: string
 }
 
 export interface ReporteFields {
@@ -38,6 +40,7 @@ export interface ReporteFields {
   'Análisis IA'?: string
   'Mensaje sugerido'?: string
   Link_alerta?: string
+  Last_modified?: string
 }
 
 export type EstadoInvitacion = 'Activo' | 'Usado' | 'Expirado' | 'Cancelado'
@@ -67,6 +70,7 @@ export interface EntrenadorFields {
   Permite_marketing?: boolean
   Consentimiento_IA?: boolean
   Consentimiento_IA_fecha?: string
+  Last_modified?: string
 }
 
 export interface SnapshotFields {
@@ -138,6 +142,8 @@ export async function getClientesByEntrenador(email: string) {
     'Link_recordatorio',
     'Notas_entrenador',
     'Notas_iniciales',
+    'Link_tally_alta',
+    'Last_modified',
   ].forEach((f) => params.append('fields[]', f))
   const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(TABLE_CLIENTES, params)
   return data.records
@@ -187,6 +193,7 @@ export async function getReportesByClienteEmail(
 export interface UltimoReporteResumen {
   fecha?: string
   mensajeSugerido?: string
+  analisisIA?: string
 }
 
 export async function getUltimosReportesPorClientes(
@@ -201,7 +208,7 @@ export async function getUltimosReportesPorClientes(
   params.set('filterByFormula', formula)
   params.set('sort[0][field]', 'Fecha')
   params.set('sort[0][direction]', 'desc')
-  ;['Cliente_Email', 'Fecha', 'Mensaje sugerido'].forEach((f) => params.append('fields[]', f))
+  ;['Cliente_Email', 'Fecha', 'Mensaje sugerido', 'Análisis IA'].forEach((f) => params.append('fields[]', f))
 
   const data = await airtableGet<{ records: AirtableRecord<ReporteFields & { Cliente_Email?: string[] }>[] }>(
     TABLE_REPORTES,
@@ -215,6 +222,7 @@ export async function getUltimosReportesPorClientes(
     porCliente[email] = {
       fecha: record.fields.Fecha,
       mensajeSugerido: record.fields['Mensaje sugerido'],
+      analisisIA: record.fields['Análisis IA'],
     }
   }
   return porCliente

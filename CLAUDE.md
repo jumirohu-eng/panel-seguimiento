@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — tarde)
 
-Commit: (pendiente — ver commit siguiente, mismo patrón que b47ba23 → f585a16)
+Commit: `3cebd69`
 
 ✅ COMPLETADO:
 - Feature 3: Registro de clientes con Tally pre-rellenado (modal + link + Airtable + webhook)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente, Reporte, ReportesResponse } from '@/lib/types'
@@ -21,7 +21,15 @@ const ENERGIA_BADGE: Record<string, string> = {
   'Con energía': 'bg-success/10 text-success',
 }
 
-export default function ClienteFicha({ cliente, onBack }: { cliente: Cliente; onBack: () => void }) {
+export default function ClienteFicha({
+  cliente,
+  onBack,
+  onUpdated,
+}: {
+  cliente: Cliente
+  onBack: () => void
+  onUpdated?: (cliente: Pick<Cliente, 'id'> & Partial<Cliente>) => void
+}) {
   const router = useRouter()
   const [reportes, setReportes] = useState<Reporte[]>([])
   const [offset, setOffset] = useState<string | null>(null)
@@ -29,11 +37,67 @@ export default function ClienteFicha({ cliente, onBack }: { cliente: Cliente; on
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tieneMetricas, setTieneMetricas] = useState(false)
+  const [notas, setNotas] = useState(cliente.notasEntrenador)
+  const [estadoGuardado, setEstadoGuardado] = useState<'idle' | 'guardando' | 'guardado'>('idle')
+  const [confirmandoBaja, setConfirmandoBaja] = useState(false)
+  const [dandoBaja, setDandoBaja] = useState(false)
+  const [errorBaja, setErrorBaja] = useState<string | null>(null)
+  const notasTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token ?? null
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (notasTimeout.current) clearTimeout(notasTimeout.current)
+    }
+  }, [])
+
+  const handleNotasChange = useCallback(
+    (value: string) => {
+      setNotas(value)
+      setEstadoGuardado('guardando')
+      if (notasTimeout.current) clearTimeout(notasTimeout.current)
+      notasTimeout.current = setTimeout(async () => {
+        const token = await getToken()
+        try {
+          const res = await fetch(`/api/clientes/${cliente.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ notasEntrenador: value }),
+          })
+          if (!res.ok) throw new Error('No se pudieron guardar las notas')
+          setEstadoGuardado('guardado')
+          onUpdated?.({ id: cliente.id, notasEntrenador: value })
+        } catch {
+          setEstadoGuardado('idle')
+        }
+      }, 800)
+    },
+    [cliente.id, getToken, onUpdated]
+  )
+
+  const handleDarBaja = useCallback(async () => {
+    setDandoBaja(true)
+    setErrorBaja(null)
+    const token = await getToken()
+    try {
+      const res = await fetch(`/api/clientes/${cliente.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ estado: 'Perdido' }),
+      })
+      if (!res.ok) throw new Error('No se pudo dar de baja al cliente')
+      onUpdated?.({ id: cliente.id, estado: 'Perdido' })
+      onBack()
+    } catch {
+      setErrorBaja('Error al dar de baja al cliente. Inténtalo de nuevo.')
+    } finally {
+      setDandoBaja(false)
+    }
+  }, [cliente.id, getToken, onBack, onUpdated])
 
   useEffect(() => {
     async function cargarPerfil() {
@@ -131,7 +195,68 @@ export default function ClienteFicha({ cliente, onBack }: { cliente: Cliente; on
               WhatsApp
             </a>
           )}
+          {cliente.estado === 'Activo' && !confirmandoBaja && (
+            <button
+              type="button"
+              onClick={() => setConfirmandoBaja(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-danger hover:bg-background"
+            >
+              Dar de baja
+            </button>
+          )}
         </div>
+      </div>
+
+      {confirmandoBaja && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger/10 p-4">
+          <p className="text-sm text-card-foreground">
+            ¿Dar de baja a {cliente.nombre}? Dejará de aparecer en la lista de clientes activos.
+          </p>
+          <div className="flex items-center gap-2">
+            {errorBaja && <p className="text-sm text-danger">{errorBaja}</p>}
+            <button
+              type="button"
+              onClick={() => setConfirmandoBaja(false)}
+              disabled={dandoBaja}
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleDarBaja}
+              disabled={dandoBaja}
+              className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {dandoBaja ? 'Dando de baja…' : 'Sí, dar de baja'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor="notas-entrenador" className="text-sm font-semibold text-card-foreground">
+            Notas
+          </label>
+          <span className="text-xs text-muted">
+            {estadoGuardado === 'guardando' ? 'Guardando…' : estadoGuardado === 'guardado' ? 'Guardado' : ''}
+          </span>
+        </div>
+        <textarea
+          id="notas-entrenador"
+          value={notas}
+          onChange={(e) => handleNotasChange(e.target.value)}
+          placeholder="Notas privadas sobre este cliente…"
+          rows={3}
+          className="w-full resize-y rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-card-foreground outline-none focus:border-primary"
+        />
+        {cliente.notasIniciales.trim() && (
+          <div className="mt-1 rounded-lg bg-background p-3">
+            <p className="mb-1 text-xs font-medium text-muted">Notas del cliente al registrarse</p>
+            <p className="whitespace-pre-wrap text-sm text-card-foreground">{cliente.notasIniciales}</p>
+          </div>
+        )}
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}

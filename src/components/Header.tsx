@@ -15,10 +15,10 @@ function getInitialDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
-export default function Header({ email }: { email: string }) {
+export default function Header({ email, showMarketplace = true }: { email: string; showMarketplace?: boolean }) {
   const router = useRouter()
   const [dark, setDark] = useState(getInitialDark)
-  const [showMarketplace, setShowMarketplace] = useState(false)
+  const [mostrarMarketplace, setMostrarMarketplace] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
 
   useEffect(() => {
@@ -46,9 +46,9 @@ export default function Header({ email }: { email: string }) {
       </div>
       <div className="flex items-center gap-2">
         {isAdmin && <AdminNavDropdown />}
-        {!isAdmin && (
+        {!isAdmin && showMarketplace && (
           <button
-            onClick={() => setShowMarketplace(true)}
+            onClick={() => setMostrarMarketplace(true)}
             aria-label="Abrir marketplace"
             className="rounded-lg border border-border p-2 text-sm text-card-foreground hover:bg-background"
           >
@@ -77,10 +77,10 @@ export default function Header({ email }: { email: string }) {
         </button>
       </div>
 
-      {showMarketplace && (
+      {mostrarMarketplace && (
         <div
           className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-10"
-          onClick={() => setShowMarketplace(false)}
+          onClick={() => setMostrarMarketplace(false)}
         >
           <div
             className="w-full max-w-4xl rounded-xl border border-border bg-card p-6 shadow-sm"
@@ -90,7 +90,7 @@ export default function Header({ email }: { email: string }) {
               <h2 className="text-lg font-semibold text-card-foreground">Marketplace</h2>
               <button
                 type="button"
-                onClick={() => setShowMarketplace(false)}
+                onClick={() => setMostrarMarketplace(false)}
                 aria-label="Cerrar"
                 className="text-muted hover:text-card-foreground"
               >

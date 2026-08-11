@@ -24,6 +24,8 @@ export interface ClienteFields {
   Entrenamientos_objetivo: number
   Entrenador: string
   Link_recordatorio?: string
+  Notas_entrenador?: string
+  Notas_iniciales?: string
 }
 
 export interface ReporteFields {
@@ -134,9 +136,19 @@ export async function getClientesByEntrenador(email: string) {
     'Entrenamientos_objetivo',
     'Entrenador',
     'Link_recordatorio',
+    'Notas_entrenador',
+    'Notas_iniciales',
   ].forEach((f) => params.append('fields[]', f))
   const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(TABLE_CLIENTES, params)
   return data.records
+}
+
+export async function crearCliente(fields: Partial<ClienteFields>) {
+  return airtableWrite<AirtableRecord<ClienteFields>>(TABLE_CLIENTES, 'POST', fields)
+}
+
+export async function actualizarCliente(recordId: string, fields: Partial<ClienteFields>) {
+  return airtableWrite<AirtableRecord<ClienteFields>>(`${TABLE_CLIENTES}/${recordId}`, 'PATCH', fields)
 }
 
 export async function getClienteById(id: string): Promise<AirtableRecord<ClienteFields> | null> {

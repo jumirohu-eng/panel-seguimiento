@@ -10,6 +10,7 @@ import Header from '@/components/Header'
 import ClientesLista from '@/components/ClientesLista'
 import ClienteFicha from '@/components/ClienteFicha'
 import Marketplace from '@/components/Marketplace'
+import PlanesActivosResumen from '@/components/PlanesActivosResumen'
 import DashboardResumenView from '@/components/admin/DashboardResumenView'
 
 type Tab = 'clientes' | 'marketplace'
@@ -79,6 +80,12 @@ export default function DashboardPage() {
 
   const handleSelect = useCallback((id: string) => setSelectedId(id), [])
   const handleBack = useCallback(() => setSelectedId(null), [])
+  const handleClienteCreado = useCallback((cliente: Cliente) => {
+    setClientes((prev) => [cliente, ...prev])
+  }, [])
+  const handleClienteActualizado = useCallback((cliente: Pick<Cliente, 'id'> & Partial<Cliente>) => {
+    setClientes((prev) => prev.map((c) => (c.id === cliente.id ? { ...c, ...cliente } : c)))
+  }, [])
 
   const clienteSeleccionado = clientes.find((c) => c.id === selectedId) ?? null
 
@@ -106,6 +113,8 @@ export default function DashboardPage() {
       {email && <Header email={email} />}
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+        <PlanesActivosResumen />
+
         <div className="mb-6 flex gap-2 border-b border-border">
           <button
             type="button"
@@ -138,9 +147,19 @@ export default function DashboardPage() {
 
         {tab === 'clientes' &&
           (clienteSeleccionado ? (
-            <ClienteFicha cliente={clienteSeleccionado} onBack={handleBack} />
+            <ClienteFicha
+              key={clienteSeleccionado.id}
+              cliente={clienteSeleccionado}
+              onBack={handleBack}
+              onUpdated={handleClienteActualizado}
+            />
           ) : (
-            <ClientesLista clientes={clientes} onSelect={handleSelect} />
+            <ClientesLista
+              clientes={clientes}
+              onSelect={handleSelect}
+              entrenadorEmail={email ?? ''}
+              onClienteCreado={handleClienteCreado}
+            />
           ))}
 
         {tab === 'marketplace' && <Marketplace />}

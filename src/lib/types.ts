@@ -8,6 +8,8 @@ export interface Cliente {
   entrenamientos_objetivo: number
   linkRecordatorio: string
   tieneAlerta: boolean
+  notasEntrenador: string
+  notasIniciales: string
 }
 
 export interface Reporte {

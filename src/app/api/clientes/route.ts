@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getClientesByEntrenador, getUltimosReportesPorClientes } from '@/lib/airtable'
+import { getClientesByEntrenador, getUltimosReportesPorClientes, crearCliente } from '@/lib/airtable'
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
 
 export async function GET(request: NextRequest) {
@@ -27,11 +27,49 @@ export async function GET(request: NextRequest) {
         entrenamientos_objetivo: r.fields.Entrenamientos_objetivo ?? 0,
         linkRecordatorio: r.fields.Link_recordatorio ?? '',
         tieneAlerta: estadoReporte === 'alerta',
+        notasEntrenador: r.fields.Notas_entrenador ?? '',
+        notasIniciales: r.fields.Notas_iniciales ?? '',
       }
     })
     return NextResponse.json(clientes)
   } catch (err) {
     console.error('Error al obtener clientes de Airtable', err)
     return NextResponse.json({ error: 'Error al obtener clientes' }, { status: 500 })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const email = await getAuthenticatedEmail(request)
+  if (!email) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  }
+
+  const body = await request.json().catch(() => null)
+  const nombre = typeof body?.nombre === 'string' ? body.nombre.trim() : ''
+  const clienteEmail = typeof body?.email === 'string' ? body.email.trim() : ''
+  const telefono = typeof body?.telefono === 'string' ? body.telefono.trim() : ''
+
+  if (!nombre || !clienteEmail || !telefono) {
+    return NextResponse.json({ error: 'Nombre, email y teléfono son obligatorios' }, { status: 400 })
+  }
+
+  try {
+    const record = await crearCliente({
+      Nombre: nombre,
+      Email: clienteEmail,
+      'Teléfono': telefono,
+      Entrenador: email,
+      Estado: 'Activo',
+    })
+    return NextResponse.json({
+      id: record.id,
+      nombre: record.fields.Nombre,
+      email: record.fields.Email ?? '',
+      telefono: record.fields['Teléfono'] ?? '',
+      entrenador: record.fields.Entrenador,
+    })
+  } catch (err) {
+    console.error('Error al crear cliente en Airtable', err)
+    return NextResponse.json({ error: 'Error al crear el cliente' }, { status: 500 })
   }
 }

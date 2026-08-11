@@ -95,6 +95,8 @@ jumirohu@gmail.com → admin del dashboard
 | Reportes | Link | Auto a tabla Reportes |
 | Link_recordatorio | Fórmula | Link de WhatsApp (wa.me) con mensaje de recordatorio semanal precargado. Distinto de `Reportes.Link_alerta` (ese usa el Mensaje sugerido). Usado como fallback del botón WhatsApp en la ficha de cliente (`/dashboard`) cuando el último reporte no tiene alerta activa — no reconstruir el link a mano en el código |
 | Entrenador_nuevo | Colaborador único | **Vestigial, no usar.** Casi nunca está poblado en datos reales (solo 1 de 4 clientes de prueba). No es fuente fiable de entrenador — usar siempre el campo `Entrenador` (texto) |
+| Notas_entrenador | Texto largo (NEW) | Notas privadas del entrenador sobre el cliente, editable desde la ficha de cliente (`/dashboard`), autoguardado con debounce. No es analizado por IA |
+| Notas_iniciales | Texto largo (NEW) | Lo que el cliente escribe al registrarse, vía el Tally nuevo de alta (ver N8N WORKFLOWS → "Seguimiento - Alta cliente"). Se muestra de solo lectura en la ficha de cliente |
 
 ### Tabla "Reportes" (tbljT33LCBLT6NoKf)
 | Campo | Tipo | Notas |
@@ -195,7 +197,8 @@ panel-seguimiento/
 │ │ ├── trainer/
 │ │ │ └── metricas/[clienteId]/page.tsx # Placeholder "Próximamente" (NEW). Destino del botón "Ver métricas" de ClienteFicha, gateado por Soluciones incluye "Metricas"
 │ │ └── api/
-│ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta)
+│ │ ├── clientes/route.ts # GET clientes filtrados por entrenador (incluye telefono, linkRecordatorio, tieneAlerta, notasEntrenador, notasIniciales) + POST crea cliente (Nombre/Email/Teléfono, Entrenador=logueado, Estado=Activo) (NEW)
+│ │ ├── clientes/[id]/route.ts # PATCH notasEntrenador y/o estado, verifica ownership (Entrenador===email autenticado) (NEW)
 │ │ ├── reportes/route.ts # GET reportes paginados del cliente ({reportes, offset}, pageSize=7, ?offset= para "Ver más")
 │ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace)
 │ │ ├── entrenador/consentimiento-ia/route.ts # POST guarda Consentimiento_IA + Consentimiento_IA_fecha del entrenador logueado
@@ -215,15 +218,17 @@ panel-seguimiento/
 │ │ ├── route.ts # GET lista + POST crear entrenador
 │ │ └── [email]/route.ts # GET ficha (clientes activos, snapshots, invitación) + PUT actualizar + DELETE (borra Airtable + usuario Supabase si existe) (NEW)
 │ ├── components/
-│ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filas (Nombre/Objetivo/Estado/alerta), click abre ficha (NEW)
-│ │ ├── ClienteFicha.tsx # Vista entrenador: info + últimos 7 reportes + "Ver más" + botón WhatsApp + botón "Ver métricas" (si Soluciones incluye Metricas)
-│ │ ├── Marketplace.tsx # Grid de productos, cruce con Soluciones del entrenador, modal "Más información". "Activar ahora" oculto si en_uso; para Seguimiento abre el modal de consentimiento IA en vez de WhatsApp
+│ │ ├── ClientesLista.tsx # Vista entrenador: buscador + filtro Todos/Activos/Inactivos (default Activos) + filas (Nombre/Objetivo/Estado/alerta), click abre ficha + botón "+ Registrar cliente" (NEW)
+│ │ ├── ClienteFicha.tsx # Vista entrenador: info + botón "Dar de baja" (confirmación inline, Estado→Perdido) + notas del entrenador (autoguardado) + notas iniciales del cliente (solo lectura) + últimos 7 reportes + "Ver más" + botón WhatsApp + botón "Ver métricas" (si Soluciones incluye Metricas)
+│ │ ├── RegistrarClienteModal.tsx # Modal Nombre/Email/Teléfono → POST /api/clientes → genera link Tally de alta (NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL + query params) + "Copiar al portapapeles" (NEW)
+│ │ ├── Marketplace.tsx # Grid de productos, cruce con Soluciones del entrenador, modal "Más información". "Activar ahora" oculto si en_uso; para Seguimiento abre el modal de consentimiento IA en vez de WhatsApp. Solo accesible desde `/dashboard` (ver decisión 27)
+│ │ ├── PlanesActivosResumen.tsx # Primera sección de `/dashboard` (vista entrenador): tarjetas de PRODUCTOS (sin Referidos) con copy de content/plans-copy.ts, badge "En uso" o CTA WhatsApp (nunca self-service) (NEW)
 │ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta. Usa lib/estadoReporte.ts
-│ │ ├── SuggestedMessage.tsx
+│ │ ├── SuggestedMessage.tsx # Colapsable (igual que AIAnalysis), botón Copiar visible sin necesidad de expandir (NEW)
 │ │ ├── AIAnalysis.tsx # Badge colapsable "💡 Análisis IA disponible", fondo destacado si tieneAlerta=true (NEW prop)
-│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪 (no-admin) abre modal con <Marketplace />. Botón 🔑 (todos) abre <ChangePasswordModal /> (NEW)
+│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪 (no-admin) abre modal con <Marketplace />, controlado por prop `showMarketplace` (default true; `/planes` pasa false, ver decisión 27) (NEW). Botón 🔑 (todos) abre <ChangePasswordModal />
 │ │ ├── ChangePasswordModal.tsx # Self-service: pide contraseña actual (revalida con signInWithPassword) + nueva + confirmar, updateUser() (NEW)
-│ │ ├── PlanesCards.tsx # Grid informativo de PRODUCTOS (icono/nombre/descripción + badge "Requiere plan base" en Metricas), sin auth ni acciones — usado por "/" y "/planes". Distinto de Marketplace.tsx (ese sí es interactivo/autenticado) (NEW)
+│ │ ├── PlanesCards.tsx # Grid de PRODUCTOS con copy persuasivo de content/plans-copy.ts (problema/features/resultados) + badge "Requiere plan base" en Metricas, sin auth ni acciones — usado por "/" y "/planes". Distinto de Marketplace.tsx (ese sí es interactivo/autenticado) (NEW)
 │ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
 │ │ ├── Tooltip.tsx # Tooltip genérico reutilizable (hover/focus)
 │ │ └── admin/
@@ -231,6 +236,8 @@ panel-seguimiento/
 │ │ ├── AlertasPanel.tsx # Sección "Requiere tu atención" (/admin)
 │ │ ├── AplicacionesPanel.tsx # Links a Airtable/n8n/Supabase (/admin)
 │ │ └── MetricasView.tsx # Tarjetas + evolución clientes + alertas por mes + métricas de impacto (/metricas)
+│ ├── content/
+│ │ └── plans-copy.ts # PLANES_COPY: headline/subheadline, copy por producto (problema/features/resultados), comparativa sin-vs-con automatización, pricingNote. Fuente única usada por PlanesCards.tsx y PlanesActivosResumen.tsx (NEW)
 │ └── lib/
 │ ├── supabase.ts # Cliente Supabase (anon key)
 │ ├── supabase-server.ts # Cliente Supabase servidor (service role key) + findSupabaseUserByEmail() (paginación sobre listUsers, compartido por reset-password y el DELETE de entrenadores) (NEW)
@@ -239,7 +246,7 @@ panel-seguimiento/
 │ ├── alertas.ts # calcularAlertasNegocio() — lógica pura, compartida por /api/admin/alertas
 │ ├── estadoReporte.ts # calcularEstadoReporte() — pendiente/alerta/bien, compartida por StatusBadge, ClienteFicha y /api/clientes (NEW)
 │ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente) + SOLUCIONES_BASE/tienePlanBase() (NEW, ver decisión 24)
-│ └── airtable.ts # Helpers para Airtable API. borrarEntrenador() (NEW, DELETE) usado por /api/admin/entrenadores/[email]
+│ └── airtable.ts # Helpers para Airtable API. borrarEntrenador() (DELETE) usado por /api/admin/entrenadores/[email]. crearCliente()/actualizarCliente() (NEW, POST/PATCH tabla Clientes)
 └── public/
 └── [favicons, etc.]
 
@@ -274,6 +281,9 @@ panel-seguimiento/
 24. **Modelo freemium con gate de "plan base"**: `SOLUCIONES_BASE = ['Seguimiento', 'Captación', 'Recuperación']` (`lib/productos.ts`). `/dashboard` (vista entrenador) exige tener al menos uno de estos en `Soluciones` — si no, redirige a `/planes`. **Sin middleware.ts**: la app usa Supabase 100% client-side (localStorage, sin cookies de sesión), así que un `middleware.ts` de Next.js no tendría forma de leer la sesión — el gate vive en el `useEffect` de `/dashboard/page.tsx`, mismo patrón que ya usan todas las páginas protegidas de este proyecto (comprobar `supabase.auth.getUser()` y hacer `router.push` si no cumple). Si en el futuro se migra a `@supabase/ssr` con cookies, ahí sí tendría sentido un middleware real
 25. **Métricas requiere plan base** (admin, ficha de entrenador): el botón "Metricas" del selector de Soluciones se deshabilita (con tooltip) si no hay ya un plan base seleccionado. Si se quita el último plan base estando Metricas activa, se desactiva automáticamente junto con él — el estado guardado nunca puede ser "solo Metricas, sin plan base". Se optó por esta variante (bloquear en el propio selector) en vez de un toast de error al guardar, por ser la alternativa de mejor UX
 26. **"Referidos" en `PlanesCards`**: se muestra en `/` y `/planes` igual que el resto del catálogo (una sola fuente de verdad, `PRODUCTOS`), aunque no estuviera pedido explícitamente en el brief de la landing — evita mantener dos listas de productos que puedan desincronizarse
+27. **Marketplace (con su self-service de Seguimiento, decisión 19) solo vive en `/dashboard`**: prop `showMarketplace` en `Header.tsx` (default `true`) controla el botón 🏪; solo `/planes` pasa `false`. Como `/planes` es la única página que ven entrenadores con 0 planes (gate `tienePlanBase()` en `/dashboard`) y `/dashboard` solo lo alcanzan quienes ya tienen ≥1 plan, esto cierra el hueco por el que un entrenador sin plan podía llegar al self-service de Seguimiento desde `/planes` — sin tocar la lógica de decisión 19. La nueva sección "Tus planes" de `/dashboard` (`PlanesActivosResumen.tsx`) es deliberadamente **siempre WhatsApp** para planes no contratados (nunca abre el modal de consentimiento), distinta del tab "Marketplace" que sigue siendo self-service para Seguimiento
+28. **"Dar de baja" cliente = `Estado` → `Perdido`, no "Inactivo"**: el campo `Clientes.Estado` es un `singleSelect` con solo Activo/Pausado/Perdido como choices, y ninguna herramienta MCP disponible permite añadir un choice nuevo a un select existente (mismo límite que el pendiente histórico de "Metricas" en `Entrenadores.Soluciones`). Se reusa `Perdido`, que además ya es el estado sobre el que `lib/productos.ts` define que actuará el futuro producto Recuperación — "dar de baja" y "candidato a recuperación" son el mismo estado. El filtro Activos/Inactivos de `ClientesLista.tsx` es `estado === 'Activo'` vs `estado !== 'Activo'` (cubre Pausado+Perdido), sin campos nuevos en Airtable
+29. **Alta de cliente vía Tally**: el Tally existente (`tally.so/r/5BYDQM`) es el check-in semanal (Peso/Entrenamientos/Energía/Notas → crea un `Reporte`) — no se reutiliza para altas. El flujo de alta usa un Tally **nuevo** (pendiente de crear, ver PENDIENTES INMEDIATOS): la app crea el `Cliente` en Airtable (Nombre/Email/Teléfono) desde `RegistrarClienteModal.tsx`, genera un link a ese Tally nuevo con esos 3 datos precargados como campos ocultos + `entrenador`, y el cliente solo rellena `Objetivo`/`Entrenamientos_objetivo`/`Notas_iniciales` — el workflow n8n "Seguimiento - Alta cliente" hace PATCH al `Cliente` ya existente (nunca crea uno nuevo)
 
 ---
 
@@ -328,54 +338,18 @@ Cron día 1 de cada mes a las 3am → Leer entrenadores (tblo7dLrfaOxcPppY) → 
 
 **Validación estructural OK** (`validate_workflow`: 0 errores, 7 nodos, 6 conexiones válidas). **No se pudo ejecutar la prueba manual desde aquí**: el trigger es un Schedule Trigger, y la herramienta de test de n8n-mcp solo puede disparar workflows con trigger webhook/form/chat — un Schedule Trigger solo se puede ejecutar manualmente desde el botón "Test workflow" en el editor de n8n. Además usa la misma credencial Airtable que está caída (ver alerta 🚨 arriba), así que fallaría igualmente ahora mismo. **Pendiente real: (1) arreglar la credencial Airtable, (2) tú (o yo en otra sesión con acceso al editor) ejecutar manualmente desde n8n UI, (3) verificar el conteo contra Airtable y documentar el resultado aquí, (4) mantener inactivo hasta entonces.**
 
----
+### Workflow "Seguimiento - Alta cliente" ⏸️ INACTIVO (id `e0DrzrSqRryaJloc`)
+Webhook (path `TallyAltaCliente`, pendiente de conectar a un Tally nuevo) → Formatear datos (Code, lee `body.data.fields` por label igual que "Seguimiento - Resumen&Alerta") → Buscar cliente (Airtable search por Email) → Actualizar cliente (Airtable update: `Objetivo`, `Entrenamientos_objetivo`, `Notas_iniciales`, matching por `id` del registro encontrado). Ver decisión técnica 29 — nunca crea un `Cliente` nuevo, solo completa el que la app ya creó vía `POST /api/clientes`.
 
-## CONVENCIONES DE CÓDIGO
+**Validado estructuralmente** (`validate_workflow`: 0 errores, 4 nodos, 3 conexiones) y conexiones verificadas con `n8n_get_workflow`. **No probado end-to-end**: depende de un Tally que todavía no existe.
 
-### Componentes React
-```typescript
-// Nombrado PascalCase, props tipadas, siempre exportar default
-export default function MyComponent({ prop1, prop2 }: Props) {
-  return <div>...</div>;
-}
-
-interface Props {
-  prop1: string;
-  prop2?: number;
-}
-```
-
-### API Routes
-```typescript
-// Ubicación: src/app/api/[ruta]/route.ts
-// GET, POST, etc. como exports
-
-export async function POST(request: Request) {
-  // Validar auth (JWT de Supabase)
-  // Validar body
-  // Llamar Airtable / Supabase
-  // Devolver JSON
-}
-```
-
-### Rutas protegidas
-```typescript
-// Verificar `Authorization: Bearer <token>` 
-// Devolver 401 si no válido
-// Verificar permisos (email === admin, etc.)
-```
-
-### Error handling
-```typescript
-try {
-  // operación
-} catch (error) {
-  return Response.json(
-    { error: error.message },
-    { status: 500 }
-  );
-}
-```
+**Pendiente manual — spec exacta para crear el Tally** (`tally.so`, nuevo formulario, distinto de `5BYDQM`):
+- 4 campos ocultos, con **Reference ID** (no solo el label) puesto exactamente a: `nombre`, `email`, `telefono`, `entrenador` — se prellenan vía query params (`?nombre=&email=&telefono=&entrenador=`) que genera `RegistrarClienteModal.tsx`
+- 3 campos visibles que rellena el cliente, con **label exacto** (el Code node del workflow matchea por label, igual que hace hoy "Formatear datos1" del check-in semanal):
+  - `objetivo` — choice, con las 4 opciones exactas de `Clientes.Objetivo` (Hipertrofia / Pérdida de peso / Tonificar / Rehabilitación)
+  - `entrenamientos_objetivo` — number
+  - `notas_iniciales` — texto largo
+- Tras crear el formulario: (1) copiar su URL a `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` en `.env.local` y Vercel, (2) conectar su webhook al endpoint `TallyAltaCliente` de este workflow, (3) probar de extremo a extremo, (4) activar el workflow.
 
 ---
 
@@ -432,6 +406,10 @@ try {
 - [ ] Cláusula onboarding (DPA, procesamiento IA)
 - [ ] Pre-venta con 3 entrenadores reales
 - [ ] Limite de gasto Claude API ($10-15/mes)
+- [x] Brief "/planes + Features dashboard/clientes + Admin check": `/planes` informativa-solo (Header sin Marketplace, headline/comparativa persuasivos de `content/plans-copy.ts`) + `/dashboard` con nueva sección "Tus planes" (WhatsApp CTA, nunca self-service) + 5 features en clientes (mensaje sugerido colapsable, notas del entrenador, registrar cliente con Tally pre-rellenado, dar de baja, filtro Activos/Inactivos) + verificado que la reestructuración admin previa ya existía (no se tocó). Ver decisiones técnicas 27-29. **No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión) — solo verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores
+- [ ] **Crear el Tally nuevo de alta de cliente** siguiendo la spec exacta documentada en N8N WORKFLOWS → "Seguimiento - Alta cliente" (campos ocultos `nombre`/`email`/`telefono`/`entrenador` + visibles `objetivo`/`entrenamientos_objetivo`/`notas_iniciales`), conectar su webhook, y activar el workflow — manual, fuera de Claude Code
+- [ ] **Rellenar `NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL`** en `.env.local` y Vercel con la URL de ese Tally — sin esto, `RegistrarClienteModal.tsx` crea el cliente en Airtable pero no puede mostrar el link de alta
+- [ ] Nota aparte (no es parte de este brief): el workflow n8n "Recepción entrenador" aparece **activo** en n8n aunque esta sección lo documenta como INACTIVO — drift a revisar en otra sesión
 
 ---
 

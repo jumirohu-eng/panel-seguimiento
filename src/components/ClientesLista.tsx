@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Cliente } from '@/lib/types'
+import RegistrarClienteModal from './RegistrarClienteModal'
 
 const ESTADO_BADGE: Record<string, string> = {
   Activo: 'bg-success/10 text-success',
@@ -9,36 +10,66 @@ const ESTADO_BADGE: Record<string, string> = {
   Perdido: 'bg-danger/10 text-danger',
 }
 
+type FiltroEstado = 'todos' | 'activos' | 'inactivos'
+
 export default function ClientesLista({
   clientes,
   onSelect,
+  entrenadorEmail,
+  onClienteCreado,
 }: {
   clientes: Cliente[]
   onSelect: (id: string) => void
+  entrenadorEmail: string
+  onClienteCreado: (cliente: Cliente) => void
 }) {
   const [busqueda, setBusqueda] = useState('')
+  const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('activos')
+  const [mostrarRegistro, setMostrarRegistro] = useState(false)
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-    if (!q) return clientes
-    return clientes.filter((c) => c.nombre.toLowerCase().includes(q))
-  }, [clientes, busqueda])
+    return clientes.filter((c) => {
+      if (q && !c.nombre.toLowerCase().includes(q)) return false
+      if (filtroEstado === 'activos') return c.estado === 'Activo'
+      if (filtroEstado === 'inactivos') return c.estado !== 'Activo'
+      return true
+    })
+  }, [clientes, busqueda, filtroEstado])
 
   return (
     <div className="flex flex-col gap-4">
-      <input
-        type="search"
-        value={busqueda}
-        onChange={(e) => setBusqueda(e.target.value)}
-        placeholder="Buscar cliente por nombre…"
-        className="w-full max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground outline-none focus:border-primary"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar cliente por nombre…"
+          className="w-full max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground outline-none focus:border-primary"
+        />
+        <select
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value as FiltroEstado)}
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-card-foreground outline-none focus:border-primary"
+        >
+          <option value="activos">Activos</option>
+          <option value="inactivos">Inactivos</option>
+          <option value="todos">Todos</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => setMostrarRegistro(true)}
+          className="ml-auto rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
+        >
+          + Registrar cliente
+        </button>
+      </div>
 
       {filtrados.length === 0 ? (
         <p className="text-sm text-muted">
           {clientes.length === 0
             ? 'No tienes clientes asignados todavía.'
-            : 'Ningún cliente coincide con la búsqueda.'}
+            : 'Ningún cliente coincide con el filtro.'}
         </p>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -73,6 +104,14 @@ export default function ClientesLista({
             ))}
           </ul>
         </div>
+      )}
+
+      {mostrarRegistro && (
+        <RegistrarClienteModal
+          entrenadorEmail={entrenadorEmail}
+          onClose={() => setMostrarRegistro(false)}
+          onCreated={onClienteCreado}
+        />
       )}
     </div>
   )

@@ -2,9 +2,13 @@
 
 ## ESTADO ACTUAL (11 ago 2026 — noche, sesión 4)
 
-Commit: `01e5cb2`
+Commit: pendiente de referenciar (ver commit siguiente)
 
-⚠️ INVESTIGADO PERO NO RESUELTO DEL TODO (esta sesión) — **link de reset de contraseña apuntando a localhost**:
+🚨 **BLOCKER URGENTE ABIERTO — requiere acción manual de Juanmi en el Dashboard de Supabase, Claude Code no tiene forma de hacerlo** — link de reset de contraseña apuntando a localhost:
+
+**TL;DR para arreglarlo ya:** entra a `https://supabase.com/dashboard/project/jcijxhxdjabxdujldzml/auth/url-configuration`, pon **Site URL** = `https://retaincoach.com`, y en **Redirect URLs** añade `https://retaincoach.com/reset-password` y `https://retaincoach.com/signup/confirm` (NO `/auth/callback`, ver por qué abajo). Guarda. Prueba desde `retaincoach.com/login` → "¿Olvidaste tu contraseña?". Si me pides que verifique después, puedo revisar los logs de Auth para confirmar que ya no cae a localhost.
+
+**Verificado contra la documentación oficial de Supabase en esta sesión** (`search_docs`): el template "Reset Password" por defecto usa `<a href="{{ .ConfirmationURL }}">Reset password</a>` — **no** `{{ .SiteURL }}` directamente en el href como sugería el brief. Si el template en el Dashboard ya muestra `{{ .ConfirmationURL }}`, está bien tal cual, no lo toques; solo habría que corregirlo si alguien lo editó a mano con una URL literal (localhost o cualquier otra) en vez de esa variable.
 
 **Diagnóstico (con evidencia real, no solo teoría):**
 - El código de `handleResetPassword` en `login/page.tsx` llama a `supabase.auth.resetPasswordForEmail(email, { redirectTo: \`${window.location.origin}/reset-password\` })` — **no hay ninguna URL hardcodeada a localhost en el código**, `redirectTo` se calcula dinámicamente a partir de dónde se está ejecutando la app.

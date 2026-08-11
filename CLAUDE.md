@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (12 ago 2026)
 
-Commit: (ver `git log` — pusheado tras esta sesión)
+Commit: `161ce7d`
 
 ### Resumen de hoy (Sesión 12)
 

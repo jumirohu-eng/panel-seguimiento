@@ -2,8 +2,8 @@
 
 ## ESTADO ACTUAL (12 ago 2026 — Tabla Admins separada)
 
-Commit: `82bce5b`
-Rama: `tabla-admins-separada` (feature, sin mergear a `main` todavía)
+Commit: `8b6909e` (merge de `tabla-admins-separada` a `main`)
+Rama: `main`
 
 ### Resumen: tabla Admins separada (multi-rol)
 
@@ -649,7 +649,7 @@ Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, f
 - [x] **Mergear la rama `sesion-13a` a `main`** (Sesiones 13A + 13B) — merge limpio sin conflictos (commit `98a9a5a`), pusheado a `origin/main`. Vercel debería desplegar a Production automáticamente a partir de aquí
 - [x] **Tabla `Admins` separada, admin resuelto contra Airtable en vez de un email fijo**: tabla `Admins` creada con Juanmi como único registro, `getAuthenticatedAdminEmail()`/`GET /api/auth/rol`/`POST /api/admin/log-activity` actualizados, `Header.tsx` recibe `isAdmin` como prop en vez de recalcularlo, y las 4 páginas admin-only (`admin`, `admin/entrenador/[email]`, `metricas`, `dashboard` en su rama admin) usan el mismo gate vía `/api/auth/rol`. `lib/admin.ts` borrado. Ver decisión técnica 44. Probado end-to-end con datos reales (Juanmi solo-admin, un email admin+entrenador a la vez, y pérdida de acceso admin al instante de quitarlo de `Admins`). Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. **No probado visualmente en navegador**
 - [ ] **Validación manual en navegador de "Tabla Admins separada"** (Juanmi): (1) login normal con `jumirohu@gmail.com` → `/admin` sigue funcionando igual que siempre; (2) probar con un entrenador real que se añada temporalmente a `Admins` en Airtable → debería poder entrar a `/admin` Y seguir viendo su vista de entrenador en `/dashboard` con el mismo login; (3) confirmar que un entrenador normal (no en `Admins`) sigue sin poder entrar a `/admin` (redirect a `/dashboard`)
-- [ ] **Mergear `tabla-admins-separada` a `main`** cuando se valide manualmente — hoy solo pusheada como rama feature (`origin/tabla-admins-separada`)
+- [x] **Mergear `tabla-admins-separada` a `main`** — merge limpio sin conflictos (commit `8b6909e`), pusheado a `origin/main`. La validación manual en navegador (checklist arriba) sigue pendiente, se puede hacer ya directamente en Production
 
 ---
 

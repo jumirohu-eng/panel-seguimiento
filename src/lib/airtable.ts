@@ -97,11 +97,26 @@ function escapeFormulaValue(value: string) {
   return value.replace(/"/g, '\\"')
 }
 
+// Airtable limita a 5 req/seg por base, compartida entre TODOS los entrenadores.
+// Con varios entrenadores concurrentes ese límite se puede alcanzar en ráfagas cortas;
+// sin reintento, cada 429 se propagaba como un 500 genérico al usuario.
+const MAX_RETRIES = 3
+
+async function fetchWithRetry(url: string, options: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, options)
+    if (res.status !== 429 || attempt >= MAX_RETRIES) return res
+    const retryAfterHeader = res.headers.get('Retry-After')
+    const waitMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 2 ** attempt * 1000
+    await new Promise((resolve) => setTimeout(resolve, waitMs))
+  }
+}
+
 async function airtableGet<T>(path: string, params?: URLSearchParams): Promise<T> {
   const baseId = process.env.AIRTABLE_BASE_ID
   const query = params ? `?${params.toString()}` : ''
   const url = `${AIRTABLE_API_URL}/${baseId}/${path}${query}`
-  const res = await fetch(url, { headers: airtableHeaders(), cache: 'no-store' })
+  const res = await fetchWithRetry(url, { headers: airtableHeaders(), cache: 'no-store' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Airtable error ${res.status}: ${text}`)
@@ -116,7 +131,7 @@ async function airtableWrite<T>(
 ): Promise<T> {
   const baseId = process.env.AIRTABLE_BASE_ID
   const url = `${AIRTABLE_API_URL}/${baseId}/${path}`
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method,
     headers: airtableHeaders(),
     body: JSON.stringify({ fields }),
@@ -160,7 +175,7 @@ export async function actualizarCliente(recordId: string, fields: Partial<Client
 export async function getClienteById(id: string): Promise<AirtableRecord<ClienteFields> | null> {
   const baseId = process.env.AIRTABLE_BASE_ID
   const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_CLIENTES}/${id}`
-  const res = await fetch(url, { headers: airtableHeaders(), cache: 'no-store' })
+  const res = await fetchWithRetry(url, { headers: airtableHeaders(), cache: 'no-store' })
   if (res.status === 404) return null
   if (!res.ok) {
     const text = await res.text()
@@ -335,7 +350,7 @@ export async function actualizarEntrenador(recordId: string, fields: Partial<Ent
 export async function borrarEntrenador(recordId: string) {
   const baseId = process.env.AIRTABLE_BASE_ID
   const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_ENTRENADORES}/${recordId}`
-  const res = await fetch(url, { method: 'DELETE', headers: airtableHeaders() })
+  const res = await fetchWithRetry(url, { method: 'DELETE', headers: airtableHeaders() })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Airtable error ${res.status}: ${text}`)

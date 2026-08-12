@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente } from '@/lib/types'
-import { ADMIN_EMAIL } from '@/lib/admin'
 import { tienePlanBase } from '@/lib/productos'
 import Header from '@/components/Header'
 import ClientesLista from '@/components/ClientesLista'
@@ -29,17 +28,27 @@ export default function DashboardPage() {
       }
       setEmail(userData.user.email ?? '')
 
-      if (userData.user.email === ADMIN_EMAIL) {
-        setIsAdmin(true)
-        setLoadingClientes(false)
-        return
-      }
-
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) {
         router.push('/login')
         return
+      }
+
+      try {
+        const rolRes = await fetch('/api/auth/rol', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (rolRes.ok) {
+          const { rol } = await rolRes.json()
+          if (rol === 'admin') {
+            setIsAdmin(true)
+            setLoadingClientes(false)
+            return
+          }
+        }
+      } catch {
+        // Si falla la resolución de rol, seguimos como entrenador (comportamiento previo)
       }
 
       try {
@@ -95,7 +104,7 @@ export default function DashboardPage() {
   if (isAdmin) {
     return (
       <div className="min-h-screen bg-background">
-        {email && <Header email={email} />}
+        {email && <Header email={email} isAdmin />}
         <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
           <DashboardResumenView />
         </main>

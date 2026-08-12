@@ -1,6 +1,7 @@
 import 'server-only'
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from './supabase-server'
+import { getAdminByEmail } from './airtable'
 
 export async function getAuthenticatedEmail(request: NextRequest): Promise<string | null> {
   const authHeader = request.headers.get('authorization') ?? request.headers.get('Authorization')
@@ -15,6 +16,8 @@ export async function getAuthenticatedEmail(request: NextRequest): Promise<strin
 
 export async function getAuthenticatedAdminEmail(request: NextRequest): Promise<string | null> {
   const email = await getAuthenticatedEmail(request)
-  if (!email || email !== process.env.ADMIN_EMAIL) return null
+  if (!email) return null
+  const admin = await getAdminByEmail(email)
+  if (!admin || !admin.fields.Activo) return null
   return email
 }

@@ -8,6 +8,7 @@ const TABLE_ENTRENADORES = 'tblo7dLrfaOxcPppY'
 const TABLE_SNAPSHOTS = 'tbliaBxJa4GIYoHId'
 const TABLE_SNAPSHOTS_ENTRENADORES = 'tblEaBtZvUXyzPk8y'
 const TABLE_ARCHIVO = 'tblgwKrbv6kRYqrAt'
+const TABLE_ADMINS = 'tbl9rBIoivD65ojPx'
 
 export interface AirtableRecord<T> {
   id: string
@@ -71,6 +72,12 @@ export interface EntrenadorFields {
   Consentimiento_IA?: boolean
   Consentimiento_IA_fecha?: string
   Last_modified?: string
+}
+
+export interface AdminFields {
+  Email: string
+  Nombre: string
+  Activo: boolean
 }
 
 export interface SnapshotFields {
@@ -340,6 +347,14 @@ export async function getEntrenadorByEmail(
     TABLE_ENTRENADORES,
     params
   )
+  return data.records[0] ?? null
+}
+
+export async function getAdminByEmail(email: string): Promise<AirtableRecord<AdminFields> | null> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Email} = "${escapeFormulaValue(email)}"`)
+  params.set('maxRecords', '1')
+  const data = await airtableGet<{ records: AirtableRecord<AdminFields>[] }>(TABLE_ADMINS, params)
   return data.records[0] ?? null
 }
 

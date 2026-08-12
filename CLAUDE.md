@@ -1,6 +1,29 @@
 # 🚀 CLAUDE.md — Dashboard Seguimiento para Entrenadores
 
-## ESTADO ACTUAL (12 ago 2026 — Sesión 13B)
+## ESTADO ACTUAL (12 ago 2026 — Tabla Admins separada)
+
+Commit: (pendiente de generar — ver commit de este mismo cambio)
+Rama: `tabla-admins-separada` (feature, sin mergear a `main` todavía)
+
+### Resumen: tabla Admins separada (multi-rol)
+
+**Qué cambió:** el admin de la plataforma dejó de resolverse comparando el email contra una variable de entorno fija (`ADMIN_EMAIL`/`NEXT_PUBLIC_ADMIN_EMAIL`, un único email hardcodeado) — ahora se resuelve contra una tabla `Admins` nueva en Airtable (ver decisión técnica 44). Esto permite que **el mismo email sea simultáneamente admin, entrenador y (a futuro) cliente**, algo que la arquitectura anterior no soportaba porque "admin" y "entrenador" no eran conceptos independientes en el código (admin = una constante; entrenador = una fila en `Entrenadores`).
+
+**Terminado:**
+- **Tabla `Admins` creada en Airtable** (`tbl9rBIoivD65ojPx`, base `appZ7NZWDl6haw8pK`): `Email` (texto, campo principal), `Nombre` (texto), `Activo` (checkbox). Añadido `jumirohu@gmail.com` / `Juanmi` / `Activo=true` — sigue siendo el único admin real hoy, pero ahora vive en datos, no en código
+- **Backend**: nueva `getAdminByEmail()` en `lib/airtable.ts`. `getAuthenticatedAdminEmail()` (`auth-server.ts`, el gate real usado por los 12 endpoints `/api/admin/*`) ya no compara contra `process.env.ADMIN_EMAIL` — busca el email en `Admins` y exige `Activo=true`. Mismo cambio en `GET /api/auth/rol` (resuelve `admin`/`entrenador`/`cliente`, admin ahora vía Airtable) y en `POST /api/admin/log-activity` (evita registrar `Último_login` para un admin, ahora vía Airtable en vez de comparar el env var)
+- **Frontend**: `Header.tsx` dejó de derivar `isAdmin` internamente de `ADMIN_EMAIL` — ahora lo recibe como prop (`isAdmin?: boolean`, default `false`), que cada página resuelve una sola vez y pasa hacia abajo. `dashboard/page.tsx` y `metricas/page.tsx` (que ya comparaban `ADMIN_EMAIL` client-side) ahora llaman a `GET /api/auth/rol`. **Aprovechado para cerrar una inconsistencia real que ya existía antes de esta tarea**: `admin/page.tsx` y `admin/entrenador/[email]/page.tsx` nunca habían comprobado el rol admin en el cliente — confiaban 100% en que la API devolviera `403` (correcto para seguridad, pero dejaba que un usuario no-admin viera brevemente el `Header`/"Cargando…" antes del redirect en vez de ser enviado a `/dashboard` de inmediato). Se les añadió el mismo chequeo de `/api/auth/rol` que ya usaba `metricas/page.tsx`, así las 4 páginas admin-only quedan con el mismo patrón
+- **`lib/admin.ts` (constante `ADMIN_EMAIL`) borrado** — sin más referencias en el código tras el cambio, no se dejó como shim de compatibilidad
+- **Probado end-to-end con datos reales** (creados y borrados tras la prueba, servidor `next dev` local, token de Juanmi obtenido con `generateLink`/`verifyOtp` sin tocar su contraseña real): (1) Juanmi, solo en `Admins` → `GET /api/auth/rol` = `admin`, `GET /api/admin/entrenadores` = `200`; (2) un email de prueba añadido a la vez en `Admins` Y `Entrenadores` → rol resuelto `admin` (prioridad correcta), acceso admin `200` Y acceso a `GET /api/clientes` (endpoint de entrenador) también `200` — confirma que el multi-rol funciona en ambos sentidos con el mismo email; (3) el mismo email, tras borrar su registro de `Admins` (queda solo en `Entrenadores`) → rol pasa a `entrenador` y `GET /api/admin/entrenadores` pasa a `403` — confirma que el gate es dinámico contra la tabla, no cacheado. Ver decisión técnica 44
+- Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión): las 4 páginas admin-only con el nuevo gate de rol. Verificado solo con `tsc`/`eslint`/`next build` y las pruebas de API descritas arriba.
+
+**(Después) clientes en `Admins`**: la prueba pedida "también estar en clientes_login" no aplica literalmente — recordar que no existe una tabla `clientes_login` en este proyecto (decisión técnica 43, sesión 13B: los clientes usan el mismo Supabase Auth que entrenadores/admin, resuelto contra la tabla `Clientes` de Airtable, no una tabla de credenciales propia). El mismo mecanismo de prioridad de `GET /api/auth/rol` (`admin` > `entrenador` > `cliente`) ya contempla que un email esté en `Admins` y en `Clientes` a la vez — no requiere cambio adicional, pero no se probó explícitamente con un cliente real en esta sesión por no ser parte del pedido inmediato ("Después").
+
+---
+
+## ESTADO ANTERIOR (12 ago 2026 — Sesión 13B)
 
 Commit: `98a9a5a` (merge de `sesion-13a` a `main`, sesiones 13A + 13B)
 Rama: `main`
@@ -160,6 +183,7 @@ Tabla Invitaciones: tblzr50mLzLgnIsVg
 Tabla Entrenadores: tblo7dLrfaOxcPppY
 Tabla Snapshots: tbliaBxJa4GIYoHId
 Tabla Snapshots_entrenadores: tblEaBtZvUXyzPk8y
+Tabla Admins: tbl9rBIoivD65ojPx
 Token: [en Vercel env vars, NO en repo]
 
 
@@ -293,6 +317,15 @@ Backup de reportes antiguos (>60 días). Campos: Fecha, Cliente_Email, Peso, Ent
 
 Usada para la gráfica "Evolución de entrenadores" en `/dashboard`. Poblada mensualmente por el workflow n8n "Snapshot mensual" (ver sección N8N WORKFLOWS). Empieza vacía.
 
+### Tabla "Admins" (`tbl9rBIoivD65ojPx`, NEW)
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| Email | Texto (PRIMARY) | Clave usada por `getAdminByEmail()`. Un email puede estar aquí Y a la vez en `Entrenadores`/`Clientes` — es la base del soporte multi-rol, ver decisión técnica 44 |
+| Nombre | Texto | |
+| Activo | Checkbox | `getAuthenticatedAdminEmail()` exige `Activo=true`, no basta con que el registro exista |
+
+Fuente de verdad de quién es admin de la plataforma (reemplaza el email fijo `ADMIN_EMAIL` de antes). Hoy solo tiene un registro: `jumirohu@gmail.com` / `Juanmi` / `Activo=true`.
+
 ---
 
 ## ESTRUCTURA DEL REPOSITORIO
@@ -319,12 +352,12 @@ panel-seguimiento/
 │ │ ├── reset-password/
 │ │ │ └── page.tsx # Reset password
 │ │ ├── dashboard/
-│ │ │ └── page.tsx # Entrenador: gate de plan base al entrar (si no tiene Seguimiento/Captación/Recuperación → redirect a /planes), luego vista única Clientes (lista+ficha, sin gráficas, sin tabs ni sección "Tus planes" desde sesión 12 — Marketplace se accede vía el botón flotante del Header). Admin: DashboardResumenView (resumen ejecutivo)
+│ │ │ └── page.tsx # Entrenador: gate de plan base al entrar (si no tiene Seguimiento/Captación/Recuperación → redirect a /planes), luego vista única Clientes (lista+ficha, sin gráficas, sin tabs ni sección "Tus planes" desde sesión 12 — Marketplace se accede vía el botón flotante del Header). Admin: DashboardResumenView (resumen ejecutivo). Rol resuelto vía GET /api/auth/rol (NEW: antes comparaba email===ADMIN_EMAIL client-side, ver decisión 44)
 │ │ ├── admin/
-│ │ │ ├── page.tsx # Lista de entrenadores + alta + AlertasPanel + AplicacionesPanel (solo jumirohu@gmail.com). ?nuevo=1 abre el form
-│ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña
+│ │ │ ├── page.tsx # Lista de entrenadores + alta + AlertasPanel + AplicacionesPanel (solo quien esté en tabla Admins con Activo=true, ver decisión 44). ?nuevo=1 abre el form. Gate de rol vía GET /api/auth/rol (NEW, antes solo confiaba en el 403 de la API)
+│ │ │ └── entrenador/[email]/page.tsx # Ficha: editar, sparkline, invitación, WhatsApp, resetear contraseña. Mismo gate de rol vía GET /api/auth/rol (NEW)
 │ │ ├── metricas/
-│ │ │ └── page.tsx # MetricasView: histórico (solo jumirohu@gmail.com)
+│ │ │ └── page.tsx # MetricasView: histórico (solo tabla Admins, Activo=true). Gate vía GET /api/auth/rol (antes email===ADMIN_EMAIL, ver decisión 44)
 │ │ ├── trainer/
 │ │ │ └── metricas/[clienteId]/page.tsx # Placeholder "Próximamente" (NEW). Destino del botón "Ver métricas" de ClienteFicha, gateado por Soluciones incluye "Metricas"
 │ │ ├── cliente/
@@ -337,7 +370,7 @@ panel-seguimiento/
 │ │ ├── entrenador/perfil/route.ts # GET soluciones contratadas del entrenador logueado (consumido por Marketplace)
 │ │ ├── entrenador/consentimiento-ia/route.ts # POST guarda Consentimiento_IA + Consentimiento_IA_fecha del entrenador logueado
 │ │ ├── cliente/perfil/route.ts # GET perfil + resumen del cliente autenticado (NEW, sesión 13B): resuelve el Cliente por el email del JWT (nunca por un id de la URL), peso histórico 3 meses, entrenamientos últimas 4 semanas, energía 30 días, próximo check-in, alerta reciente. Consumido por /cliente/dashboard
-│ │ ├── auth/rol/route.ts # GET resuelve el rol del usuario autenticado: admin (email===ADMIN_EMAIL) > entrenador (existe en Entrenadores) > cliente (existe en Clientes) > 403 (NEW, sesión 13B). Consumido por login/page.tsx para decidir a dónde redirigir tras el login
+│ │ ├── auth/rol/route.ts # GET resuelve el rol del usuario autenticado: admin (existe en tabla Admins, Activo=true) > entrenador (existe en Entrenadores) > cliente (existe en Clientes) > 403 (sesión 13B; chequeo de admin actualizado a tabla Admins, ver decisión 44). Consumido por login/page.tsx y por las páginas admin-only para decidir a dónde redirigir/qué mostrar
 │ │ └── admin/
 │ │ ├── invite/route.ts # POST generar invitación
 │ │ ├── invitaciones/route.ts # GET historial invitaciones
@@ -345,7 +378,7 @@ panel-seguimiento/
 │ │ ├── cancel/route.ts # POST cancelar invitación
 │ │ ├── create-user/route.ts # POST crear usuario Supabase directo (evita rate limit)
 │ │ ├── reset-password/route.ts # POST genera password temporal y la aplica en Supabase. Usa findSupabaseUserByEmail (lib/supabase-server.ts)
-│ │ ├── log-activity/route.ts # POST actualiza Último_login (fire-and-forget desde login)
+│ │ ├── log-activity/route.ts # POST actualiza Último_login (fire-and-forget desde login). Omite el registro si el email está en tabla Admins (NEW, antes comparaba contra process.env.ADMIN_EMAIL, ver decisión 44)
 │ │ ├── resumen-negocio/route.ts # GET tarjetas + evolución entrenadores + soluciones (consumido por /dashboard)
 │ │ ├── alertas/route.ts # GET alertas "requiere tu atención" (consumido por /admin)
 │ │ ├── metricas-negocio/route.ts # GET clientes históricos+actuales + evolución clientes + métricas de impacto + métricas de entrenadores (total histórico+actuales, evolución mensual, por estado, por plan incluye Metricas) (consumido por /metricas) (sesión 12: total_entrenadores_actuales + total_clientes_actuales + plan Metricas)
@@ -361,7 +394,7 @@ panel-seguimiento/
 │ │ ├── StatusBadge.tsx # Badge con tooltip (motivo de la alerta) cuando estado=alerta. Usa lib/estadoReporte.ts
 │ │ ├── SuggestedMessage.tsx # Colapsable (igual que AIAnalysis), botón Copiar visible sin necesidad de expandir (NEW)
 │ │ ├── AIAnalysis.tsx # Badge colapsable "💡 Análisis IA disponible", fondo destacado si tieneAlerta=true (NEW prop)
-│ │ ├── Header.tsx # Incluye AdminNavDropdown si el usuario es admin. Botón 🏪+"Marketplace" (no-admin) abre modal con <Marketplace />, controlado por prop `showMarketplace` (default true; `/planes` pasa false, ver decisión 27). Sesión 12: pasó a botón flotante fijo en la esquina inferior izquierda con texto junto al icono. Sesión 13A: vuelto a botón normal en la fila de acciones, esquina superior derecha junto a 🔑/🌙/Cerrar sesión (ya no flotante). Botón 🔑 (todos) abre <ChangePasswordModal />
+│ │ ├── Header.tsx # Incluye AdminNavDropdown si `isAdmin` (prop booleana, default false — cada página lo resuelve una vez vía GET /api/auth/rol y lo pasa hacia abajo, ya no lo recalcula el propio Header comparando ADMIN_EMAIL, ver decisión 44). Botón 🏪+"Marketplace" (no-admin) abre modal con <Marketplace />, controlado por prop `showMarketplace` (default true; `/planes` pasa false, ver decisión 27). Sesión 12: pasó a botón flotante fijo en la esquina inferior izquierda con texto junto al icono. Sesión 13A: vuelto a botón normal en la fila de acciones, esquina superior derecha junto a 🔑/🌙/Cerrar sesión (ya no flotante). Botón 🔑 (todos) abre <ChangePasswordModal />
 │ │ ├── ChangePasswordModal.tsx # Self-service: pide contraseña actual (revalida con signInWithPassword) + nueva + confirmar, updateUser() (NEW)
 │ │ ├── PlanesCards.tsx # Grid de PRODUCTOS con copy persuasivo de content/plans-copy.ts (problema/features/resultados) + badge "Requiere plan base" en Metricas, sin auth ni acciones — usado por "/" y "/planes". Distinto de Marketplace.tsx (ese sí es interactivo/autenticado) (NEW)
 │ │ ├── AdminNavDropdown.tsx # Dropdown de navegación admin: Resumen/Gestión/Métricas, resalta la página activa
@@ -376,13 +409,13 @@ panel-seguimiento/
 │ └── lib/
 │ ├── supabase.ts # Cliente Supabase (anon key)
 │ ├── supabase-server.ts # Cliente Supabase servidor (service role key) + findSupabaseUserByEmail() (paginación sobre listUsers, compartido por reset-password y el DELETE de entrenadores) (NEW)
-│ ├── auth-server.ts # Lógica de auth backend
+│ ├── auth-server.ts # Lógica de auth backend. getAuthenticatedAdminEmail() consulta la tabla Admins (Activo=true), no un email fijo (NEW, ver decisión 44)
 │ ├── admin.ts # Constante ADMIN_EMAIL (NEXT_PUBLIC_ADMIN_EMAIL con fallback)
 │ ├── alertas.ts # calcularAlertasNegocio() — lógica pura, compartida por /api/admin/alertas
 │ ├── estadoReporte.ts # calcularEstadoReporte() — pendiente/alerta/bien, compartida por StatusBadge, ClienteFicha, /api/clientes y /api/cliente/perfil (NEW)
 │ ├── productos.ts # Catálogo del Marketplace (PRODUCTOS) + calcularEstadoProducto() (en_uso/disponible/proximamente) + SOLUCIONES_BASE/tienePlanBase() (NEW, ver decisión 24)
 │ ├── types.ts # Tipos compartidos frontend/API: Cliente, Reporte, Entrenador, ClientePerfil (NEW, sesión 13B — perfil+resumen consumido por /cliente/dashboard), etc.
-│ └── airtable.ts # Helpers para Airtable API. fetchWithRetry() centralizada con backoff ante 429 (NEW, sesión 13A, decisión 42). borrarEntrenador() (DELETE) usado por /api/admin/entrenadores/[email]. crearCliente()/actualizarCliente() (POST/PATCH tabla Clientes). getClienteByEmail() (NEW, sesión 13B, usado por /api/cliente/perfil y /api/auth/rol)
+│ └── airtable.ts # Helpers para Airtable API. fetchWithRetry() centralizada con backoff ante 429 (sesión 13A, decisión 42). borrarEntrenador() (DELETE) usado por /api/admin/entrenadores/[email]. crearCliente()/actualizarCliente() (POST/PATCH tabla Clientes). getClienteByEmail() (sesión 13B, usado por /api/cliente/perfil y /api/auth/rol). getAdminByEmail() (NEW, tabla Admins, usado por getAuthenticatedAdminEmail/api/auth/rol/log-activity, ver decisión 44)
 └── public/
 └── [favicons, etc.]
 
@@ -396,7 +429,7 @@ panel-seguimiento/
 3. **Filtrar reportes por `Cliente_Email` lookup** (no por record ID)
 4. **Usar nuevas Supabase keys** (`sb_publishable_` / `sb_secret_`), no legacy
 5. **Login protege con JWT de Supabase** (verificado en cada API call)
-6. **Admin dashboard accesible SOLO a** `jumirohu@gmail.com`
+6. **Admin dashboard accesible SOLO a quien esté en la tabla `Admins` con `Activo=true`** (`jumirohu@gmail.com` es el único hoy) — **actualizada, ver decisión 44**: antes era un email fijo hardcodeado en variable de entorno, ahora es una tabla de Airtable, lo que permite que el mismo email sea admin y a la vez entrenador o cliente
 7. **Tokens de invitación válidos 24h**
 8. **Token se marca "Usado" solo cuando signup se completa**
 9. **Regenerar token = borra anterior + crea nuevo**
@@ -440,10 +473,11 @@ panel-seguimiento/
 43. **Sesión 13B — alertas por contexto individual + dashboard para clientes finales:**
     - **Patrón base de alertas** (`Seguimiento - Análisis Lunes`, nodo "Calcular señales"): antes solo se mandaban a Claude los últimos 4 reportes de cada cliente (~4 semanas), y la decisión de alerta se apoyaba en umbrales iguales para todos ("3 semanas cansado seguidas" = alerta, sin importar si eso es normal para ese cliente en concreto). Ahora se manda hasta 12 meses de histórico (tope de seguridad 52 reportes, ~1 check-in semanal) y se calcula en código — no delegado al LLM, para que sea determinista — un `patron_base` por cliente: `pct_veces_cansado_historico` y `entrenamientos_promedio_historico`, ambos sobre el histórico ANTERIOR al reporte que se evalúa (para no comparar el reporte contra sí mismo). El prompt de Claude se reescribió con una regla principal explícita: comparar el reporte actual contra el patrón base de ESE cliente, no contra un umbral genérico — con los mismos ejemplos del brief (cliente que siempre reporta cansado los lunes = normal para él; cliente que nunca lo hace y de repente sí = desviación real). Las señales duras existentes (`no_respondio_esta_semana`, `semanas_cansado_seguidas`, `entrenamientos_en_caida`, `peso_contra_objetivo`) no se tocaron, siguen calculándose igual que antes y complementan al patrón base
     - **Probado end-to-end con datos reales, no solo revisado el código**: el trigger del workflow es un Schedule Trigger (no se puede disparar por API, ver nota ya documentada en N8N WORKFLOWS), así que se creó un workflow de test temporal en n8n (mismos nodos hasta "Parsear respuesta", trigger cambiado a Webhook, `filterByFormula` de "Clientes activos" limitado a 2 clientes de prueba, sin el nodo final de escritura a Airtable para no tener efectos secundarios) — 2 clientes de prueba con 9 reportes históricos + 1 actual cada uno: uno con 89% de "Cansado" histórico + reporte actual también "Cansado" → `alerta: false`, motivo explícito de que es su patrón habitual; otro con 0% de "Cansado" histórico + reporte actual con dolor de hombro, desmotivación explícita ("creo que voy a dejarlo") y entrenamientos caídos de ~4 a 1 → `alerta: true`, nivel alto, mensaje sugerido coherente y empático. Workflow de test y los 22 registros de prueba (2 clientes + 20 reportes) borrados de Airtable tras la validación
-    - **Auth de clientes finales — desviación consciente del brief original**: el brief pedía una tabla `clientes_login` en Supabase con password hash propio. Se optó por **reutilizar el mismo Supabase Auth ya usado por entrenadores y admin** (mismo `auth.users`, mismo patrón de JWT verificado en cada API call, decisión 5) en vez de reimplementar hashing/sesiones a mano — menos código, más seguro, y consistente con cómo ya funciona todo el resto del sistema. No hay tabla nueva: el rol (admin/entrenador/cliente) se resuelve en `GET /api/auth/rol` comprobando Airtable (¿email === `ADMIN_EMAIL`? ¿existe en `Entrenadores`? ¿existe en `Clientes`?), la misma fuente de verdad que ya usa el resto de la app. Incluye una nueva `getClienteByEmail()` en `lib/airtable.ts` (antes solo existía `getClienteById`)
+    - **Auth de clientes finales — desviación consciente del brief original**: el brief pedía una tabla `clientes_login` en Supabase con password hash propio. Se optó por **reutilizar el mismo Supabase Auth ya usado por entrenadores y admin** (mismo `auth.users`, mismo patrón de JWT verificado en cada API call, decisión 5) en vez de reimplementar hashing/sesiones a mano — menos código, más seguro, y consistente con cómo ya funciona todo el resto del sistema. No hay tabla nueva: el rol (admin/entrenador/cliente) se resuelve en `GET /api/auth/rol` comprobando Airtable (¿existe en `Admins`? ¿existe en `Entrenadores`? ¿existe en `Clientes`?), la misma fuente de verdad que ya usa el resto de la app — el chequeo de admin era `email === ADMIN_EMAIL` cuando se escribió esta decisión, **actualizado a la tabla `Admins` en la tarea siguiente, ver decisión 44**. Incluye una nueva `getClienteByEmail()` en `lib/airtable.ts` (antes solo existía `getClienteById`)
     - **Alta de cliente = manual desde la ficha del entrenador, no autoservicio**: mismo patrón que la invitación de entrenadores (decisión 21, alta siempre revisada por un humano, nunca automática) — el entrenador pulsa "Crear acceso" en `ClienteFicha.tsx`, que llama a `POST /api/clientes/[id]/crear-acceso` (mismo patrón que `/api/admin/reset-password`: genera una cuenta Supabase con password temporal aleatoria vía `supabaseAdmin.auth.admin.createUser`, la devuelve una única vez en la respuesta para que el entrenador la comparta por su cuenta — no se guarda en ningún sitio). Si el cliente ya tiene cuenta, el endpoint responde `409` en vez de fallar silenciosamente o duplicar
     - **`GET /api/cliente/perfil` resuelve el cliente por el email autenticado del JWT, nunca por un ID que llegue en la URL o el body** — mismo principio que ya usan `PATCH /api/clientes/[id]` (ownership por `Entrenador === email`) y el resto de endpoints protegidos: un cliente no tiene forma de pedir los datos de otro cliente ni de un entrenador. Verificado con una prueba real: el cliente de prueba autenticado obtuvo exactamente sus propios datos, y al llamar `GET /api/clientes` (endpoint pensado para entrenadores, filtra por `Entrenador === email`) recibió `[]` en vez de datos ajenos
     - **Contenido de `/cliente/dashboard`**: nombre/objetivo/entrenador, gráfica de peso de Recharts (3 meses, mismo patrón visual y variables CSS — `var(--primary)`, `var(--border)`, `var(--muted)` — que el sparkline ya existente en la ficha de entrenador), entrenamientos de la semana vs objetivo con barra de progreso + últimas 4 semanas en texto, energía de los últimos 30 días (conteo por categoría), próximo check-in en días, y un banner con el mensaje del entrenador si el último reporte tiene alerta activa (mismo criterio `calcularEstadoReporte` que ya usa el resto de la app). Página con su propio header minimalista (nombre + Cerrar sesión) en vez de reutilizar `Header.tsx`, que está diseñado para entrenador/admin (AdminNavDropdown, Marketplace, etc. no aplican a un cliente)
+44. **Admin resuelto contra la tabla `Admins` de Airtable, no contra un email fijo — permite multi-rol real (el mismo email admin + entrenador + cliente a la vez)**: antes "ser admin" era `email === process.env.ADMIN_EMAIL` (server) / `email === NEXT_PUBLIC_ADMIN_EMAIL` (client, vía el ahora borrado `lib/admin.ts`) — dos variables de entorno separadas sin validación cruzada entre sí, y sobre todo un modelo que no distinguía "admin" de "el único admin que existe", así que un admin nunca podía aparecer también como fila normal en `Entrenadores` sin romper supuestos implícitos del código. Nueva tabla `Admins` (`tbl9rBIoivD65ojPx`): `Email` (texto, primario), `Nombre` (texto), `Activo` (checkbox) — mismo patrón de campos que `Entrenadores`. El único gate real server-side (`getAuthenticatedAdminEmail()` en `auth-server.ts`, usado por los 12 endpoints `/api/admin/*`) ahora consulta `getAdminByEmail()` y exige `Activo=true`; `GET /api/auth/rol` y `POST /api/admin/log-activity` se actualizaron igual, y son los tres únicos sitios donde "ser admin" se decide de verdad — todo lo demás (páginas cliente, `Header.tsx`) consume el resultado ya resuelto, nunca vuelve a comprobar el email por su cuenta. **Se aprovechó para cerrar una inconsistencia previa no relacionada con este cambio**: `admin/page.tsx` y `admin/entrenador/[email]/page.tsx` nunca habían comprobado el rol admin en el cliente (solo `dashboard/page.tsx` y `metricas/page.tsx` lo hacían) — confiaban 100% en el `403` de la API, que sigue siendo la protección real, pero dejaba una página semi-cargada visible un instante antes del redirect. Ahora las 4 páginas admin-only llaman a `GET /api/auth/rol` con el mismo patrón. `Header.tsx` pasó de recalcular `isAdmin` internamente a recibirlo como prop — cada página lo resuelve una vez y lo pasa hacia abajo, en vez de que el componente compare el email por su cuenta. **Probado end-to-end con datos reales** (ver ESTADO ACTUAL para el detalle: Juanmi solo en `Admins`, un email en `Admins`+`Entrenadores` a la vez con ambos accesos funcionando, y el mismo email perdiendo acceso admin al instante de borrar su fila en `Admins` sin tocar `Entrenadores`) — no quedó como cambio "solo revisado en el código". `lib/admin.ts` borrado por quedar sin ningún import tras el cambio, sin dejarlo como shim de compatibilidad
 
 ---
 
@@ -599,6 +633,9 @@ Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, f
 - [x] **Brief "Sesión 13B"** (alertas por contexto individual + dashboard para clientes finales, tokens normales): Tarea 4b (histórico ampliado a 12 meses + `patron_base` por cliente en "Seguimiento - Análisis Lunes", prompt reescrito, probado end-to-end con workflow de test temporal y datos reales — patrón habitual no alerta, anomalía real sí) y Tarea 4c (dashboard para clientes finales en `/cliente/dashboard`, auth reutilizando Supabase Auth existente en vez de tabla nueva, alta manual desde `ClienteFicha.tsx` vía "Crear acceso", `GET /api/auth/rol` y `GET /api/cliente/perfil`, probado end-to-end con cliente de prueba real). Ver ESTADO ACTUAL y decisión técnica 43. Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. **No probado visualmente en navegador** — pendiente ver el checklist abajo
 - [ ] **Validación manual en navegador de la Sesión 13B** (Juanmi): (1) desde la ficha de un cliente en `/dashboard`, pulsar "Crear acceso" y confirmar que aparece la password temporal; (2) loguearse en `/login` con esas credenciales y confirmar que redirige a `/cliente/dashboard` (no a `/dashboard`); (3) revisar que la página muestra los datos reales del cliente (gráfica de peso, entrenamientos, energía, próximo check-in) y, si el cliente tiene una alerta reciente, el banner con el mensaje del entrenador; (4) confirmar que un entrenador logueado normalmente sigue yendo a `/dashboard` como siempre (la resolución de rol no debe afectarle)
 - [x] **Mergear la rama `sesion-13a` a `main`** (Sesiones 13A + 13B) — merge limpio sin conflictos (commit `98a9a5a`), pusheado a `origin/main`. Vercel debería desplegar a Production automáticamente a partir de aquí
+- [x] **Tabla `Admins` separada, admin resuelto contra Airtable en vez de un email fijo**: tabla `Admins` creada con Juanmi como único registro, `getAuthenticatedAdminEmail()`/`GET /api/auth/rol`/`POST /api/admin/log-activity` actualizados, `Header.tsx` recibe `isAdmin` como prop en vez de recalcularlo, y las 4 páginas admin-only (`admin`, `admin/entrenador/[email]`, `metricas`, `dashboard` en su rama admin) usan el mismo gate vía `/api/auth/rol`. `lib/admin.ts` borrado. Ver decisión técnica 44. Probado end-to-end con datos reales (Juanmi solo-admin, un email admin+entrenador a la vez, y pérdida de acceso admin al instante de quitarlo de `Admins`). Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. **No probado visualmente en navegador**
+- [ ] **Validación manual en navegador de "Tabla Admins separada"** (Juanmi): (1) login normal con `jumirohu@gmail.com` → `/admin` sigue funcionando igual que siempre; (2) probar con un entrenador real que se añada temporalmente a `Admins` en Airtable → debería poder entrar a `/admin` Y seguir viendo su vista de entrenador en `/dashboard` con el mismo login; (3) confirmar que un entrenador normal (no en `Admins`) sigue sin poder entrar a `/admin` (redirect a `/dashboard`)
+- [ ] **Mergear `tabla-admins-separada` a `main`** cuando se valide manualmente — hoy solo pusheada como rama feature (`origin/tabla-admins-separada`)
 
 ---
 

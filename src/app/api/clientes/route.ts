@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getClientesByEntrenador, getUltimosReportesPorClientes, crearCliente } from '@/lib/airtable'
+import { getClientesByEntrenador, getUltimosReportesPorClientes, crearCliente, getEntrenadorByEmail } from '@/lib/airtable'
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import { truncateResumen } from '@/lib/format'
 
@@ -55,6 +55,13 @@ export async function POST(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
   if (!email) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  }
+
+  // Crear clientes es una capacidad de entrenador, no de cualquier usuario autenticado.
+  // Admins que además tengan rol de entrenador pasan este gate porque el modelo es multi-rol.
+  const entrenador = await getEntrenadorByEmail(email)
+  if (!entrenador) {
+    return NextResponse.json({ error: 'Solo un entrenador puede crear clientes' }, { status: 403 })
   }
 
   const body = await request.json().catch(() => null)

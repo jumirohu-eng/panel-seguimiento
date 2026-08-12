@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getEntrenadorByEmail, actualizarEntrenador } from '@/lib/airtable'
+import { getAdminByEmail, getEntrenadorByEmail, actualizarEntrenador } from '@/lib/airtable'
 
 export async function POST(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
@@ -8,11 +8,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
-  if (email === process.env.ADMIN_EMAIL) {
-    return NextResponse.json({ success: true, skipped: true })
-  }
-
   try {
+    const admin = await getAdminByEmail(email)
+    if (admin && admin.fields.Activo) {
+      return NextResponse.json({ success: true, skipped: true })
+    }
+
     const entrenador = await getEntrenadorByEmail(email)
     if (entrenador) {
       await actualizarEntrenador(entrenador.id, { 'Último_login': new Date().toISOString() })

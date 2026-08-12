@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente } from '@/lib/types'
-import { ADMIN_EMAIL } from '@/lib/admin'
 import { tienePlanBase } from '@/lib/productos'
 import Header from '@/components/Header'
 import ClientesLista from '@/components/ClientesLista'
@@ -12,9 +11,21 @@ import ClienteFicha from '@/components/ClienteFicha'
 import DashboardResumenView from '@/components/admin/DashboardResumenView'
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardPageContent />
+    </Suspense>
+  )
+}
+
+function DashboardPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const vistaEntrenador = searchParams.get('vista') === 'entrenador'
+
   const [email, setEmail] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [mostrarResumenAdmin, setMostrarResumenAdmin] = useState(false)
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loadingClientes, setLoadingClientes] = useState(true)
@@ -29,12 +40,6 @@ export default function DashboardPage() {
       }
       setEmail(userData.user.email ?? '')
 
-      if (userData.user.email === ADMIN_EMAIL) {
-        setIsAdmin(true)
-        setLoadingClientes(false)
-        return
-      }
-
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
       if (!token) {
@@ -42,19 +47,43 @@ export default function DashboardPage() {
         return
       }
 
+      let esAdmin = false
       try {
-        const perfilRes = await fetch('/api/entrenador/perfil', {
+        const rolRes = await fetch('/api/auth/rol', {
           headers: { Authorization: `Bearer ${token}` },
         })
-        if (perfilRes.ok) {
-          const perfil = await perfilRes.json()
-          if (!tienePlanBase(perfil.soluciones ?? [])) {
-            router.push('/planes')
-            return
-          }
+        if (rolRes.ok) {
+          const { rol } = await rolRes.json()
+          esAdmin = rol === 'admin'
         }
       } catch {
-        // Si falla la comprobación de plan, dejamos pasar y que /api/clientes falle si toca
+        // Si falla la resolución de rol, seguimos como entrenador (comportamiento previo)
+      }
+      setIsAdmin(esAdmin)
+
+      if (esAdmin && !vistaEntrenador) {
+        setMostrarResumenAdmin(true)
+        setLoadingClientes(false)
+        return
+      }
+
+      // A partir de aquí: entrenador real, o admin con "Ver como entrenador" (sin gate de
+      // plan base — es una vista previa del admin, no aplica la restricción de un entrenador real)
+      if (!esAdmin) {
+        try {
+          const perfilRes = await fetch('/api/entrenador/perfil', {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (perfilRes.ok) {
+            const perfil = await perfilRes.json()
+            if (!tienePlanBase(perfil.soluciones ?? [])) {
+              router.push('/planes')
+              return
+            }
+          }
+        } catch {
+          // Si falla la comprobación de plan, dejamos pasar y que /api/clientes falle si toca
+        }
       }
 
       try {
@@ -71,7 +100,7 @@ export default function DashboardPage() {
       }
     }
     init()
-  }, [router])
+  }, [router, vistaEntrenador])
 
   const handleSelect = useCallback((id: string) => setSelectedId(id), [])
   const handleBack = useCallback(() => setSelectedId(null), [])
@@ -92,10 +121,10 @@ export default function DashboardPage() {
     )
   }
 
-  if (isAdmin) {
+  if (mostrarResumenAdmin) {
     return (
       <div className="min-h-screen bg-background">
-        {email && <Header email={email} />}
+        {email && <Header email={email} isAdmin />}
         <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
           <DashboardResumenView />
         </main>
@@ -105,9 +134,14 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {email && <Header email={email} />}
+      {email && <Header email={email} isAdmin={isAdmin} />}
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+        {isAdmin && vistaEntrenador && (
+          <p className="mb-4 rounded-lg bg-background px-3 py-2 text-xs text-muted">
+            Vista previa como entrenador — los clientes mostrados son los reales asociados a tu email.
+          </p>
+        )}
         {error && <p className="mb-4 text-sm text-danger">{error}</p>}
 
         {clienteSeleccionado ? (

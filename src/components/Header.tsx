@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ADMIN_EMAIL } from '@/lib/admin'
 import AdminNavDropdown from './AdminNavDropdown'
 import Marketplace from './Marketplace'
 import ChangePasswordModal from './ChangePasswordModal'
@@ -15,7 +14,15 @@ function getInitialDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
-export default function Header({ email, showMarketplace = true }: { email: string; showMarketplace?: boolean }) {
+export default function Header({
+  email,
+  isAdmin = false,
+  showMarketplace = true,
+}: {
+  email: string
+  isAdmin?: boolean
+  showMarketplace?: boolean
+}) {
   const router = useRouter()
   const [dark, setDark] = useState(getInitialDark)
   const [mostrarMarketplace, setMostrarMarketplace] = useState(false)
@@ -36,7 +43,6 @@ export default function Header({ email, showMarketplace = true }: { email: strin
   }
 
   const nombre = email.split('@')[0]
-  const isAdmin = email === ADMIN_EMAIL
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-3 sm:px-6">

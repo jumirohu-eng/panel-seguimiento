@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getEntrenadorByEmail, getClienteByEmail } from '@/lib/airtable'
-import { ADMIN_EMAIL } from '@/lib/admin'
+import { getAdminByEmail, getEntrenadorByEmail, getClienteByEmail } from '@/lib/airtable'
 
 export async function GET(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
@@ -9,11 +8,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
-  if (email === ADMIN_EMAIL) {
-    return NextResponse.json({ rol: 'admin' })
-  }
-
   try {
+    const admin = await getAdminByEmail(email)
+    if (admin && admin.fields.Activo) {
+      return NextResponse.json({ rol: 'admin' })
+    }
+
     const entrenador = await getEntrenadorByEmail(email)
     if (entrenador) {
       return NextResponse.json({ rol: 'entrenador' })

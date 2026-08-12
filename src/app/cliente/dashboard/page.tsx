@@ -16,6 +16,8 @@ export default function ClienteDashboardPage() {
   const [perfil, setPerfil] = useState<ClientePerfil | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [sinCliente, setSinCliente] = useState(false)
+  const [puedeVolver, setPuedeVolver] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -34,14 +36,29 @@ export default function ClienteDashboardPage() {
 
       setEmail(userData.user.email ?? '')
 
+      // Un admin o entrenador puede llegar aquí desde "Ver como cliente" sin re-loguearse
+      // (ver AdminNavDropdown) — si además de cliente tiene otro rol, le mostramos un botón
+      // para volver a su panel en vez de dejarlo sin salida en esta página.
+      try {
+        const rolRes = await fetch('/api/auth/rol', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (rolRes.ok) {
+          const { rol } = await rolRes.json()
+          setPuedeVolver(rol !== 'cliente')
+        }
+      } catch {
+        // Si falla, simplemente no se muestra el botón de volver
+      }
+
       try {
         const res = await fetch('/api/cliente/perfil', {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.status === 404) {
-          // El email autenticado no corresponde a ningún cliente (p. ej. un entrenador
-          // que llega aquí por error) — esta página es solo para clientes.
-          router.push('/login')
+          // El email autenticado no corresponde a ningún cliente — no forzamos logout,
+          // puede ser un admin/entrenador previsualizando esta vista sin tener ficha de cliente
+          setSinCliente(true)
           return
         }
         if (!res.ok) throw new Error('No se pudo cargar el perfil')
@@ -69,6 +86,21 @@ export default function ClienteDashboardPage() {
     )
   }
 
+  if (sinCliente) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+        <p className="text-sm text-muted">No se encontró ningún cliente asociado a {email}.</p>
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard')}
+          className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+        >
+          Volver a mi panel
+        </button>
+      </div>
+    )
+  }
+
   if (error || !perfil) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -91,12 +123,22 @@ export default function ClienteDashboardPage() {
           <p className="text-sm font-medium capitalize text-card-foreground">{perfil.nombre}</p>
           <p className="text-xs text-muted">{email}</p>
         </div>
-        <button
-          onClick={handleLogout}
-          className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
-        >
-          Cerrar sesión
-        </button>
+        <div className="flex items-center gap-2">
+          {puedeVolver && (
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+            >
+              Volver al panel
+            </button>
+          )}
+          <button
+            onClick={handleLogout}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6">

@@ -97,6 +97,16 @@ export default function EntrenadorFichaPage() {
         router.push('/login')
         return
       }
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      const rolRes = token
+        ? await fetch('/api/auth/rol', { headers: { Authorization: `Bearer ${token}` } })
+        : null
+      const rol = rolRes?.ok ? (await rolRes.json()).rol : null
+      if (rol !== 'admin') {
+        router.push('/dashboard')
+        return
+      }
       setSessionEmail(data.user.email ?? '')
       setAuthorized(true)
       setCheckingAuth(false)
@@ -277,7 +287,7 @@ export default function EntrenadorFichaPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {sessionEmail && <Header email={sessionEmail} />}
+      {sessionEmail && <Header email={sessionEmail} isAdmin />}
 
       <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6">
         {toast && (

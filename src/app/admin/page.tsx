@@ -88,6 +88,16 @@ function AdminPageContent() {
         router.push('/login')
         return
       }
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      const rolRes = token
+        ? await fetch('/api/auth/rol', { headers: { Authorization: `Bearer ${token}` } })
+        : null
+      const rol = rolRes?.ok ? (await rolRes.json()).rol : null
+      if (rol !== 'admin') {
+        router.push('/dashboard')
+        return
+      }
       setEmail(data.user.email ?? '')
       setAuthorized(true)
       setCheckingAuth(false)
@@ -155,7 +165,7 @@ function AdminPageContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      {email && <Header email={email} />}
+      {email && <Header email={email} isAdmin />}
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">

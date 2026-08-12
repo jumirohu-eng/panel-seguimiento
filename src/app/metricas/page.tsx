@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ADMIN_EMAIL } from '@/lib/admin'
 import Header from '@/components/Header'
 import MetricasView from '@/components/admin/MetricasView'
 
@@ -20,7 +19,13 @@ export default function MetricasPage() {
         router.push('/login')
         return
       }
-      if (data.user.email !== ADMIN_EMAIL) {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      const rolRes = token
+        ? await fetch('/api/auth/rol', { headers: { Authorization: `Bearer ${token}` } })
+        : null
+      const rol = rolRes?.ok ? (await rolRes.json()).rol : null
+      if (rol !== 'admin') {
         router.push('/dashboard')
         return
       }
@@ -41,7 +46,7 @@ export default function MetricasPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {email && <Header email={email} />}
+      {email && <Header email={email} isAdmin />}
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         <MetricasView />
       </main>

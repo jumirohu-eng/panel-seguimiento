@@ -237,7 +237,7 @@ ID: recmIIxHLVhql0yvJ
 ### Usuarios Supabase creados
 espartakofake@gmail.com → ve a Juanmi
 maria@example.com → ve a Carlos y Sofia
-jumirohu@gmail.com → admin del dashboard
+jumirohu@gmail.com → admin del dashboard. **Password puesta a `test1234` a petición explícita de Juanmi (12 ago 2026)** — débil a propósito para pruebas rápidas, no es la password real de producción; cambiarla por una robusta cuando se deje de necesitar para testing
 
 
 ---

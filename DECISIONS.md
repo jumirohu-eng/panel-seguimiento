@@ -63,9 +63,77 @@ Los clientes utilizan el mismo Supabase Auth que entrenadores/admin; no existe u
 
 ---
 
+## DEC-2026-004 — Crear clientes requiere rol de entrenador
+
+**Fecha:** 2026-08-13  
+**Tipo:** Seguridad / Autorización  
+**Estado:** Implementada
+
+### Hallazgo
+Durante la auditoría de arquitectura y seguridad se detectó que `POST /api/clientes` solo comprobaba que existiera un usuario autenticado. Eso permitía potencialmente que cualquier usuario autenticado intentara crear clientes, aunque la capacidad corresponde a un entrenador.
+
+### Decisión
+`POST /api/clientes` debe exigir que el email autenticado exista en `Entrenadores`. Los usuarios admin que además tengan una fila en `Entrenadores` pueden crear clientes por el modelo multi-rol.
+
+### Acción
+Añadido el gate mediante `getEntrenadorByEmail(email)` en `src/app/api/clientes/route.ts`.
+
+### Commit
+`488ab44448e593506d5bba751601423022a0daba`
+
+### Aprendizaje
+Autenticación (`usuario logueado`) no equivale a autorización (`capacidad para ejecutar la acción`). Cada endpoint de escritura debe comprobar explícitamente el rol/ownership requerido.
+
+---
+
+## DEC-2026-005 — Criterio para cerrar la migración
+
+**Fecha:** 2026-08-13  
+**Tipo:** Proceso / Calidad  
+**Estado:** Activa
+
+La migración no se considera cerrada hasta completar, en este orden:
+1. auditoría de arquitectura antigua → actual;
+2. auditoría n8n ↔ Airtable ↔ Supabase;
+3. auditoría de seguridad/multirol;
+4. pruebas reales de navegador;
+5. corrección de hallazgos;
+6. actualización de `CLAUDE.md` y `DECISIONS.md`;
+7. declaración explícita de migración cerrada.
+
+La documentación por sí sola no cuenta como validación. Cuando sea posible, se debe comprobar el comportamiento contra el código, APIs/datos reales y navegador.
+
+---
+
+## Estado de la auditoría 2026-08-13
+
+### Arquitectura
+- Migración de admin fijo → `Admins` + multirol implementada.
+- Supabase Auth compartido para admin/entrenador/cliente implementado.
+- Se endureció `POST /api/clientes` durante esta auditoría.
+
+### n8n ↔ Airtable ↔ Supabase
+- Los workflows principales están documentados como activos, salvo `Recordatorios viernes`, que no está construido.
+- `Seguimiento - Análisis Lunes` tiene el filtro contra `ultimoReporteId` nulo documentado en decisiones anteriores.
+- `Seguimiento - Alta cliente` actualiza el cliente existente en lugar de crear duplicados.
+- La app tiene retry ante 429 de Airtable.
+- La auditoría específica de todos los workflows contra el esquema actual todavía debe completarse directamente en n8n.
+
+### Seguridad
+- Los endpoints revisados verifican JWT y ownership donde corresponde.
+- Queda pendiente una matriz sistemática de pruebas de autorización por rol.
+
+### Navegador
+- Quedan pruebas visuales/funcionales reales de los flujos principales y multirol.
+
+---
+
 ## Historial de cambios
 
 ### 2026-08-13
 - Creado `DECISIONS.md` como registro técnico compartido.
 - Establecida la separación entre decisiones estratégicas (Airtable) y técnicas (GitHub).
 - Añadida la decisión de mantener este archivo en la raíz para facilitar su lectura por Claude Code.
+- Añadida `DEC-2026-004`: crear clientes requiere rol de entrenador.
+- Añadida `DEC-2026-005`: criterios para declarar cerrada la migración.
+- Actualizado el estado de la auditoría de migración.

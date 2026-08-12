@@ -115,6 +115,18 @@ export interface MetricasEntrenadores {
   entrenadores_por_plan: { solucion: string; count: number }[]
 }
 
+export interface ClientePerfil {
+  nombre: string
+  objetivo: string
+  entrenadorNombre: string
+  entrenamientosObjetivo: number
+  pesoHistorico: { fecha: string; peso: number }[]
+  entrenamientosRecientes: { fecha: string; entrenamientos: number }[]
+  energiaPromedio30dias: { cansado: number; normal: number; conEnergia: number; total: number }
+  proximoCheckinDias: number | null
+  alertaReciente: string | null
+}
+
 export interface MetricasNegocio {
   total_clientes_historicos: number
   total_clientes_actuales: number

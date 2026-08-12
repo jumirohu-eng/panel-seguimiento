@@ -44,6 +44,9 @@ export default function ClienteFicha({
   const [errorBaja, setErrorBaja] = useState<string | null>(null)
   const [copiadoLinkTally, setCopiadoLinkTally] = useState(false)
   const [conflictoError, setConflictoError] = useState<string | null>(null)
+  const [creandoAcceso, setCreandoAcceso] = useState(false)
+  const [accesoCreado, setAccesoCreado] = useState<string | null>(null)
+  const [errorAcceso, setErrorAcceso] = useState<string | null>(null)
   const notasTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getToken = useCallback(async () => {
@@ -119,6 +122,26 @@ export default function ClienteFicha({
     setCopiadoLinkTally(true)
     setTimeout(() => setCopiadoLinkTally(false), 2000)
   }, [cliente.linkTallyAlta])
+
+  const handleCrearAcceso = useCallback(async () => {
+    setCreandoAcceso(true)
+    setErrorAcceso(null)
+    setAccesoCreado(null)
+    const token = await getToken()
+    try {
+      const res = await fetch(`/api/clientes/${cliente.id}/crear-acceso`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error ?? 'No se pudo crear el acceso')
+      setAccesoCreado(data.password)
+    } catch (err) {
+      setErrorAcceso(err instanceof Error ? err.message : 'Error al crear el acceso')
+    } finally {
+      setCreandoAcceso(false)
+    }
+  }, [cliente.id, getToken])
 
   useEffect(() => {
     async function cargarPerfil() {
@@ -306,6 +329,29 @@ export default function ClienteFicha({
             </button>
           </div>
         )}
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background p-3">
+          <div className="min-w-0">
+            <p className="mb-1 text-xs font-medium text-muted">Acceso al panel del cliente</p>
+            {accesoCreado ? (
+              <p className="text-xs text-card-foreground">
+                Contraseña temporal: <span className="font-mono font-semibold">{accesoCreado}</span> — compártela
+                con el cliente, no queda guardada aquí
+              </p>
+            ) : errorAcceso ? (
+              <p className="text-xs text-danger">{errorAcceso}</p>
+            ) : (
+              <p className="text-xs text-muted">Crea una cuenta para que {cliente.nombre} vea su progreso</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleCrearAcceso}
+            disabled={creandoAcceso}
+            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
+          >
+            {creandoAcceso ? 'Creando…' : 'Crear acceso'}
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}

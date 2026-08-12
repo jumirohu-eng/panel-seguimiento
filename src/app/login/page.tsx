@@ -39,6 +39,23 @@ export default function LoginPage() {
       }).catch(() => {})
     }
 
+    if (accessToken) {
+      try {
+        const rolRes = await fetch('/api/auth/rol', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+        if (rolRes.ok) {
+          const { rol } = await rolRes.json()
+          if (rol === 'cliente') {
+            router.push('/cliente/dashboard')
+            return
+          }
+        }
+      } catch {
+        // Si falla la resolución de rol, dejamos el flujo por defecto (entrenador/admin)
+      }
+    }
+
     router.push('/dashboard')
   }
 

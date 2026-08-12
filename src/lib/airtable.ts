@@ -172,6 +172,14 @@ export async function actualizarCliente(recordId: string, fields: Partial<Client
   return airtableWrite<AirtableRecord<ClienteFields>>(`${TABLE_CLIENTES}/${recordId}`, 'PATCH', fields)
 }
 
+export async function getClienteByEmail(email: string): Promise<AirtableRecord<ClienteFields> | null> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Email} = "${escapeFormulaValue(email)}"`)
+  params.set('maxRecords', '1')
+  const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(TABLE_CLIENTES, params)
+  return data.records[0] ?? null
+}
+
 export async function getClienteById(id: string): Promise<AirtableRecord<ClienteFields> | null> {
   const baseId = process.env.AIRTABLE_BASE_ID
   const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_CLIENTES}/${id}`

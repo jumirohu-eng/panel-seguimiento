@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (12 ago 2026 — Tabla Admins separada)
 
-Commit: (pendiente de generar — ver commit de este mismo cambio)
+Commit: `11f29f5`
 Rama: `tabla-admins-separada` (feature, sin mergear a `main` todavía)
 
 ### Resumen: tabla Admins separada (multi-rol)

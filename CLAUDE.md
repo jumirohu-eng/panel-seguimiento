@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (12 ago 2026 — Sesión 13B)
 
-Commit: (pendiente de generar — ver commit de este mismo cambio)
+Commit: `9800425`
 Rama: `sesion-13a` (sesiones 13A y 13B viven en la misma rama feature, sin mergear a `main` todavía — ver PENDIENTES INMEDIATOS)
 
 ### Resumen de Sesión 13B (alertas por contexto individual + dashboard para clientes finales, tokens normales)

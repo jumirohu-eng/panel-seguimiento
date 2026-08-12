@@ -2,7 +2,7 @@
 
 ## ESTADO ACTUAL (12 ago 2026 — Sesión 13A)
 
-Commit: (pendiente de generar — ver commit de este mismo cambio)
+Commit: `58f39d9`
 Rama: `sesion-13a` (feature, sin mergear a `main` todavía)
 
 ### Resumen de Sesión 13A (housekeeping + UI Marketplace + auditoría escalabilidad, bajo consumo de tokens)

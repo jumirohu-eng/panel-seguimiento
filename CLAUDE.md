@@ -2,8 +2,8 @@
 
 ## ESTADO ACTUAL (12 ago 2026 — Sesión 13B)
 
-Commit: `9800425`
-Rama: `sesion-13a` (sesiones 13A y 13B viven en la misma rama feature, sin mergear a `main` todavía — ver PENDIENTES INMEDIATOS)
+Commit: `98a9a5a` (merge de `sesion-13a` a `main`, sesiones 13A + 13B)
+Rama: `main`
 
 ### Resumen de Sesión 13B (alertas por contexto individual + dashboard para clientes finales, tokens normales)
 
@@ -598,7 +598,7 @@ Webhook (path `TallyAltaCliente`, conectado al Tally real `tally.so/r/ODq4kK`, f
 - [x] **Brief "Sesión 13A"** (housekeeping + UI Marketplace + auditoría escalabilidad, bajo consumo de tokens): Tarea 1 (borrado el registro huérfano `recyqm5KowgHopbp5` de `Reportes`, verificado antes de borrar que seguía sin `Cliente` vinculado), Tarea 2 (botón Marketplace movido de flotante inferior-izquierda a la fila de acciones del Header, esquina superior derecha, mismo emoji+texto), Tarea 3 (auditoría multi-entrenador: bottleneck real encontrado y corregido — ninguna llamada a Airtable reintentaba ante `429`, ahora `fetchWithRetry()` centralizada en `airtable.ts` con backoff; resto de la auditoría sin hallazgos urgentes). Ver ESTADO ACTUAL y decisión técnica 42. Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. **No probado visualmente en navegador** — pendiente confirmar la posición del botón Marketplace
 - [x] **Brief "Sesión 13B"** (alertas por contexto individual + dashboard para clientes finales, tokens normales): Tarea 4b (histórico ampliado a 12 meses + `patron_base` por cliente en "Seguimiento - Análisis Lunes", prompt reescrito, probado end-to-end con workflow de test temporal y datos reales — patrón habitual no alerta, anomalía real sí) y Tarea 4c (dashboard para clientes finales en `/cliente/dashboard`, auth reutilizando Supabase Auth existente en vez de tabla nueva, alta manual desde `ClienteFicha.tsx` vía "Crear acceso", `GET /api/auth/rol` y `GET /api/cliente/perfil`, probado end-to-end con cliente de prueba real). Ver ESTADO ACTUAL y decisión técnica 43. Verificado con `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. **No probado visualmente en navegador** — pendiente ver el checklist abajo
 - [ ] **Validación manual en navegador de la Sesión 13B** (Juanmi): (1) desde la ficha de un cliente en `/dashboard`, pulsar "Crear acceso" y confirmar que aparece la password temporal; (2) loguearse en `/login` con esas credenciales y confirmar que redirige a `/cliente/dashboard` (no a `/dashboard`); (3) revisar que la página muestra los datos reales del cliente (gráfica de peso, entrenamientos, energía, próximo check-in) y, si el cliente tiene una alerta reciente, el banner con el mensaje del entrenador; (4) confirmar que un entrenador logueado normalmente sigue yendo a `/dashboard` como siempre (la resolución de rol no debe afectarle)
-- [ ] **Mergear la rama `sesion-13a` a `main`** (contiene tanto la Sesión 13A como la 13B) y hacer push — hoy Vercel solo tiene un deploy de tipo Preview de esta rama, Production sigue en el commit anterior a estas dos sesiones. Pendiente de decisión del usuario sobre cuándo hacerlo (ver conversación — se decidió esperar a terminar 13B antes de mergear, ahora ya está terminada)
+- [x] **Mergear la rama `sesion-13a` a `main`** (Sesiones 13A + 13B) — merge limpio sin conflictos (commit `98a9a5a`), pusheado a `origin/main`. Vercel debería desplegar a Production automáticamente a partir de aquí
 
 ---
 

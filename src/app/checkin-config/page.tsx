@@ -75,6 +75,13 @@ export default function CheckinConfigPage() {
     <div className="min-h-screen bg-background">
       {email && <Header email={email} />}
       <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard')}
+          className="mb-4 flex items-center gap-1 text-sm font-medium text-muted hover:text-card-foreground"
+        >
+          ← Volver
+        </button>
         {error && <p className="mb-4 text-sm text-danger">{error}</p>}
         {token && campos && <CheckinConfigView token={token} camposIniciales={campos} />}
       </main>

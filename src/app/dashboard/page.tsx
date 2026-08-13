@@ -33,6 +33,7 @@ function DashboardPageContent() {
 
   useEffect(() => {
     async function init() {
+      setLoadingClientes(true)
       const { data: userData } = await supabase.auth.getUser()
       if (!userData.user) {
         router.push('/login')
@@ -61,8 +62,13 @@ function DashboardPageContent() {
       }
       setIsAdmin(esAdmin)
 
-      if (esAdmin && !vistaEntrenador) {
-        setMostrarResumenAdmin(true)
+      // Se recalcula explícitamente en cada ejecución (no solo se pone a `true`) —
+      // si no, al navegar de Resumen a "Ver como entrenador" (mismo componente,
+      // cambia solo el query param) el flag se quedaba en `true` para siempre y
+      // la vista de entrenador nunca llegaba a mostrarse.
+      const mostrarResumen = esAdmin && !vistaEntrenador
+      setMostrarResumenAdmin(mostrarResumen)
+      if (mostrarResumen) {
         setLoadingClientes(false)
         return
       }

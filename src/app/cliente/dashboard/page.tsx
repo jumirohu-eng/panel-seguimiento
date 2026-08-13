@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
+import AdminNavDropdown from '@/components/AdminNavDropdown'
 
 function formatFecha(fechaISO: string) {
   return new Date(fechaISO).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
@@ -28,6 +29,7 @@ export default function ClienteDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [sinCliente, setSinCliente] = useState(false)
   const [puedeVolver, setPuedeVolver] = useState(false)
+  const [esAdmin, setEsAdmin] = useState(false)
   const [checkin, setCheckin] = useState<ClienteCheckinResponse | null>(null)
 
   useEffect(() => {
@@ -57,6 +59,7 @@ export default function ClienteDashboardPage() {
         if (rolRes.ok) {
           const { rol } = await rolRes.json()
           setPuedeVolver(rol !== 'cliente')
+          setEsAdmin(rol === 'admin')
         }
       } catch {
         // Si falla, simplemente no se muestra el botón de volver
@@ -113,13 +116,17 @@ export default function ClienteDashboardPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
         <p className="text-sm text-muted">No se encontró ningún cliente asociado a {email}.</p>
-        <button
-          type="button"
-          onClick={() => router.push('/dashboard')}
-          className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-background"
-        >
-          Volver a mi panel
-        </button>
+        {esAdmin ? (
+          <AdminNavDropdown />
+        ) : (
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard')}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+          >
+            Volver a mi panel
+          </button>
+        )}
       </div>
     )
   }
@@ -147,13 +154,17 @@ export default function ClienteDashboardPage() {
           <p className="text-xs text-muted">{email}</p>
         </div>
         <div className="flex items-center gap-2">
-          {puedeVolver && (
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
-            >
-              Volver al panel
-            </button>
+          {esAdmin ? (
+            <AdminNavDropdown />
+          ) : (
+            puedeVolver && (
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+              >
+                Volver al panel
+              </button>
+            )
           )}
           <button
             onClick={handleLogout}

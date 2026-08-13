@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { CampoCheckinResuelto } from '@/lib/types'
 import CampoPersonalizadoModal from './CampoPersonalizadoModal'
+import LanzamientoCheckin from './LanzamientoCheckin'
 
 const FRECUENCIAS = [
   { value: 'diario', label: 'Diario' },
@@ -10,7 +11,17 @@ const FRECUENCIAS = [
   { value: 'periodico', label: 'Periódico' },
 ] as const
 
-export default function CheckinConfigView({ token, camposIniciales }: { token: string; camposIniciales: CampoCheckinResuelto[] }) {
+export default function CheckinConfigView({
+  token,
+  camposIniciales,
+  lanzadoInicial,
+  disponibleDesdeInicial,
+}: {
+  token: string
+  camposIniciales: CampoCheckinResuelto[]
+  lanzadoInicial: boolean
+  disponibleDesdeInicial: string | null
+}) {
   const [campos, setCampos] = useState(camposIniciales)
   const [guardando, setGuardando] = useState(false)
   const [guardadoOk, setGuardadoOk] = useState(false)
@@ -63,7 +74,10 @@ export default function CheckinConfigView({ token, camposIniciales }: { token: s
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+    <div>
+      <LanzamientoCheckin token={token} lanzadoInicial={lanzadoInicial} disponibleDesdeInicial={disponibleDesdeInicial} />
+
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-card-foreground">Configurar check-in</h1>
         <button
@@ -145,6 +159,7 @@ export default function CheckinConfigView({ token, camposIniciales }: { token: s
       {mostrarModal && (
         <CampoPersonalizadoModal token={token} onClose={() => setMostrarModal(false)} onCreated={recargarTrasCrear} />
       )}
+      </div>
     </div>
   )
 }

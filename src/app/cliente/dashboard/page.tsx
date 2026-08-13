@@ -183,7 +183,9 @@ export default function ClienteDashboardPage() {
           </p>
         </section>
 
-        {checkin && (checkin.diario.campos.length > 0 || checkin.semanal.campos.length > 0 || checkin.periodico.campos.length > 0) && (
+        {checkin &&
+          checkin.lanzado &&
+          (checkin.diario.campos.length > 0 || checkin.semanal.campos.length > 0 || checkin.periodico.campos.length > 0) && (
           <section className="rounded-xl border border-primary bg-card p-6 shadow-sm">
             <h2 className="mb-3 text-sm font-semibold text-card-foreground">Tu check-in</h2>
             <div className="flex flex-col gap-3">

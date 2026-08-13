@@ -47,6 +47,43 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## RetainCoach MVP Parte 1 — lanzamiento programable del check-in (2026-08-13)
+
+Nueva capacidad pedida por Juanmi: desde `/checkin-config`, el entrenador puede
+controlar **cuándo** su check-in se hace visible para sus clientes, en vez de
+que se active automáticamente en cuanto configura campos.
+
+- Nuevo campo `Entrenadores.Checkin_disponible_desde` (DateTime, opcional).
+  Vacío = borrador (cliente no ve nada). Fecha pasada/presente = lanzado.
+  Fecha futura = programado — se abre solo, sin cron: cada request del
+  cliente recalcula `lanzado` comparando esa fecha contra la hora actual
+  (`resolverLanzamiento()` en `checkinFields.ts`).
+- `PUT /api/entrenador/checkin-config/lanzamiento` (`{ fecha: string | null }`):
+  `fecha` ISO pasada/presente = "Lanzar ahora"; futura = "Programar"; `null` =
+  "Volver a borrador". Mismo gate de rol-entrenador que el resto de escritura.
+- `GET/POST /api/cliente/checkin` respetan el estado: en borrador o programado
+  (sin llegar la fecha) devuelven `lanzado:false` y campos vacíos en el GET, y
+  el POST responde `403`. Nunca se filtra la config de campos antes de lanzar.
+- UI: `LanzamientoCheckin.tsx` (nuevo, dentro de `CheckinConfigView`) — estado
+  visual Borrador/Programado/Activo + "Lanzar ahora" + selector de fecha +
+  "Volver a borrador". `cliente/checkin` muestra "disponible a partir de..."
+  en vez de un formulario vacío cuando no está lanzado.
+
+**Continuidad con uso real:** `jumirohu@gmail.com` ya tenía check-ins reales
+enviados por su cliente (mismo email, cuenta multi-rol) antes de este cambio.
+Se hizo un backfill puntual de `Checkin_disponible_desde = ahora` en su fila
+de `Entrenadores` para que su check-in siguiera visible sin regresión — el
+resto de entrenadores (sin uso previo real) arrancan en borrador por defecto.
+
+**Probado con fixtures aislados** (creados y borrados en la sesión): borrador
+bloquea GET/POST del cliente (403), programar con fecha futura mantiene
+bloqueado, lanzar ahora lo abre de inmediato, una fecha ya pasada se resuelve
+como lanzado sin acción manual (confirma el "auto-abrir" sin cron), y "volver
+a borrador" limpia el estado y vuelve a bloquear. `tsc`/`eslint`/`next build`
+sin errores. No probado visualmente en navegador.
+
+---
+
 ## RetainCoach MVP Parte 1 — correcciones de navegación y frecuencia (2026-08-13)
 
 Rama: `retaincoach-checkin-mvp1-fixes` (derivada de `retaincoach-checkin-mvp1`, no mergeada a `main`).

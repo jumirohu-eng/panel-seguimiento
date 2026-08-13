@@ -73,6 +73,7 @@ export interface EntrenadorFields {
   Permite_marketing?: boolean
   Consentimiento_IA?: boolean
   Consentimiento_IA_fecha?: string
+  Checkin_disponible_desde?: string | null
   Last_modified?: string
 }
 

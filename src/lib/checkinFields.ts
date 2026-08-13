@@ -166,6 +166,21 @@ export function calcularProximaDisponibilidad(
   return new Date(inicioPeriodoActualMs + incrementoMs).toISOString()
 }
 
+export interface EstadoLanzamiento {
+  lanzado: boolean
+  disponibleDesde: string | null
+}
+
+// Estado de lanzamiento del check-in de un entrenador (Entrenadores.Checkin_disponible_desde):
+// vacío = borrador (cliente no ve nada); fecha pasada/presente = lanzado; fecha
+// futura = programado, se abre solo al llegar esa fecha. Se recalcula en cada
+// request (sin cron) — por eso "se auto-abre" simplemente con que el cliente
+// vuelva a cargar la página después de la fecha programada.
+export function resolverLanzamiento(disponibleDesde: string | null | undefined, ahoraMs = Date.now()): EstadoLanzamiento {
+  if (!disponibleDesde) return { lanzado: false, disponibleDesde: null }
+  return { lanzado: new Date(disponibleDesde).getTime() <= ahoraMs, disponibleDesde }
+}
+
 export function generarFieldIdPersonalizado(nombre: string): string {
   const slug = nombre
     .toLowerCase()

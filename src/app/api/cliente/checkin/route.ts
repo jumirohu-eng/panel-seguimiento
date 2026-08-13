@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getClienteByEmail, getCamposCheckinByEntrenador, getRegistrosCheckinByClienteEmail, crearRegistrosCheckin } from '@/lib/airtable'
+import {
+  getClienteByEmail,
+  getEntrenadorByEmail,
+  getCamposCheckinByEntrenador,
+  getRegistrosCheckinByClienteEmail,
+  crearRegistrosCheckin,
+} from '@/lib/airtable'
 import {
   resolverCamposEfectivos,
   agruparPorFrecuencia,
   deserializarValor,
   serializarValor,
   calcularProximaDisponibilidad,
+  resolverLanzamiento,
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
@@ -36,6 +43,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No se encontró ningún cliente con este email' }, { status: 404 })
     }
 
+    const entrenador = await getEntrenadorByEmail(cliente.fields.Entrenador)
+    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador?.fields.Checkin_disponible_desde)
+    if (!lanzado) {
+      const vacio: CheckinFrecuenciaEstado = { campos: [], yaEnviado: false, ultimosValores: {}, proximaDisponibilidad: null }
+      const response: ClienteCheckinResponse = {
+        lanzado: false,
+        disponibleDesde,
+        diario: vacio,
+        semanal: vacio,
+        periodico: vacio,
+      }
+      return NextResponse.json(response)
+    }
+
     const filasConfig = await getCamposCheckinByEntrenador(cliente.fields.Entrenador)
     const camposResueltos = resolverCamposEfectivos(filasConfig)
     const { diario, semanal, periodico } = agruparPorFrecuencia(camposResueltos)
@@ -62,6 +83,8 @@ export async function GET(request: NextRequest) {
     }
 
     const response: ClienteCheckinResponse = {
+      lanzado: true,
+      disponibleDesde,
       diario: estadoPara(diario, 'diario', inicioDeHoyUTC()),
       semanal: estadoPara(semanal, 'semanal', inicioDeSemanaUTC()),
       periodico: estadoPara(periodico, 'periodico', null),
@@ -91,6 +114,12 @@ export async function POST(request: NextRequest) {
     const cliente = await getClienteByEmail(email)
     if (!cliente) {
       return NextResponse.json({ error: 'No se encontró ningún cliente con este email' }, { status: 404 })
+    }
+
+    const entrenador = await getEntrenadorByEmail(cliente.fields.Entrenador)
+    const { lanzado } = resolverLanzamiento(entrenador?.fields.Checkin_disponible_desde)
+    if (!lanzado) {
+      return NextResponse.json({ error: 'Tu entrenador todavía no ha activado el check-in' }, { status: 403 })
     }
 
     const filasConfig = await getCamposCheckinByEntrenador(cliente.fields.Entrenador)

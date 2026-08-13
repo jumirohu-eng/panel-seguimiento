@@ -371,6 +371,65 @@ real, no repararlo.
 
 ---
 
+## DEC-2026-013 — Lanzamiento del check-in desacoplado de la configuración de campos
+
+**Fecha:** 2026-08-13
+**Tipo:** Arquitectura / Producto
+**Estado:** Implementada
+
+### Contexto
+Hasta ahora, un campo de check-in se hacía visible al cliente en cuanto el
+entrenador lo activaba en `/checkin-config` — no había forma de preparar la
+configuración sin que ya estuviera en producción para el cliente, ni de
+programar una fecha de apertura.
+
+### Decisión
+Nuevo campo `Entrenadores.Checkin_disponible_desde` (DateTime, opcional),
+independiente de `Campos_checkin`. Semántica de un único campo cubre los tres
+estados pedidos:
+- vacío → borrador (cliente no ve nada, aunque haya campos `Activo=true`);
+- fecha pasada/presente → lanzado;
+- fecha futura → programado, se abre solo al llegar esa fecha.
+
+Se resuelve con una función pura (`resolverLanzamiento()`,
+`src/lib/checkinFields.ts`) que compara la fecha contra `Date.now()` en cada
+request — **sin cron ni workflow de n8n nuevo**. El "auto-abrir" en la fecha
+programada es simplemente que la próxima vez que el cliente cargue la página,
+la comparación ya da `true`.
+
+### Por qué un campo separado y no un estado dentro de `Campos_checkin`
+El lanzamiento es una propiedad del check-in del entrenador como conjunto, no
+de un campo individual — vive naturalmente en `Entrenadores` (que ya tiene
+otros flags de estado del entrenador, como `Consentimiento_IA`), no en
+`Campos_checkin` (que es la config de CADA campo). Evita tener que propagar
+un "lanzado" a las 11+ filas de campos de cada entrenador.
+
+### Compatibilidad con uso real ya existente
+`jumirohu@gmail.com` tenía check-ins reales de su cliente (mismo email,
+cuenta multi-rol) desde antes de este cambio (ver actividad detectada en
+DEC-2026-010). Para no romper esa continuidad, se hizo un backfill puntual:
+`Checkin_disponible_desde` = timestamp del momento del deploy, solo en su fila
+de `Entrenadores`. El resto de entrenadores no tenían uso real de
+`Registros_checkin`, así que arrancan en borrador (comportamiento nuevo por
+defecto) sin que nadie pierda datos ni acceso.
+
+### Endpoints
+`PUT /api/entrenador/checkin-config/lanzamiento` (`{fecha: string|null}`,
+gate de rol-entrenador). `GET/POST /api/cliente/checkin` ahora resuelven
+`lanzado` antes de exponer campos o aceptar envíos — en borrador/programado
+sin llegar la fecha, el GET devuelve `lanzado:false` con campos vacíos (nunca
+se filtra qué campos tiene configurados el entrenador) y el POST responde
+`403`.
+
+### Verificación
+Prueba E2E con fixtures aislados (mismo patrón que DEC-2026-009): borrador
+bloquea GET/POST (403 confirmado), programar con fecha futura mantiene
+bloqueado, "lanzar ahora" abre de inmediato, una fecha ya pasada se resuelve
+como lanzado sin ninguna acción manual adicional (confirma el mecanismo de
+auto-apertura), "volver a borrador" revierte todo correctamente.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -410,3 +469,4 @@ real, no repararlo.
 - Añadida `DEC-2026-010`: fix real del "próximo check-in" contradictorio (causa: tarjeta del sistema Tally antiguo, no un bug de cálculo del sistema nuevo).
 - Añadida `DEC-2026-011`: navegación a `/checkin-config` movida de `Header.tsx` a `ClientesLista.tsx` (el gate `!isAdmin` la ocultaba en modo "Ver como entrenador" del admin).
 - Añadida `DEC-2026-012`: verificado sin bugs que la frecuencia por campo y la preservación de historial al reconfigurar ya funcionaban correctamente por diseño.
+- Añadida `DEC-2026-013`: lanzamiento del check-in desacoplado de la configuración de campos (`Entrenadores.Checkin_disponible_desde`, borrador/programado/lanzado, sin cron), con backfill de continuidad para `jumirohu@gmail.com`.

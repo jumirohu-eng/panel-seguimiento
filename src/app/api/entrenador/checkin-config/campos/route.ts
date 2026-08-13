@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
 import { getCamposCheckinByEntrenador, crearCampoCheckin, getEntrenadorByEmail } from '@/lib/airtable'
-import { generarFieldIdPersonalizado, resolverCamposEfectivos, TipoCampoCheckin, FrecuenciaCheckin } from '@/lib/checkinFields'
+import { generarFieldIdPersonalizado, resolverCamposEfectivos, resolverLanzamiento, TipoCampoCheckin, FrecuenciaCheckin } from '@/lib/checkinFields'
 import { CheckinConfigResponse } from '@/lib/types'
 
 const TIPOS_VALIDOS: TipoCampoCheckin[] = ['escala', 'si_no', 'numero', 'texto', 'seleccion', 'seleccion_multiple']
@@ -61,7 +61,8 @@ export async function POST(request: NextRequest) {
 
     const filasActualizadas = await getCamposCheckinByEntrenador(email)
     const campos = resolverCamposEfectivos(filasActualizadas)
-    const response: CheckinConfigResponse = { campos }
+    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador.fields.Checkin_disponible_desde)
+    const response: CheckinConfigResponse = { campos, lanzado, disponibleDesde }
     return NextResponse.json(response, { status: 201 })
   } catch (err) {
     console.error('Error al crear campo personalizado de check-in', err)

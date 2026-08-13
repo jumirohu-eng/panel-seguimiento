@@ -142,6 +142,8 @@ export interface CampoCheckinResuelto {
 
 export interface CheckinConfigResponse {
   campos: CampoCheckinResuelto[]
+  lanzado: boolean
+  disponibleDesde: string | null
 }
 
 export interface CheckinFrecuenciaEstado {
@@ -154,6 +156,8 @@ export interface CheckinFrecuenciaEstado {
 }
 
 export interface ClienteCheckinResponse {
+  lanzado: boolean
+  disponibleDesde: string | null
   diario: CheckinFrecuenciaEstado
   semanal: CheckinFrecuenciaEstado
   periodico: CheckinFrecuenciaEstado

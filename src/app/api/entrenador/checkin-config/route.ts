@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
 import { getCamposCheckinByEntrenador, actualizarCampoCheckin, crearCampoCheckin, getEntrenadorByEmail } from '@/lib/airtable'
-import { resolverCamposEfectivos, CAMPOS_ESTANDAR_POR_ID } from '@/lib/checkinFields'
+import { resolverCamposEfectivos, resolverLanzamiento, CAMPOS_ESTANDAR_POR_ID } from '@/lib/checkinFields'
 import { CheckinConfigResponse } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
@@ -11,9 +11,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const filas = await getCamposCheckinByEntrenador(email)
+    const [filas, entrenador] = await Promise.all([getCamposCheckinByEntrenador(email), getEntrenadorByEmail(email)])
     const campos = resolverCamposEfectivos(filas)
-    const response: CheckinConfigResponse = { campos }
+    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador?.fields.Checkin_disponible_desde)
+    const response: CheckinConfigResponse = { campos, lanzado, disponibleDesde }
     return NextResponse.json(response)
   } catch (err) {
     console.error('Error al obtener configuración de check-in', err)
@@ -85,7 +86,8 @@ export async function PUT(request: NextRequest) {
 
     const filasActualizadas = await getCamposCheckinByEntrenador(email)
     const campos = resolverCamposEfectivos(filasActualizadas)
-    const response: CheckinConfigResponse = { campos }
+    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador.fields.Checkin_disponible_desde)
+    const response: CheckinConfigResponse = { campos, lanzado, disponibleDesde }
     return NextResponse.json(response)
   } catch (err) {
     console.error('Error al guardar configuración de check-in', err)

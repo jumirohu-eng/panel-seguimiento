@@ -160,7 +160,11 @@ export default function ClienteCheckinPage() {
 
         {secciones.every((s) => data[s].campos.length === 0) && (
           <p className="text-sm text-muted">
-            Tu entrenador todavía no ha activado ningún campo de check-in.
+            {!data.lanzado && data.disponibleDesde
+              ? `Tu check-in estará disponible a partir del ${formatFechaLarga(data.disponibleDesde)}.`
+              : !data.lanzado
+                ? 'Tu entrenador todavía no ha activado tu check-in.'
+                : 'Tu entrenador todavía no ha activado ningún campo de check-in.'}
           </p>
         )}
       </main>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { tienePlanBase } from '@/lib/productos'
-import { CampoCheckinResuelto } from '@/lib/types'
+import { CheckinConfigResponse } from '@/lib/types'
 import Header from '@/components/Header'
 import CheckinConfigView from '@/components/CheckinConfigView'
 
@@ -12,7 +12,7 @@ export default function CheckinConfigPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
   const [token, setToken] = useState<string | null>(null)
-  const [campos, setCampos] = useState<CampoCheckinResuelto[] | null>(null)
+  const [config, setConfig] = useState<CheckinConfigResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -52,8 +52,8 @@ export default function CheckinConfigPage() {
           headers: { Authorization: `Bearer ${accessToken}` },
         })
         if (!res.ok) throw new Error('No se pudo cargar la configuración')
-        const data: { campos: CampoCheckinResuelto[] } = await res.json()
-        setCampos(data.campos)
+        const data: CheckinConfigResponse = await res.json()
+        setConfig(data)
       } catch {
         setError('Error al cargar la configuración de check-in.')
       } finally {
@@ -83,7 +83,14 @@ export default function CheckinConfigPage() {
           ← Volver
         </button>
         {error && <p className="mb-4 text-sm text-danger">{error}</p>}
-        {token && campos && <CheckinConfigView token={token} camposIniciales={campos} />}
+        {token && config && (
+          <CheckinConfigView
+            token={token}
+            camposIniciales={config.campos}
+            lanzadoInicial={config.lanzado}
+            disponibleDesdeInicial={config.disponibleDesde}
+          />
+        )}
       </main>
     </div>
   )

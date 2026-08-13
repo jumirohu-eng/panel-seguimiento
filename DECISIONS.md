@@ -251,6 +251,126 @@ testing versionado.
 
 ---
 
+## DEC-2026-010 — "Próximo check-in" contradictorio: causa real era una tarjeta del sistema antiguo, no un bug de cálculo del nuevo
+
+**Fecha:** 2026-08-13
+**Tipo:** Bug / UX
+**Estado:** Corregido
+
+### Hallazgo
+Tras completar un check-in diario nuevo, `/cliente/dashboard` mostraba "próximo
+check-in en ~3 días" — contradictorio con una frecuencia diaria.
+
+### Causa
+La tarjeta "Próximo check-in" de esa página nunca perteneció al sistema nuevo
+(`Campos_checkin`/`Registros_checkin`, ver DEC-2026-006/007). Leía
+`proximoCheckinDias` de `GET /api/cliente/perfil`, calculado sobre `Reportes`
+(el Tally semanal antiguo, ciclo fijo de 7 días desde el último `Reporte`).
+Ambos sistemas conviven en la misma página (por diseño, ver DEC-2026-006) pero
+sin distinguirse visualmente, así que el conteo de un sistema totalmente
+distinto se leía como si fuera del check-in que el cliente acababa de rellenar.
+
+### Fix
+- `calcularProximaDisponibilidad()` (`src/lib/checkinFields.ts`), función pura:
+  diario → +1 día desde el inicio del día si ya se envió; semanal → +7 días
+  desde el inicio de la semana si ya se envió; periódico → siempre `null` (sin
+  cadencia fija). Nunca bloquea el envío — `Registros_checkin` sigue
+  insert-only, esto es solo informativo.
+- `GET /api/cliente/checkin` expone `proximaDisponibilidad` por frecuencia.
+- `/cliente/dashboard` reemplaza el banner efímero (que desaparecía al
+  completar el check-in, sin decir cuándo volver) por una sección persistente
+  "Tu check-in" con estado real por frecuencia.
+- La tarjeta antigua de Tally se relabeled a "Próximo check-in semanal
+  (Tally)" con nota aclaratoria — no se tocó su lógica, sigue siendo correcta
+  para lo que mide (el Tally semanal), solo estaba mal etiquetada en contexto.
+
+### Aprendizaje
+Cuando dos sistemas conviven a propósito en la misma pantalla (ver DEC-2026-006,
+"convive en paralelo"), cualquier texto/estado que pueda leerse como
+perteneciente a "el check-in" en general debe dejar explícito a cuál de los
+dos sistemas pertenece. Un bug reportado como "cálculo incorrecto" puede tener
+causa raíz en absencia de esa distinción, no en el cálculo en sí — verificar el
+código real antes de asumir dónde está el número equivocado.
+
+### Verificación
+Prueba E2E dedicada con fixtures aislados (ver DEC-2026-012): tras un envío
+diario, `proximaDisponibilidad` cae dentro de las siguientes 24-48h, nunca
+~72h; tras un envío semanal, dentro de los siguientes 7 días; periódico nunca
+tiene `proximaDisponibilidad`.
+
+---
+
+## DEC-2026-011 — Navegación a `/checkin-config`: mover el punto de entrada a `ClientesLista`, no al Header
+
+**Fecha:** 2026-08-13
+**Tipo:** Bug / UX / Navegación
+**Estado:** Corregido
+
+### Hallazgo
+El entrenador no encontraba ningún acceso visible a `/checkin-config` pese a
+que la página existía y funcionaba.
+
+### Causa
+El único punto de entrada era un botón en `Header.tsx` con la condición
+`!isAdmin`. Un admin usando "Ver como entrenador" (decisión 45) mantiene
+`isAdmin === true` en esa vista a propósito (para seguir viendo
+`AdminNavDropdown`) — así que el botón nunca se mostraba en ese modo, que es
+justo cómo Juanmi (admin+entrenador+cliente multi-rol) prueba la vista de
+entrenador en la práctica.
+
+### Fix
+Botón "⚙️ Configurar check-in" movido al toolbar de `ClientesLista.tsx` (junto
+a "+ Registrar cliente"). Ese componente se renderiza igual para un entrenador
+real y para un admin en "Ver como entrenador" (mismo código, mismos props, ver
+decisión 45) — un solo punto de entrada, visible en ambos casos, sin lógica
+condicional de rol nueva que mantener. Se quitó el botón del Header para no
+dejar dos puntos de entrada con condiciones de visibilidad distintas.
+
+### Aprendizaje
+Cualquier nueva navegación pensada "para el entrenador" debe verificarse
+también contra el modo "Ver como entrenador" del admin (decisión 45) antes de
+darla por completa — son dos rutas de código que comparten vista pero no
+necesariamente el mismo `isAdmin`.
+
+---
+
+## DEC-2026-012 — Verificado sin bugs: frecuencia por campo y preservación de historial al reconfigurar
+
+**Fecha:** 2026-08-13
+**Tipo:** Verificación / Modelo de datos
+**Estado:** Confirmada, sin cambios de código
+
+### Contexto
+El brief de corrección pedía revisar explícitamente si (a) el sistema soporta
+frecuencias distintas por campo dentro de un mismo check-in (p. ej. Peso
+semanal mientras Energía es diario) y (b) si desactivar/reactivar/reordenar/
+cambiar la frecuencia de un campo destruye el historial en `Registros_checkin`.
+
+### Verificación (no se encontró ningún bug, no se cambió código)
+Probado con una prueba E2E dedicada (fixtures aislados, ver patrón de
+DEC-2026-009):
+- Cambiar la frecuencia de `peso` de periódico a semanal por `PUT
+  /api/entrenador/checkin-config` lo mueve de sección sin afectar a
+  `energia`/`entrenamiento_realizado`, que permanecen en diario — confirma que
+  `agruparPorFrecuencia()` ya resuelve la frecuencia por campo de forma
+  independiente, tal como estaba diseñado desde Parte 1 (ver DEC-2026-006/007).
+- Desactivar `energia` (con historial ya existente) la quita del formulario del
+  cliente pero `GET /api/checkins` sigue devolviendo el envío histórico con
+  `energia` resuelto correctamente (nombre y valor) — porque `camposPorId` en
+  esa ruta usa la lista completa de `resolverCamposEfectivos()`, sin filtrar
+  por `activo`. Reactivar el campo lo devuelve al formulario sin alterar el
+  historial. Reordenar (`Orden`) y cambiar `Frecuencia` tampoco tocan
+  `Registros_checkin` en ningún punto del código — ambos viven exclusivamente
+  en `Campos_checkin`.
+
+### Por qué no hizo falta ningún fix
+El modelo EAV insert-only (DEC-2026-007) y la separación config/datos crudos
+(DEC-2026-006) ya garantizaban esto por diseño desde la implementación
+original de Parte 1 — la tarea de esta sesión era confirmarlo con evidencia
+real, no repararlo.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -287,3 +407,6 @@ testing versionado.
 - Añadida `DEC-2026-007`: `Registros_checkin` como modelo EAV insert-only.
 - Añadida `DEC-2026-008`: bug de interpretación de checkboxes de Airtable (`=== true`, no `!== false`), encontrado y corregido.
 - Añadida `DEC-2026-009`: patrón de prueba E2E con fixtures aislados y desechables, sin tocar cuentas reales ni `Reportes`.
+- Añadida `DEC-2026-010`: fix real del "próximo check-in" contradictorio (causa: tarjeta del sistema Tally antiguo, no un bug de cálculo del sistema nuevo).
+- Añadida `DEC-2026-011`: navegación a `/checkin-config` movida de `Header.tsx` a `ClientesLista.tsx` (el gate `!isAdmin` la ocultaba en modo "Ver como entrenador" del admin).
+- Añadida `DEC-2026-012`: verificado sin bugs que la frecuencia por campo y la preservación de historial al reconfigurar ya funcionaban correctamente por diseño.

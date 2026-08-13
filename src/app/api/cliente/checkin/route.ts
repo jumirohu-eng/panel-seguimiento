@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
 import { getClienteByEmail, getCamposCheckinByEntrenador, getRegistrosCheckinByClienteEmail, crearRegistrosCheckin } from '@/lib/airtable'
-import { resolverCamposEfectivos, agruparPorFrecuencia, deserializarValor, serializarValor, FrecuenciaCheckin, CampoCheckinResuelto } from '@/lib/checkinFields'
+import {
+  resolverCamposEfectivos,
+  agruparPorFrecuencia,
+  deserializarValor,
+  serializarValor,
+  calcularProximaDisponibilidad,
+  FrecuenciaCheckin,
+  CampoCheckinResuelto,
+} from '@/lib/checkinFields'
 import { ClienteCheckinResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 
 function inicioDeHoyUTC(): number {
@@ -50,7 +58,7 @@ export async function GET(request: NextRequest) {
           ultimosValores[r.fields.Field_id] = deserializarValor(campo.tipo, r.fields.Valor)
         }
       }
-      return { campos, yaEnviado, ultimosValores }
+      return { campos, yaEnviado, ultimosValores, proximaDisponibilidad: calcularProximaDisponibilidad(tipo, yaEnviado, desdeMs) }
     }
 
     const response: ClienteCheckinResponse = {

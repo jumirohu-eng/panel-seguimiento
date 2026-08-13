@@ -148,6 +148,9 @@ export interface CheckinFrecuenciaEstado {
   campos: CampoCheckinResuelto[]
   yaEnviado: boolean
   ultimosValores: Record<string, unknown>
+  // Fecha ISO a partir de la cual vuelve a tocar este check-in (solo diario/semanal).
+  // null = disponible ahora mismo, o no aplica (periódico, sin cadencia fija).
+  proximaDisponibilidad: string | null
 }
 
 export interface ClienteCheckinResponse {

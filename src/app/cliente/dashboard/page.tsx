@@ -10,6 +10,16 @@ function formatFecha(fechaISO: string) {
   return new Date(fechaISO).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
 }
 
+function formatFechaLarga(fechaISO: string) {
+  return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
+}
+
+const TITULOS_CHECKIN: Record<'diario' | 'semanal' | 'periodico', string> = {
+  diario: 'Diario',
+  semanal: 'Semanal',
+  periodico: 'Periódico',
+}
+
 export default function ClienteDashboardPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -18,7 +28,7 @@ export default function ClienteDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [sinCliente, setSinCliente] = useState(false)
   const [puedeVolver, setPuedeVolver] = useState(false)
-  const [checkinHoyPendiente, setCheckinHoyPendiente] = useState(false)
+  const [checkin, setCheckin] = useState<ClienteCheckinResponse | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -77,7 +87,7 @@ export default function ClienteDashboardPage() {
         })
         if (checkinRes.ok) {
           const checkinData: ClienteCheckinResponse = await checkinRes.json()
-          setCheckinHoyPendiente(checkinData.diario.campos.length > 0 && !checkinData.diario.yaEnviado)
+          setCheckin(checkinData)
         }
       } catch {
         // Si falla, simplemente no se muestra el banner de check-in
@@ -162,15 +172,39 @@ export default function ClienteDashboardPage() {
           </p>
         </section>
 
-        {checkinHoyPendiente && (
-          <section className="flex items-center justify-between rounded-xl border border-primary bg-card p-6 shadow-sm">
-            <p className="text-sm text-card-foreground">Todavía no has registrado tu check-in de hoy.</p>
-            <button
-              onClick={() => router.push('/cliente/checkin')}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-            >
-              Registrar ahora
-            </button>
+        {checkin && (checkin.diario.campos.length > 0 || checkin.semanal.campos.length > 0 || checkin.periodico.campos.length > 0) && (
+          <section className="rounded-xl border border-primary bg-card p-6 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-card-foreground">Tu check-in</h2>
+            <div className="flex flex-col gap-3">
+              {(['diario', 'semanal', 'periodico'] as const).map((tipo) => {
+                const estado = checkin[tipo]
+                if (estado.campos.length === 0) return null
+                return (
+                  <div key={tipo} className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-card-foreground">{TITULOS_CHECKIN[tipo]}</p>
+                      {estado.yaEnviado ? (
+                        estado.proximaDisponibilidad ? (
+                          <p className="text-xs text-muted">
+                            ✓ Completado — vuelve a estar disponible el {formatFechaLarga(estado.proximaDisponibilidad)}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted">✓ Actualizado — disponible cuando quieras</p>
+                        )
+                      ) : (
+                        <p className="text-xs text-warning">Pendiente</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => router.push('/cliente/checkin')}
+                      className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
+                    >
+                      {estado.yaEnviado ? 'Ver/actualizar' : 'Registrar'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </section>
         )}
 
@@ -247,7 +281,10 @@ export default function ClienteDashboardPage() {
         </section>
 
         <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-2 text-lg font-semibold text-card-foreground">Próximo check-in</h2>
+          <h2 className="mb-2 text-lg font-semibold text-card-foreground">Próximo check-in semanal (Tally)</h2>
+          <p className="mb-2 text-xs text-muted">
+            Basado en el formulario semanal externo, independiente del check-in de arriba.
+          </p>
           {perfil.proximoCheckinDias === null ? (
             <p className="text-sm text-muted">Todavía no has hecho tu primer check-in.</p>
           ) : perfil.proximoCheckinDias > 0 ? (

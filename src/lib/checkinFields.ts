@@ -151,6 +151,21 @@ export function agruparPorFrecuencia(campos: CampoCheckinResuelto[]) {
   }
 }
 
+// Cuándo vuelve a tocar un check-in ya enviado, según su frecuencia.
+// diario/semanal: el siguiente periodo empieza justo al terminar el actual.
+// periódico no tiene cadencia fija — siempre disponible, nunca "toca esperar".
+// No implica ningún bloqueo de envío: Registros_checkin es insert-only (ver
+// DECISIONS.md DEC-2026-007), esto es puramente informativo para el cliente.
+export function calcularProximaDisponibilidad(
+  tipo: FrecuenciaCheckin,
+  yaEnviado: boolean,
+  inicioPeriodoActualMs: number | null
+): string | null {
+  if (!yaEnviado || tipo === 'periodico' || inicioPeriodoActualMs === null) return null
+  const incrementoMs = (tipo === 'diario' ? 1 : 7) * 24 * 60 * 60 * 1000
+  return new Date(inicioPeriodoActualMs + incrementoMs).toISOString()
+}
+
 export function generarFieldIdPersonalizado(nombre: string): string {
   const slug = nombre
     .toLowerCase()

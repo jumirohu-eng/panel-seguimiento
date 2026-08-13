@@ -52,16 +52,6 @@ export default function Header({
       </div>
       <div className="flex items-center gap-2">
         {isAdmin && <AdminNavDropdown />}
-        {!isAdmin && (
-          <button
-            onClick={() => router.push('/checkin-config')}
-            aria-label="Configurar check-in"
-            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
-          >
-            <span className="text-base">⚙️</span>
-            Check-in
-          </button>
-        )}
         {!isAdmin && showMarketplace && (
           <button
             onClick={() => setMostrarMarketplace(true)}

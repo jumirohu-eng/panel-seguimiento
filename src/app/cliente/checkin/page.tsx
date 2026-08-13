@@ -14,6 +14,10 @@ const TITULOS: Record<Seccion, string> = {
   periodico: 'Tus datos',
 }
 
+function formatFechaLarga(fechaISO: string) {
+  return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
+}
+
 export default function ClienteCheckinPage() {
   const router = useRouter()
   const [token, setToken] = useState<string | null>(null)
@@ -119,8 +123,12 @@ export default function ClienteCheckinPage() {
             <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
-                {estado.yaEnviado && seccion !== 'periodico' && (
-                  <span className="text-xs text-muted">Ya registrado — puedes actualizarlo</span>
+                {estado.yaEnviado && (
+                  <span className="text-xs text-muted">
+                    {estado.proximaDisponibilidad
+                      ? `Ya registrado — próximo turno el ${formatFechaLarga(estado.proximaDisponibilidad)}, pero puedes corregirlo ahora`
+                      : 'Ya registrado — puedes actualizarlo cuando quieras'}
+                  </span>
                 )}
               </div>
               <div className="flex flex-col gap-4">

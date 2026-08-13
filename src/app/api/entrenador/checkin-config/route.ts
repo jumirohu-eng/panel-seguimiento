@@ -1,8 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getCamposCheckinByEntrenador, actualizarCampoCheckin, crearCampoCheckin, getEntrenadorByEmail } from '@/lib/airtable'
-import { resolverCamposEfectivos, resolverLanzamiento, CAMPOS_ESTANDAR_POR_ID } from '@/lib/checkinFields'
+import {
+  getCamposCheckinByEntrenador,
+  actualizarCampoCheckin,
+  crearCampoCheckin,
+  getEntrenadorByEmail,
+  getCheckinTiposByEntrenador,
+} from '@/lib/airtable'
+import {
+  resolverCamposEfectivos,
+  resolverProgramacionTipo,
+  CAMPOS_ESTANDAR_POR_ID,
+  FrecuenciaCheckin,
+} from '@/lib/checkinFields'
 import { CheckinConfigResponse } from '@/lib/types'
+
+const TIPOS: FrecuenciaCheckin[] = ['diario', 'semanal', 'periodico']
+
+async function construirRespuesta(email: string, disponibleDesdeLegacy: string | null | undefined): Promise<CheckinConfigResponse> {
+  const [filasConfig, filasTipos] = await Promise.all([
+    getCamposCheckinByEntrenador(email),
+    getCheckinTiposByEntrenador(email),
+  ])
+  const campos = resolverCamposEfectivos(filasConfig)
+  const filaPorTipo = new Map(filasTipos.map((f) => [f.fields.Tipo, f.fields]))
+  return {
+    campos,
+    programacion: {
+      diario: resolverProgramacionTipo(filaPorTipo.get('diario'), disponibleDesdeLegacy),
+      semanal: resolverProgramacionTipo(filaPorTipo.get('semanal'), disponibleDesdeLegacy),
+      periodico: resolverProgramacionTipo(filaPorTipo.get('periodico'), disponibleDesdeLegacy),
+    },
+  }
+}
 
 export async function GET(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
@@ -11,10 +41,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [filas, entrenador] = await Promise.all([getCamposCheckinByEntrenador(email), getEntrenadorByEmail(email)])
-    const campos = resolverCamposEfectivos(filas)
-    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador?.fields.Checkin_disponible_desde)
-    const response: CheckinConfigResponse = { campos, lanzado, disponibleDesde }
+    const entrenador = await getEntrenadorByEmail(email)
+    const response = await construirRespuesta(email, entrenador?.fields.Checkin_disponible_desde)
     return NextResponse.json(response)
   } catch (err) {
     console.error('Error al obtener configuración de check-in', err)
@@ -26,7 +54,7 @@ interface ActualizacionCampo {
   fieldId: string
   activo: boolean
   orden: number
-  frecuencia: 'diario' | 'semanal' | 'periodico'
+  tipos: FrecuenciaCheckin[]
 }
 
 export async function PUT(request: NextRequest) {
@@ -54,6 +82,7 @@ export async function PUT(request: NextRequest) {
 
     for (const act of actualizaciones) {
       if (typeof act.fieldId !== 'string') continue
+      const tipos = Array.isArray(act.tipos) ? act.tipos.filter((t) => TIPOS.includes(t)) : []
       const filaExistente = filaPorFieldId.get(act.fieldId)
       const esEstandar = CAMPOS_ESTANDAR_POR_ID.has(act.fieldId)
 
@@ -61,7 +90,7 @@ export async function PUT(request: NextRequest) {
         await actualizarCampoCheckin(filaExistente.id, {
           Activo: act.activo,
           Orden: act.orden,
-          Frecuencia: act.frecuencia,
+          Tipos: tipos,
         })
       } else if (esEstandar) {
         // Primera vez que este entrenador personaliza un campo estándar: crea el override.
@@ -70,11 +99,16 @@ export async function PUT(request: NextRequest) {
           Nombre: def.nombre,
           Field_id: def.id,
           Entrenador: email,
-          Tipo: def.tipo,
+          // 'dolor' no es una choice del singleSelect Tipo en Airtable (solo se usa para
+          // campos personalizados, que nunca ofrecen 'dolor' como opción, ver
+          // CampoPersonalizadoModal). Para overrides estándar este campo nunca se relee
+          // (resolverCamposEfectivos siempre usa CAMPOS_ESTANDAR para el tipo real) —
+          // 'seleccion' es solo un placeholder inofensivo para no romper el write.
+          Tipo: def.tipo === 'dolor' ? 'seleccion' : def.tipo,
           Categoria: def.categoria,
           Unidad: def.unidad,
           Opciones: def.opciones ? JSON.stringify(def.opciones) : undefined,
-          Frecuencia: act.frecuencia,
+          Tipos: tipos,
           Activo: act.activo,
           Orden: act.orden,
           Es_estandar: true,
@@ -84,10 +118,7 @@ export async function PUT(request: NextRequest) {
       // desconocido (no debería pasar desde la UI) — se ignora en vez de fallar todo el guardado.
     }
 
-    const filasActualizadas = await getCamposCheckinByEntrenador(email)
-    const campos = resolverCamposEfectivos(filasActualizadas)
-    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador.fields.Checkin_disponible_desde)
-    const response: CheckinConfigResponse = { campos, lanzado, disponibleDesde }
+    const response = await construirRespuesta(email, entrenador.fields.Checkin_disponible_desde)
     return NextResponse.json(response)
   } catch (err) {
     console.error('Error al guardar configuración de check-in', err)

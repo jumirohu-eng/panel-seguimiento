@@ -120,44 +120,61 @@ export interface ClientePerfil {
   objetivo: string
   entrenadorNombre: string
   entrenamientosObjetivo: number
-  pesoHistorico: { fecha: string; peso: number }[]
-  entrenamientosRecientes: { fecha: string; entrenamientos: number }[]
-  energiaPromedio30dias: { cansado: number; normal: number; conEnergia: number; total: number }
+  // X/Y de entrenamientos de la semana en curso. Y reutiliza Entrenamientos_objetivo (no
+  // hay una fuente de asignación semanal variable — ver DECISIONS.md).
+  entrenamientosSemana: { realizados: number; asignados: number }
   proximoCheckinDias: number | null
-  alertaReciente: string | null
 }
+
+export type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
+export type ModoPeriodico = 'intervalo' | 'dia_mes'
 
 export interface CampoCheckinResuelto {
   id: string
   nombre: string
-  tipo: 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple'
+  tipo: 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
   categoria: string
-  frecuencia: 'diario' | 'semanal' | 'periodico'
+  // Un campo puede pertenecer a varios tipos de check-in a la vez (Parte 1.5).
+  tipos: ('diario' | 'semanal' | 'periodico')[]
   unidad?: string
   opciones?: string[]
   activo: boolean
   orden: number
   esEstandar: boolean
+  dependeDe?: { campoId: string; valorRequerido: unknown }
+}
+
+export interface ProgramacionTipoConfig {
+  lanzado: boolean
+  disponibleDesde: string | null
+  diaSemana?: DiaSemana
+  modoPeriodico?: ModoPeriodico
+  fechaInicioPeriodico?: string
+  intervaloDiasPeriodico?: number
+  diaMesPeriodico?: number
 }
 
 export interface CheckinConfigResponse {
   campos: CampoCheckinResuelto[]
-  lanzado: boolean
-  disponibleDesde: string | null
+  programacion: {
+    diario: ProgramacionTipoConfig
+    semanal: ProgramacionTipoConfig
+    periodico: ProgramacionTipoConfig
+  }
 }
 
 export interface CheckinFrecuenciaEstado {
+  lanzado: boolean
+  disponibleDesde: string | null
   campos: CampoCheckinResuelto[]
   yaEnviado: boolean
   ultimosValores: Record<string, unknown>
-  // Fecha ISO a partir de la cual vuelve a tocar este check-in (solo diario/semanal).
-  // null = disponible ahora mismo, o no aplica (periódico, sin cadencia fija).
-  proximaDisponibilidad: string | null
+  // Fecha ISO de la próxima apertura de este tipo. diario/semanal: solo tras enviar (null
+  // = disponible ahora). periódico: siempre calculada según su programación.
+  proximaFecha: string | null
 }
 
 export interface ClienteCheckinResponse {
-  lanzado: boolean
-  disponibleDesde: string | null
   diario: CheckinFrecuenciaEstado
   semanal: CheckinFrecuenciaEstado
   periodico: CheckinFrecuenciaEstado

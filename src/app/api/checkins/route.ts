@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
 import { getClienteById, getCamposCheckinByEntrenador, getRegistrosCheckinByClienteEmail } from '@/lib/airtable'
-import { resolverCamposEfectivos, deserializarValor, FrecuenciaCheckin } from '@/lib/checkinFields'
+import { resolverCamposEfectivos, resolverNombreTipoHistorico, deserializarValor, FrecuenciaCheckin } from '@/lib/checkinFields'
 import { CheckinEnvio, ChecklinsResponse } from '@/lib/types'
 
 const PAGE_SIZE = 7
@@ -45,11 +45,14 @@ export async function GET(request: NextRequest) {
         envio = { fecha, tipo: r.fields.Tipo_registro as FrecuenciaCheckin, valores: [] }
         envioPorFecha.set(fecha, envio)
       }
-      const campo = camposPorId.get(r.fields.Field_id)
+      // resolverNombreTipoHistorico cubre tanto campos activos como retirados
+      // (dolor_nivel/dolor_zona/reflexion_semanal, ver DECISIONS.md) — el historial de
+      // envíos antiguos sigue resolviendo nombre/valor legible aunque ya no se ofrezcan.
+      const historico = resolverNombreTipoHistorico(r.fields.Field_id, camposPorId)
       envio.valores.push({
         fieldId: r.fields.Field_id,
-        nombre: campo?.nombre ?? r.fields.Field_id,
-        valor: campo ? deserializarValor(campo.tipo, r.fields.Valor) : r.fields.Valor,
+        nombre: historico?.nombre ?? r.fields.Field_id,
+        valor: historico ? deserializarValor(historico.tipo, r.fields.Valor) : r.fields.Valor,
       })
     }
 

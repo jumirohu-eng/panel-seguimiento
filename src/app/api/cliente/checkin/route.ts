@@ -1,73 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthenticatedEmail } from '@/lib/auth-server'
+import { getClienteActivoAutenticado } from '@/lib/auth-server'
 import {
-  getClienteByEmail,
   getEntrenadorByEmail,
   getCamposCheckinByEntrenador,
   getRegistrosCheckinByClienteEmail,
   crearRegistrosCheckin,
+  getCheckinTiposByEntrenador,
 } from '@/lib/airtable'
 import {
   resolverCamposEfectivos,
   agruparPorFrecuencia,
   deserializarValor,
   serializarValor,
-  calcularProximaDisponibilidad,
-  resolverLanzamiento,
+  calcularProximaFecha,
+  resolverProgramacionTipo,
+  inicioDeHoyUTC,
+  inicioDePeriodoSemanalUTC,
+  campoDisponible,
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
 import { ClienteCheckinResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 
-function inicioDeHoyUTC(): number {
-  const ahora = new Date()
-  return Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())
-}
-
-function inicioDeSemanaUTC(): number {
-  const ahora = new Date()
-  const hoy = Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())
-  const diaSemana = ahora.getUTCDay() === 0 ? 7 : ahora.getUTCDay() // lunes=1..domingo=7
-  return hoy - (diaSemana - 1) * 24 * 60 * 60 * 1000
+function respuestaError(mensaje: string, status: number) {
+  return NextResponse.json({ error: mensaje }, { status })
 }
 
 export async function GET(request: NextRequest) {
-  const email = await getAuthenticatedEmail(request)
-  if (!email) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const gate = await getClienteActivoAutenticado(request)
+  if (!gate.ok) {
+    return respuestaError(
+      gate.status === 401
+        ? 'No autorizado'
+        : gate.status === 404
+          ? 'No se encontró ningún cliente con este email'
+          : 'Tu acceso está desactivado. Contacta con tu entrenador.',
+      gate.status
+    )
   }
+  const cliente = gate.cliente
 
   try {
-    const cliente = await getClienteByEmail(email)
-    if (!cliente) {
-      return NextResponse.json({ error: 'No se encontró ningún cliente con este email' }, { status: 404 })
-    }
+    const [entrenador, filasTipos, filasConfig, registros] = await Promise.all([
+      getEntrenadorByEmail(cliente.fields.Entrenador),
+      getCheckinTiposByEntrenador(cliente.fields.Entrenador),
+      getCamposCheckinByEntrenador(cliente.fields.Entrenador),
+      getRegistrosCheckinByClienteEmail(cliente.fields.Email ?? ''),
+    ])
 
-    const entrenador = await getEntrenadorByEmail(cliente.fields.Entrenador)
-    const { lanzado, disponibleDesde } = resolverLanzamiento(entrenador?.fields.Checkin_disponible_desde)
-    if (!lanzado) {
-      const vacio: CheckinFrecuenciaEstado = { campos: [], yaEnviado: false, ultimosValores: {}, proximaDisponibilidad: null }
-      const response: ClienteCheckinResponse = {
-        lanzado: false,
-        disponibleDesde,
-        diario: vacio,
-        semanal: vacio,
-        periodico: vacio,
-      }
-      return NextResponse.json(response)
-    }
-
-    const filasConfig = await getCamposCheckinByEntrenador(cliente.fields.Entrenador)
+    const filaPorTipo = new Map(filasTipos.map((f) => [f.fields.Tipo, f.fields]))
     const camposResueltos = resolverCamposEfectivos(filasConfig)
-    const { diario, semanal, periodico } = agruparPorFrecuencia(camposResueltos)
-
-    const registros = await getRegistrosCheckinByClienteEmail(email)
+    const grupos = agruparPorFrecuencia(camposResueltos)
     const camposPorId = new Map(camposResueltos.map((c) => [c.id, c]))
 
-    function estadoPara(campos: CampoCheckinResuelto[], tipo: FrecuenciaCheckin, desdeMs: number | null): CheckinFrecuenciaEstado {
+    function estadoPara(
+      tipo: FrecuenciaCheckin,
+      campos: CampoCheckinResuelto[],
+      inicioPeriodoActualMs: number | null
+    ): CheckinFrecuenciaEstado {
+      const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
+      if (!programacion.lanzado) {
+        return {
+          lanzado: false,
+          disponibleDesde: programacion.disponibleDesde,
+          campos: [],
+          yaEnviado: false,
+          ultimosValores: {},
+          proximaFecha: null,
+        }
+      }
+
       const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo)
       const registrosVigentes =
-        desdeMs === null ? registrosDelTipo : registrosDelTipo.filter((r) => new Date(r.fields.Fecha).getTime() >= desdeMs)
+        inicioPeriodoActualMs === null
+          ? registrosDelTipo
+          : registrosDelTipo.filter((r) => new Date(r.fields.Fecha).getTime() >= inicioPeriodoActualMs)
 
       const ultimosValores: Record<string, unknown> = {}
       let yaEnviado = false
@@ -79,50 +86,61 @@ export async function GET(request: NextRequest) {
           ultimosValores[r.fields.Field_id] = deserializarValor(campo.tipo, r.fields.Valor)
         }
       }
-      return { campos, yaEnviado, ultimosValores, proximaDisponibilidad: calcularProximaDisponibilidad(tipo, yaEnviado, desdeMs) }
+
+      const proximaFecha = calcularProximaFecha(tipo, yaEnviado, inicioPeriodoActualMs, programacion)
+
+      return { lanzado: true, disponibleDesde: programacion.disponibleDesde, campos, yaEnviado, ultimosValores, proximaFecha }
     }
 
+    const diaSemanaSemanal = filaPorTipo.get('semanal')?.Dia_semana ?? 'lunes'
+
     const response: ClienteCheckinResponse = {
-      lanzado: true,
-      disponibleDesde,
-      diario: estadoPara(diario, 'diario', inicioDeHoyUTC()),
-      semanal: estadoPara(semanal, 'semanal', inicioDeSemanaUTC()),
-      periodico: estadoPara(periodico, 'periodico', null),
+      diario: estadoPara('diario', grupos.diario, inicioDeHoyUTC()),
+      semanal: estadoPara('semanal', grupos.semanal, inicioDePeriodoSemanalUTC(diaSemanaSemanal)),
+      periodico: estadoPara('periodico', grupos.periodico, null),
     }
 
     return NextResponse.json(response)
   } catch (err) {
     console.error('Error al obtener check-in del cliente', err)
-    return NextResponse.json({ error: 'Error al obtener el check-in' }, { status: 500 })
+    return respuestaError('Error al obtener el check-in', 500)
   }
 }
 
 export async function POST(request: NextRequest) {
-  const email = await getAuthenticatedEmail(request)
-  if (!email) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const gate = await getClienteActivoAutenticado(request)
+  if (!gate.ok) {
+    return respuestaError(
+      gate.status === 401
+        ? 'No autorizado'
+        : gate.status === 404
+          ? 'No se encontró ningún cliente con este email'
+          : 'Tu acceso está desactivado. Contacta con tu entrenador.',
+      gate.status
+    )
   }
+  const cliente = gate.cliente
 
   const body = await request.json().catch(() => null)
   const tipo = body?.tipo as FrecuenciaCheckin
   const valores = body?.valores && typeof body.valores === 'object' ? (body.valores as Record<string, unknown>) : null
   if (!['diario', 'semanal', 'periodico'].includes(tipo) || !valores) {
-    return NextResponse.json({ error: 'Falta tipo o valores' }, { status: 400 })
+    return respuestaError('Falta tipo o valores', 400)
   }
 
   try {
-    const cliente = await getClienteByEmail(email)
-    if (!cliente) {
-      return NextResponse.json({ error: 'No se encontró ningún cliente con este email' }, { status: 404 })
-    }
+    const [entrenador, filasTipos, filasConfig] = await Promise.all([
+      getEntrenadorByEmail(cliente.fields.Entrenador),
+      getCheckinTiposByEntrenador(cliente.fields.Entrenador),
+      getCamposCheckinByEntrenador(cliente.fields.Entrenador),
+    ])
 
-    const entrenador = await getEntrenadorByEmail(cliente.fields.Entrenador)
-    const { lanzado } = resolverLanzamiento(entrenador?.fields.Checkin_disponible_desde)
+    const filaTipo = filasTipos.find((f) => f.fields.Tipo === tipo)
+    const { lanzado } = resolverProgramacionTipo(filaTipo?.fields, entrenador?.fields.Checkin_disponible_desde)
     if (!lanzado) {
-      return NextResponse.json({ error: 'Tu entrenador todavía no ha activado el check-in' }, { status: 403 })
+      return respuestaError('Tu entrenador todavía no ha activado este check-in', 403)
     }
 
-    const filasConfig = await getCamposCheckinByEntrenador(cliente.fields.Entrenador)
     const camposResueltos = resolverCamposEfectivos(filasConfig)
     const grupos = agruparPorFrecuencia(camposResueltos)
     const camposActivosDelTipo = grupos[tipo]
@@ -130,6 +148,10 @@ export async function POST(request: NextRequest) {
     const fecha = new Date().toISOString()
     const filas = camposActivosDelTipo
       .map((campo) => {
+        // Regla "No he entrenado": un campo dependiente se ignora silenciosamente si la
+        // condición de la que depende no se cumple, aunque el cliente lo mande manipulando
+        // la petición directamente — rechazo real en backend, no solo cosmético.
+        if (!campoDisponible(campo, valores)) return null
         const valorSerializado = serializarValor(campo.tipo, valores[campo.id])
         if (valorSerializado === null) return null
         return {
@@ -143,13 +165,13 @@ export async function POST(request: NextRequest) {
       .filter((f): f is NonNullable<typeof f> => f !== null)
 
     if (filas.length === 0) {
-      return NextResponse.json({ error: 'No hay valores válidos para los campos activos de este tipo' }, { status: 400 })
+      return respuestaError('No hay valores válidos para los campos activos de este tipo', 400)
     }
 
     await crearRegistrosCheckin(filas)
     return NextResponse.json({ ok: true, fecha, campos: filas.length }, { status: 201 })
   } catch (err) {
     console.error('Error al guardar check-in del cliente', err)
-    return NextResponse.json({ error: 'Error al guardar el check-in' }, { status: 500 })
+    return respuestaError('Error al guardar el check-in', 500)
   }
 }

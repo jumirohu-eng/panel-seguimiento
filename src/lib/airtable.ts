@@ -11,6 +11,7 @@ const TABLE_ARCHIVO = 'tblgwKrbv6kRYqrAt'
 const TABLE_ADMINS = 'tbl9rBIoivD65ojPx'
 const TABLE_CAMPOS_CHECKIN = 'tblY8lFGaO2iA29Zf'
 const TABLE_REGISTROS_CHECKIN = 'tbl7usdXJYJA83lsm'
+const TABLE_CHECKIN_TIPOS = 'tblsiRHYa7SFro2Th'
 
 export interface AirtableRecord<T> {
   id: string
@@ -96,8 +97,10 @@ export interface SnapshotEntrenadorFields {
   Total_prueba: number
 }
 
-export type TipoCampoCheckinAirtable = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple'
+export type TipoCampoCheckinAirtable = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
 export type FrecuenciaCheckinAirtable = 'diario' | 'semanal' | 'periodico'
+export type DiaSemanaAirtable = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
+export type ModoPeriodicoAirtable = 'intervalo' | 'dia_mes'
 
 export interface CampoCheckinFields {
   Nombre: string
@@ -107,7 +110,11 @@ export interface CampoCheckinFields {
   Categoria?: string
   Opciones?: string
   Unidad?: string
-  Frecuencia: FrecuenciaCheckinAirtable
+  // Frecuencia (singleSelect, un único valor) es el modelo de Parte 1, deprecado pero
+  // intacto — se usa como fallback de lectura. Tipos (multiSelect) es el modelo vigente
+  // desde Parte 1.5: un campo puede pertenecer a varios tipos a la vez. Ver DECISIONS.md.
+  Frecuencia?: FrecuenciaCheckinAirtable
+  Tipos?: FrecuenciaCheckinAirtable[]
   Activo?: boolean
   Orden?: number
   Es_estandar?: boolean
@@ -122,6 +129,20 @@ export interface RegistroCheckinFields {
   Valor: string
   Cliente_Email?: string[]
   Entrenador_email?: string[]
+  Last_modified?: string
+}
+
+// Programación y lanzamiento independiente por (Entrenador, Tipo). Una fila por
+// combinación, creada de forma perezosa (Parte 1.5, ver DECISIONS.md).
+export interface CheckinTipoFields {
+  Entrenador: string
+  Tipo: FrecuenciaCheckinAirtable
+  Disponible_desde?: string | null
+  Dia_semana?: DiaSemanaAirtable
+  Modo_periodico?: ModoPeriodicoAirtable
+  Fecha_inicio_periodico?: string
+  Intervalo_dias_periodico?: number
+  Dia_mes_periodico?: number
   Last_modified?: string
 }
 
@@ -550,6 +571,34 @@ export async function getRegistrosCheckinByClienteEmail(clienteEmail: string) {
     params
   )
   return data.records
+}
+
+export async function getCheckinTiposByEntrenador(email: string) {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Entrenador} = "${escapeFormulaValue(email)}"`)
+  const data = await airtableGet<{ records: AirtableRecord<CheckinTipoFields>[] }>(TABLE_CHECKIN_TIPOS, params)
+  return data.records
+}
+
+export async function crearCheckinTipo(fields: Partial<CheckinTipoFields>) {
+  return airtableWrite<AirtableRecord<CheckinTipoFields>>(TABLE_CHECKIN_TIPOS, 'POST', fields)
+}
+
+export async function actualizarCheckinTipo(recordId: string, fields: Partial<CheckinTipoFields>) {
+  return airtableWrite<AirtableRecord<CheckinTipoFields>>(`${TABLE_CHECKIN_TIPOS}/${recordId}`, 'PATCH', fields)
+}
+
+// Crea la fila de (Entrenador, Tipo) en Checkin_tipos si todavía no existe (creación
+// perezosa, ver DECISIONS.md), o la actualiza si ya existe.
+export async function upsertCheckinTipo(
+  email: string,
+  tipo: FrecuenciaCheckinAirtable,
+  fields: Partial<CheckinTipoFields>
+) {
+  const existentes = await getCheckinTiposByEntrenador(email)
+  const fila = existentes.find((f) => f.fields.Tipo === tipo)
+  if (fila) return actualizarCheckinTipo(fila.id, fields)
+  return crearCheckinTipo({ Entrenador: email, Tipo: tipo, ...fields })
 }
 
 export async function getArchivoConMensajeSugerido() {

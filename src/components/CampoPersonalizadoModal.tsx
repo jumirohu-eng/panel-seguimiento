@@ -14,7 +14,7 @@ const TIPOS: { value: Tipo; label: string }[] = [
   { value: 'seleccion_multiple', label: 'Selección múltiple' },
 ]
 
-const FRECUENCIAS: { value: Frecuencia; label: string }[] = [
+const TIPOS_CHECKIN: { value: Frecuencia; label: string }[] = [
   { value: 'diario', label: 'Diario' },
   { value: 'semanal', label: 'Semanal' },
   { value: 'periodico', label: 'Periódico' },
@@ -33,7 +33,7 @@ export default function CampoPersonalizadoModal({
   const [tipo, setTipo] = useState<Tipo>('escala')
   const [categoria, setCategoria] = useState('personalizado')
   const [unidad, setUnidad] = useState('')
-  const [frecuencia, setFrecuencia] = useState<Frecuencia>('diario')
+  const [tipos, setTipos] = useState<Frecuencia[]>(['diario'])
   const [opciones, setOpciones] = useState<string[]>(['', ''])
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +50,10 @@ export default function CampoPersonalizadoModal({
       setError('Añade al menos 2 opciones')
       return
     }
+    if (tipos.length === 0) {
+      setError('Selecciona al menos un tipo de check-in')
+      return
+    }
     setGuardando(true)
     setError(null)
     try {
@@ -61,7 +65,7 @@ export default function CampoPersonalizadoModal({
           tipo,
           categoria: categoria.trim() || 'personalizado',
           unidad: unidad.trim() || undefined,
-          frecuencia,
+          tipos,
           opciones: requiereOpciones ? opcionesLimpias : undefined,
         }),
       })
@@ -117,18 +121,21 @@ export default function CampoPersonalizadoModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-card-foreground">Frecuencia</label>
-            <select
-              value={frecuencia}
-              onChange={(e) => setFrecuencia(e.target.value as Frecuencia)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-card-foreground"
-            >
-              {FRECUENCIAS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
+            <label className="mb-1 block text-sm font-medium text-card-foreground">Tipos de check-in</label>
+            <div className="flex gap-4">
+              {TIPOS_CHECKIN.map((t) => (
+                <label key={t.value} className="flex items-center gap-1 text-sm text-card-foreground">
+                  <input
+                    type="checkbox"
+                    checked={tipos.includes(t.value)}
+                    onChange={(e) =>
+                      setTipos((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((x) => x !== t.value)))
+                    }
+                  />
+                  {t.label}
+                </label>
               ))}
-            </select>
+            </div>
           </div>
 
           <div>

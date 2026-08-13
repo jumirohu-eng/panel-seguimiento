@@ -42,6 +42,8 @@ export default function ClienteFicha({
   const [confirmandoBaja, setConfirmandoBaja] = useState(false)
   const [dandoBaja, setDandoBaja] = useState(false)
   const [errorBaja, setErrorBaja] = useState<string | null>(null)
+  const [reactivando, setReactivando] = useState(false)
+  const [errorReactivar, setErrorReactivar] = useState<string | null>(null)
   const [copiadoLinkTally, setCopiadoLinkTally] = useState(false)
   const [conflictoError, setConflictoError] = useState<string | null>(null)
   const [creandoAcceso, setCreandoAcceso] = useState(false)
@@ -121,6 +123,34 @@ export default function ClienteFicha({
       setDandoBaja(false)
     }
   }, [cliente.id, cliente.lastModified, getToken, onBack, onUpdated])
+
+  // Inactivo/perdido no equivale a eliminado (ver DECISIONS.md) — el entrenador siempre
+  // puede reactivar un cliente 'Perdido' de vuelta a 'Activo', sin perder historial.
+  const handleReactivar = useCallback(async () => {
+    setReactivando(true)
+    setErrorReactivar(null)
+    const token = await getToken()
+    try {
+      const res = await fetch(`/api/clientes/${cliente.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ estado: 'Activo', lastModified: cliente.lastModified }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        if (res.status === 409) {
+          setConflictoError(data?.error ?? 'Conflicto al guardar.')
+          return
+        }
+        throw new Error(data?.error ?? 'No se pudo reactivar al cliente')
+      }
+      onUpdated?.({ id: cliente.id, estado: 'Activo', lastModified: data?.lastModified })
+    } catch (err) {
+      setErrorReactivar(err instanceof Error ? err.message : 'Error al reactivar al cliente. Inténtalo de nuevo.')
+    } finally {
+      setReactivando(false)
+    }
+  }, [cliente.id, cliente.lastModified, getToken, onUpdated])
 
   const handleCopyLinkTally = useCallback(async () => {
     if (!cliente.linkTallyAlta) return
@@ -303,8 +333,20 @@ export default function ClienteFicha({
               Dar de baja
             </button>
           )}
+          {cliente.estado === 'Perdido' && (
+            <button
+              type="button"
+              onClick={handleReactivar}
+              disabled={reactivando}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-success hover:bg-background disabled:opacity-50"
+            >
+              {reactivando ? 'Reactivando…' : 'Reactivar'}
+            </button>
+          )}
         </div>
       </div>
+
+      {errorReactivar && <p className="text-sm text-danger">{errorReactivar}</p>}
 
       {confirmandoBaja && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger/10 p-4">
@@ -471,7 +513,15 @@ export default function ClienteFicha({
                 {c.valores.map((v) => (
                   <p key={v.fieldId}>
                     <span className="text-muted">{v.nombre}: </span>
-                    {typeof v.valor === 'boolean' ? (v.valor ? 'Sí' : 'No') : Array.isArray(v.valor) ? v.valor.join(', ') : String(v.valor)}
+                    {typeof v.valor === 'boolean'
+                      ? v.valor
+                        ? 'Sí'
+                        : 'No'
+                      : Array.isArray(v.valor)
+                        ? v.valor.join(', ')
+                        : v.valor && typeof v.valor === 'object'
+                          ? [(v.valor as { nivel?: string }).nivel, (v.valor as { zona?: string }).zona].filter(Boolean).join(' — ') || '—'
+                          : String(v.valor)}
                   </p>
                 ))}
               </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClienteCheckinResponse } from '@/lib/types'
+import { campoDisponible } from '@/lib/checkinFields'
 import CampoInput from '@/components/CampoInput'
 
 type Seccion = 'diario' | 'semanal' | 'periodico'
@@ -29,6 +30,7 @@ export default function ClienteCheckinPage() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [inactivo, setInactivo] = useState(false)
   const [guardando, setGuardando] = useState<Seccion | null>(null)
   const [guardadoOk, setGuardadoOk] = useState<Seccion | null>(null)
 
@@ -49,6 +51,10 @@ export default function ClienteCheckinPage() {
 
       try {
         const res = await fetch('/api/cliente/checkin', { headers: { Authorization: `Bearer ${accessToken}` } })
+        if (res.status === 403) {
+          setInactivo(true)
+          return
+        }
         if (!res.ok) throw new Error('No se pudo cargar el check-in')
         const json: ClienteCheckinResponse = await res.json()
         setData(json)
@@ -93,6 +99,16 @@ export default function ClienteCheckinPage() {
     )
   }
 
+  if (inactivo) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <p className="max-w-sm text-center text-sm text-danger">
+          Tu acceso está desactivado. Contacta con tu entrenador si crees que es un error.
+        </p>
+      </div>
+    )
+  }
+
   if (error || !data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -118,15 +134,31 @@ export default function ClienteCheckinPage() {
       <main className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 sm:px-6">
         {secciones.map((seccion) => {
           const estado = data[seccion]
+
+          if (!estado.lanzado) {
+            return (
+              <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
+                <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
+                <p className="text-sm text-muted">
+                  {estado.disponibleDesde
+                    ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
+                    : 'Tu entrenador todavía no ha activado este check-in.'}
+                </p>
+              </section>
+            )
+          }
           if (estado.campos.length === 0) return null
+
+          const valores = valoresPorSeccion[seccion]
+
           return (
             <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
                 {estado.yaEnviado && (
                   <span className="text-xs text-muted">
-                    {estado.proximaDisponibilidad
-                      ? `Ya registrado — próximo turno el ${formatFechaLarga(estado.proximaDisponibilidad)}, pero puedes corregirlo ahora`
+                    {estado.proximaFecha
+                      ? `Ya registrado — próximo turno el ${formatFechaLarga(estado.proximaFecha)}, pero puedes corregirlo ahora`
                       : 'Ya registrado — puedes actualizarlo cuando quieras'}
                   </span>
                 )}
@@ -136,7 +168,8 @@ export default function ClienteCheckinPage() {
                   <CampoInput
                     key={campo.id}
                     campo={campo}
-                    valor={valoresPorSeccion[seccion][campo.id]}
+                    valor={valores[campo.id]}
+                    disabled={!campoDisponible(campo, valores)}
                     onChange={(v) =>
                       setValoresPorSeccion((prev) => ({
                         ...prev,
@@ -157,16 +190,6 @@ export default function ClienteCheckinPage() {
             </section>
           )
         })}
-
-        {secciones.every((s) => data[s].campos.length === 0) && (
-          <p className="text-sm text-muted">
-            {!data.lanzado && data.disponibleDesde
-              ? `Tu check-in estará disponible a partir del ${formatFechaLarga(data.disponibleDesde)}.`
-              : !data.lanzado
-                ? 'Tu entrenador todavía no ha activado tu check-in.'
-                : 'Tu entrenador todavía no ha activado ningún campo de check-in.'}
-          </p>
-        )}
       </main>
     </div>
   )

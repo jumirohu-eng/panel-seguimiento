@@ -83,14 +83,7 @@ export default function CheckinConfigPage() {
           ← Volver
         </button>
         {error && <p className="mb-4 text-sm text-danger">{error}</p>}
-        {token && config && (
-          <CheckinConfigView
-            token={token}
-            camposIniciales={config.campos}
-            lanzadoInicial={config.lanzado}
-            disponibleDesdeInicial={config.disponibleDesde}
-          />
-        )}
+        {token && config && <CheckinConfigView token={token} configInicial={config} />}
       </main>
     </div>
   )

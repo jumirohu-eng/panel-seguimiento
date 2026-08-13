@@ -430,6 +430,289 @@ auto-apertura), "volver a borrador" revierte todo correctamente.
 
 ---
 
+## DEC-2026-014 — Tres tipos de check-in independientes, con programación y lanzamiento propios
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Modelo de datos
+**Estado:** Implementada
+
+### Contexto
+En Parte 1, diario/semanal/periódico compartían un único lanzamiento
+(`Entrenadores.Checkin_disponible_desde`) y cada campo tenía una única
+frecuencia. El brief de Parte 1.5 exige que los tres tipos sean completamente
+independientes: cada uno con su propia disponibilidad, próxima fecha y
+programación.
+
+### Decisión
+Nueva tabla Airtable `Checkin_tipos` (`tblsiRHYa7SFro2Th`): una fila por
+`(Entrenador, Tipo)`, creada de forma perezosa (igual que los overrides de
+`Campos_checkin`) solo cuando el entrenador configura ese tipo por primera
+vez. Contiene `Disponible_desde` (mismas 3 semánticas borrador/programado/
+lanzado que el campo legacy, pero por tipo), `Dia_semana` (solo semanal),
+y `Modo_periodico`/`Fecha_inicio_periodico`/`Intervalo_dias_periodico`/
+`Dia_mes_periodico` (solo periódico).
+
+### Migración sin pérdida
+`Entrenadores.Checkin_disponible_desde` se deja intacto (deprecado, no
+borrado). Si un tipo no tiene fila propia en `Checkin_tipos`, hereda ese
+campo legacy — el día del deploy, los tres tipos siguen viendo exactamente
+el mismo estado que tenían antes (compartido), y cada uno se independiza
+solo cuando el entrenador lo toca desde la UI nueva. Ningún cliente pierde
+acceso ni ve un cambio de comportamiento sin que el entrenador actúe.
+
+### Limitación documentada (no se inventa una solución compleja)
+`Dia_mes_periodico` en un mes más corto que el día configurado (p.ej. día 31
+en febrero) cae al último día válido de ese mes — no hay lógica de
+"reprogramar al mes siguiente".
+
+### Verificación
+Prueba E2E con fixtures aislados (patrón DEC-2026-009): lanzar diario y
+periódico dejando semanal en borrador confirma independencia real (el
+cliente ve `diario.lanzado=true`, `semanal.lanzado=false`,
+`periodico.lanzado=true` simultáneamente); `periodico.proximaFecha` se
+calcula correctamente según el día del mes configurado.
+
+---
+
+## DEC-2026-015 — Un campo puede pertenecer a varios tipos a la vez, sin tabla intermedia
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Modelo de datos
+**Estado:** Implementada
+
+### Contexto
+El modelo de Parte 1 limitaba cada campo a una única frecuencia
+(`Campos_checkin.Frecuencia`, singleSelect). El brief pide que un campo
+pueda asignarse a Diario, Semanal, Periódico o varios simultáneamente
+(ej. Energía → Diario + Semanal), y pide explícitamente auditar si hace
+falta una entidad intermedia para modelar esa relación N:M.
+
+### Decisión — auditoría: no hace falta tabla intermedia
+`Campos_checkin` ya es "una fila = un campo de un entrenador". La relación
+N:M campo↔tipo se resuelve con un `multipleSelects` en esa misma fila
+(`Campos_checkin.Tipos`, choices `diario`/`semanal`/`periodico`) — una tabla
+intermedia solo se justificaría si la relación necesitara datos propios
+(p.ej. fecha de asignación por tipo), y no es el caso.
+`Campos_checkin.Frecuencia` (el `singleSelect` viejo) se deja intacto y
+deprecado: `resolverCamposEfectivos()` (`src/lib/checkinFields.ts`) lee
+`Tipos` primero, y si esa fila todavía no lo tiene (overrides creados en
+Parte 1), cae a `[Frecuencia]` — así ningún campo pierde silenciosamente su
+asignación al migrar.
+
+### Migración de datos aplicada
+Backfill puntual sobre las 11 filas reales de `Campos_checkin` (todas de
+`jumirohu@gmail.com`, único entrenador con config real): las 8 filas que
+corresponden a ids todavía activos en el catálogo (fatiga, peso, ánimo,
+medidas, comentario, entrenamiento_realizado, energía, adherencia) recibieron
+`Tipos = [Frecuencia]` explícito. Las 3 filas de ids retirados
+(`dolor_nivel`, `dolor_zona`, `reflexion_semanal`, ver DEC-2026-016) se
+dejaron sin tocar — nunca se leen desde el catálogo activo, así que
+backfillear `Tipos` en ellas no tendría efecto y no aporta valor.
+
+### `Registros_checkin.Tipo_registro`: auditado, sin cambios necesarios
+Un *envío* ocurre siempre dentro de un tipo concreto (el cliente rellena la
+sección diaria o la semanal en un momento dado), aunque el *campo* pueda
+pertenecer también a otro tipo. Un mismo `Field_id` puede aparecer con
+`Tipo_registro='diario'` un día y `'semanal'` otro — ya soportado por el
+modelo EAV sin cambios de esquema.
+
+### Verificación
+Prueba E2E: reasignar `energia` de `[diario, semanal]` (default) a
+`[diario, periodico]` la mueve de la sección semanal a la periódica del
+cliente sin afectar a otros campos, confirmado contra la API real.
+
+---
+
+## DEC-2026-016 — Catálogo estándar Parte 1.5: `dolor` compuesto, `comentario` unificado, ids retirados con fallback histórico
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Modelo de datos
+**Estado:** Implementada
+
+### Decisión
+- `dolor_nivel` + `dolor_zona` se unifican en un único campo lógico `dolor`
+  (nuevo valor de `TipoCampoCheckin`, compuesto `{nivel, zona}` serializado
+  a JSON en `Registros_checkin.Valor`). Exclusivo de campos estándar — un
+  entrenador nunca puede crear un campo personalizado de tipo `dolor`
+  (`CampoPersonalizadoModal.tsx` no lo ofrece).
+- `comentario` + `reflexion_semanal` se unifican en un único `comentario`,
+  ahora asignable a varios tipos (`semanal` + `periodico` por defecto).
+- Los tres ids retirados (`dolor_nivel`, `dolor_zona`, `reflexion_semanal`)
+  **no se borran de Airtable ni se reescriben**. Pasan a
+  `CAMPOS_ESTANDAR_DEPRECADOS` (`src/lib/checkinFields.ts`), usada solo por
+  el path de lectura histórica (`resolverNombreTipoHistorico()`, consumida
+  por `GET /api/checkins`) para que envíos antiguos con esos ids sigan
+  resolviendo nombre/valor legible. Nunca se ofrecen en `CheckinConfigView`
+  ni en el formulario del cliente.
+
+### Por qué
+Instrucción explícita del brief: "Dolor/molestias + zona es un único campo
+lógico" y "Eliminar Comentario/reflexión; queda solo Comentario" — pero
+también "no borres datos" y "no cambies silenciosamente el significado
+histórico" (sección 14). Retirar el id del catálogo activo sin destruir las
+filas históricas satisface ambos requisitos a la vez.
+
+### Verificación
+`GET /api/checkins` sobre un cliente de prueba con envíos que incluían
+`energia` (id activo) tras desactivarlo sigue devolviendo nombre/valor
+correctos — mismo mecanismo que cubre los ids retirados.
+
+---
+
+## DEC-2026-017 — Regla "No he entrenado": mecanismo genérico, sin campos dependientes aplicados hoy
+
+**Fecha:** 2026-08-14
+**Tipo:** Producto / Modelo de datos
+**Estado:** Implementada (mecanismo), sin aplicar a ningún campo
+
+### Contexto
+El brief pide que "si el cliente marca No he entrenado, los campos
+dependientes del entrenamiento deben deshabilitarse", pero también advierte
+explícitamente "no inventes dependencias" que no existan.
+
+### Hallazgo de la auditoría
+Revisado el catálogo estándar definitivo (9 campos: Entrenamientos
+realizados, Energía, Fatiga, Dolor/molestias, Estado de ánimo, Adherencia,
+Peso, Medidas, Comentario) — **ninguno depende estructuralmente de haber
+entrenado**. Energía/Fatiga/Ánimo se miden como estado general del día, no
+específicamente del entrenamiento; Dolor puede registrarse sin haber
+entrenado; Peso/Medidas/Comentario/Adherencia tampoco. Confirmado
+explícitamente con Juanmi antes de implementar cualquier dependencia.
+
+### Decisión
+Se construyó el mecanismo completo y reutilizable — `CampoCheckinDef.dependeDe?:
+{ campoId, valorRequerido }`, deshabilitado visual en `CampoInput.tsx` (prop
+`disabled`), y rechazo real en backend (`campoDisponible()` en
+`checkinFields.ts`, aplicado en `POST /api/cliente/checkin` antes de
+serializar cada campo) — pero **no se asignó a ningún campo del catálogo
+actual**. Queda listo para cuando se añada un campo de detalle de sesión de
+entrenamiento (fuera de alcance de Parte 1.5) que sí dependa genuinamente de
+`entrenamiento_realizado`.
+
+### Verificación
+El backend ignora silenciosamente cualquier valor de un campo con
+`dependeDe` no satisfecha, aunque la petición lo incluya manipulada
+directamente — verificado por inspección de código (`route.ts` filtra antes
+de `serializarValor`); no hay campo real hoy para reproducirlo end-to-end.
+
+---
+
+## DEC-2026-018 — Notas privadas del cliente: tabla nueva en Supabase Postgres, aislada por completo de Airtable/IA
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Privacidad
+**Estado:** Implementada
+
+### Contexto
+El brief pide una libreta personal del cliente ("Mis notas") con una regla
+absoluta: el entrenador nunca puede verla, ninguna IA la lee, no pertenece a
+`Registros_checkin`, no genera señales/alertas/predicciones, y no se envía a
+proveedores de IA. Se preguntó explícitamente a Juanmi dónde debía vivir
+este dato — respuesta: Supabase Postgres, no Airtable.
+
+### Decisión
+Primera tabla Postgres propia del proyecto (hasta ahora Supabase solo se
+usaba como IdP, nunca `.from()` sobre una tabla propia): `notas_privadas`
+(`user_id` referenciando `auth.users`, `contenido`, `updated_at`), con RLS
+(`auth.uid() = user_id`) en las cuatro operaciones. Nuevo helper
+`createSupabaseUserClient(accessToken)` (`src/lib/supabase-server.ts`) que
+usa la clave anónima + el JWT del propio usuario — `GET/PUT
+/api/cliente/notas` nunca usan `supabaseAdmin` (service role) para esta
+tabla, así la RLS aplica de verdad contra `auth.uid()` en vez de depender de
+que el código de la API recuerde siempre filtrar por usuario.
+
+### Por qué Postgres y no una tabla Airtable nueva
+Una tabla Airtable nueva habría sido más rápida de construir (reutilizando
+`airtable.ts`), pero la exclusión de IA/entrenador dependería de que el
+código nunca la consultara desde esos flujos — una garantía de convención,
+no estructural. Con Postgres + RLS, la exclusión es estructural: ningún
+flujo de Airtable/n8n/IA puede llegar a esta tabla aunque alguien lo
+intentara por error, porque literalmente no está en Airtable y la RLS
+bloquea cualquier usuario que no sea el dueño de la fila.
+
+### Verificación
+Prueba E2E: el cliente escribe y relee su propia nota correctamente; una
+consulta REST directa a Supabase con el token del **entrenador** (usuario
+distinto) sobre `notas_privadas` devuelve 0 filas — RLS confirmada, no solo
+la ausencia de una ruta de API para el entrenador.
+
+---
+
+## DEC-2026-019 — Cliente activo/inactivo: `Perdido` reutilizado, gate real en backend, reactivación sin pérdida de historial
+
+**Fecha:** 2026-08-14
+**Tipo:** Seguridad / Autorización / Producto
+**Estado:** Implementada
+
+### Hallazgo de la auditoría
+`Clientes.Estado` (singleSelect `Activo`/`Pausado`/`Perdido`) ya modelaba
+exactamente "Activo → Inactivo/perdido" — no hacía falta ningún campo ni
+estado nuevo. El hueco real: **ningún endpoint de cliente comprobaba
+`Estado`** antes de conceder acceso. Un cliente dado de baja (`Estado =
+'Perdido'`) seguía pudiendo loguearse, ver su dashboard y enviar check-ins
+sin ningún bloqueo backend.
+
+### Decisión
+Nueva función `getClienteActivoAutenticado()` (`src/lib/auth-server.ts`,
+mismo patrón que `getAuthenticatedAdminEmail()`), devuelve un resultado
+discriminado (`{ok:true, cliente} | {ok:false, status: 401|403|404}`) para
+seguir distinguiendo no-autenticado / sin-ficha / inactivo. Aplicada en
+`GET/POST /api/cliente/checkin`, `GET /api/cliente/perfil` y `GET/PUT
+/api/cliente/notas` — las tres devuelven `403` a un cliente `Perdido`.
+Nuevo botón "Reactivar" en `ClienteFicha.tsx` (visible solo si `estado ===
+'Perdido'`), mismo patrón de `PATCH` con optimistic locking que "Dar de
+baja". `ClientesLista.tsx` ya ocultaba `Perdido` de la vista por defecto
+(`filtroEstado = 'activos'`) y ya tenía un filtro "Inactivos" para
+encontrarlo — no hizo falta ningún cambio ahí.
+
+### Por qué no se creó un estado nuevo
+"Inactivo/perdido" no equivale a eliminado — `Perdido` ya representaba
+exactamente eso desde antes de esta tarea. Añadir un estado paralelo habría
+duplicado semántica sin necesidad.
+
+### Verificación
+Prueba E2E: tras dar de baja al cliente de prueba, `GET /api/cliente/perfil`,
+`GET/POST /api/cliente/checkin` y `GET /api/cliente/notas` devuelven `403`
+los cuatro; reactivar devuelve el acceso (`200`) sin alterar el historial de
+`Registros_checkin` ya guardado (verificado leyendo `GET /api/checkins`
+tras la reactivación).
+
+---
+
+## DEC-2026-020 — Dashboard cliente: limpieza de piezas del sistema Tally antiguo, X/Y de entrenamientos con limitación documentada
+
+**Fecha:** 2026-08-14
+**Tipo:** Producto / UX
+**Estado:** Implementada
+
+### Decisión
+Eliminadas del dashboard del cliente tres piezas que leían del sistema Tally
+antiguo (`Reportes`) pero se mostraban sin distinguirse del check-in nuevo,
+repitiendo el problema ya corregido en DEC-2026-010 para otra tarjeta:
+gráfica "Peso (últimos 3 meses)", "Mensaje de tu entrenador" (IA) y la
+métrica independiente de energía de 30 días. No se tocó ningún dato
+subyacente en Airtable — solo UI. La tarjeta "Próximo check-in semanal
+(Tally)" ya estaba correctamente etiquetada (DEC-2026-010) y se dejó igual.
+
+Nueva sección "Entrenamientos esta semana: X/Y":
+**Y** = `Clientes.Entrenamientos_objetivo` (campo ya existente, configurado
+por el entrenador, descrito en Airtable como objetivo semanal) — única
+fuente real hoy, reutilizada tal cual (pedido explícito del brief: "no
+dupliques el modelo"). **Limitación documentada:** es un objetivo fijo, no
+varía semana a semana; no existe hoy un sistema de asignación semanal
+variable, y construir uno queda fuera de alcance de esta parte. **X** =
+días distintos con `entrenamiento_realizado=true` en `Registros_checkin`
+dentro de la semana en curso, resolviendo correcciones del mismo día
+(insert-only) quedándose con el envío más reciente por día
+(`contarEntrenamientosSemana()`, `src/lib/checkinFields.ts`).
+
+### Verificación
+Prueba E2E: cliente marca "No he entrenado" (false) en su check-in diario;
+`entrenamientosSemana` responde `{realizados: 0, asignados: 4}` — coincide
+con `Entrenamientos_objetivo=4` del fixture y 0 días entrenados esa semana.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -470,3 +753,13 @@ auto-apertura), "volver a borrador" revierte todo correctamente.
 - Añadida `DEC-2026-011`: navegación a `/checkin-config` movida de `Header.tsx` a `ClientesLista.tsx` (el gate `!isAdmin` la ocultaba en modo "Ver como entrenador" del admin).
 - Añadida `DEC-2026-012`: verificado sin bugs que la frecuencia por campo y la preservación de historial al reconfigurar ya funcionaban correctamente por diseño.
 - Añadida `DEC-2026-013`: lanzamiento del check-in desacoplado de la configuración de campos (`Entrenadores.Checkin_disponible_desde`, borrador/programado/lanzado, sin cron), con backfill de continuidad para `jumirohu@gmail.com`.
+
+### 2026-08-14 — RetainCoach MVP Parte 1.5
+- Añadida `DEC-2026-014`: tres tipos de check-in independientes con programación/lanzamiento propios (`Checkin_tipos`), migración por herencia del campo legacy sin pérdida de continuidad.
+- Añadida `DEC-2026-015`: un campo puede pertenecer a varios tipos a la vez (`Campos_checkin.Tipos`, multiSelect) sin tabla intermedia — auditado explícitamente. Backfill de las 8 filas reales afectadas.
+- Añadida `DEC-2026-016`: catálogo estándar Parte 1.5 — `dolor` unificado (compuesto), `comentario` unificado, ids retirados (`dolor_nivel`/`dolor_zona`/`reflexion_semanal`) con fallback de lectura histórica, sin borrar ni reescribir filas.
+- Añadida `DEC-2026-017`: regla "No he entrenado" — mecanismo genérico construido (frontend+backend), sin aplicarlo a ningún campo del catálogo actual (auditado: ninguno depende estructuralmente de entrenar).
+- Añadida `DEC-2026-018`: notas privadas del cliente en tabla nueva de Supabase Postgres con RLS — primera tabla Postgres propia del proyecto, aislamiento estructural de Airtable/IA/entrenador.
+- Añadida `DEC-2026-019`: cliente activo/inactivo — reutilizado `Clientes.Estado='Perdido'`, gate real en backend (`getClienteActivoAutenticado`) antes ausente, botón Reactivar.
+- Añadida `DEC-2026-020`: limpieza del dashboard cliente (peso/mensaje IA/energía del sistema Tally antiguo eliminados de la UI, sin tocar datos) y nueva métrica X/Y de entrenamientos semanales con limitación documentada de la fuente de Y.
+- Validado con prueba E2E de fixtures aislados (entrenador+cliente ficticios, creados y borrados en la sesión) cubriendo los 20 puntos de la sección 16 del brief de Parte 1.5, `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.

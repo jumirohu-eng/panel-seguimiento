@@ -12,12 +12,16 @@ function formatFechaLarga(fechaISO: string) {
   })
 }
 
+// Controla el lanzamiento de UN tipo de check-in (diario/semanal/periódico). Los tres son
+// independientes desde Parte 1.5 — cada uno tiene su propio estado borrador/programado/activo.
 export default function LanzamientoCheckin({
   token,
+  tipo,
   lanzadoInicial,
   disponibleDesdeInicial,
 }: {
   token: string
+  tipo: 'diario' | 'semanal' | 'periodico'
   lanzadoInicial: boolean
   disponibleDesdeInicial: string | null
 }) {
@@ -34,7 +38,7 @@ export default function LanzamientoCheckin({
       const res = await fetch('/api/entrenador/checkin-config/lanzamiento', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fecha }),
+        body: JSON.stringify({ tipo, fecha }),
       })
       if (!res.ok) throw new Error('No se pudo actualizar')
       const data: { lanzado: boolean; disponibleDesde: string | null } = await res.json()
@@ -51,23 +55,21 @@ export default function LanzamientoCheckin({
   const programado = !lanzado && disponibleDesde !== null
 
   return (
-    <div className="mb-6 rounded-xl border border-border bg-card p-6 shadow-sm">
-      <h2 className="mb-1 text-lg font-semibold text-card-foreground">Lanzamiento</h2>
-      <p className="mb-4 text-sm text-muted">
+    <div>
+      <p className="mb-3 text-sm text-muted">
         {lanzado ? (
           <>
-            <span className="font-medium text-success">● Activo</span> — tus clientes ven el check-in desde el{' '}
+            <span className="font-medium text-success">● Activo</span> — tus clientes lo ven desde el{' '}
             {disponibleDesde && formatFechaLarga(disponibleDesde)}
           </>
         ) : programado ? (
           <>
-            <span className="font-medium text-warning">● Programado</span> — se abrirá solo para tus clientes el{' '}
+            <span className="font-medium text-warning">● Programado</span> — se abrirá solo el{' '}
             {disponibleDesde && formatFechaLarga(disponibleDesde)}
           </>
         ) : (
           <>
-            <span className="font-medium text-muted">● Borrador</span> — configura los campos y lánzalo cuando estés listo,
-            tus clientes todavía no lo ven
+            <span className="font-medium text-muted">● Borrador</span> — tus clientes todavía no lo ven
           </>
         )}
       </p>

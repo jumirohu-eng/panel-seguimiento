@@ -39,13 +39,96 @@ Datos:
 - Airtable es la fuente de datos operativa de clientes, entrenadores y reportes.
 - `Clientes.Entrenador` contiene el email del entrenador y es la fuente de verdad para ownership.
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
-- `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`): modelo de check-in in-app del cliente (MVP Parte 1). Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 009.
+- `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`) + `Checkin_tipos` (`tblsiRHYa7SFro2Th`, Parte 1.5): modelo de check-in in-app del cliente. Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 020.
+- `notas_privadas` (Supabase Postgres, no Airtable): libreta privada del cliente, Parte 1.5. Ver sección dedicada y `DECISIONS.md` DEC-2026-018.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## RetainCoach Parte 1.5 — rediseño del check-in: tres tipos independientes (2026-08-14)
+
+Rama: `retaincoach-checkin-parte-1.5` (derivada de `main`, no mergeada).
+
+Rediseño grande sobre el check-in de Parte 1, pedido explícitamente por Juanmi:
+diario/semanal/periódico dejan de compartir lanzamiento y un campo deja de estar
+limitado a una única frecuencia. **NO implementa señales, análisis IA, alertas,
+acciones, recuperación, captación, referidos ni predicción** — eso sigue diferido
+a Parte 2 (ver DEC-2026-006).
+
+### Modelo de datos (aditivo, nada se borró)
+- `Campos_checkin.Tipos` (multiSelect, `diario`/`semanal`/`periodico`) reemplaza a
+  `Frecuencia` (singleSelect, deprecado pero intacto, usado como fallback de lectura).
+  Un campo puede pertenecer a varios tipos a la vez — no hace falta tabla intermedia,
+  ver DEC-2026-015.
+- Tabla nueva `Checkin_tipos` (`tblsiRHYa7SFro2Th`): programación y lanzamiento
+  independiente por `(Entrenador, Tipo)`, creada de forma perezosa. Si un tipo no
+  tiene fila propia, hereda `Entrenadores.Checkin_disponible_desde` (legacy) — ver
+  DEC-2026-014.
+- Catálogo estándar: 9 campos. `dolor` (nuevo, tipo compuesto `{nivel, zona}`)
+  sustituye a `dolor_nivel`+`dolor_zona`; `comentario` unifica a `reflexion_semanal`.
+  Los tres ids viejos quedan en `CAMPOS_ESTANDAR_DEPRECADOS` solo para resolver
+  historial ya existente en `Registros_checkin`, nunca ofrecidos en config/formulario.
+  Ver DEC-2026-016.
+- `Registros_checkin.Tipo_registro` no cambió — auditado, ya soporta el modelo nuevo
+  sin cambios de esquema (ver DEC-2026-015).
+
+### Regla "No he entrenado"
+Mecanismo genérico y reutilizable (`CampoCheckinDef.dependeDe`, prop `disabled` en
+`CampoInput.tsx`, rechazo real en `POST /api/cliente/checkin`) — pero **no se aplicó
+a ningún campo del catálogo actual**: auditado explícitamente que ninguno de los 9
+campos estándar depende estructuralmente de haber entrenado. Ver DEC-2026-017.
+
+### Cliente activo/inactivo
+`Clientes.Estado='Perdido'` ya representaba "inactivo" — el hueco era que ningún
+endpoint lo comprobaba. Nuevo gate `getClienteActivoAutenticado()`
+(`src/lib/auth-server.ts`) aplicado en `GET/POST /api/cliente/checkin`, `GET
+/api/cliente/perfil` y `GET/PUT /api/cliente/notas` (403 si inactivo). Botón
+"Reactivar" en `ClienteFicha.tsx`. `ClientesLista.tsx` ya ocultaba `Perdido` por
+defecto con filtro "Inactivos" — no requirió cambios. Ver DEC-2026-019.
+
+### Notas privadas ("Mis notas")
+Tabla nueva **en Supabase Postgres** (`notas_privadas`, RLS `auth.uid() = user_id`),
+no en Airtable — primera tabla Postgres propia del proyecto. `GET/PUT
+/api/cliente/notas` usan `createSupabaseUserClient()` (JWT del propio usuario, no
+service role) para que la RLS aplique de verdad. Página `/cliente/notas`. Aislamiento
+estructural: ningún flujo de entrenador/Airtable/n8n/IA puede tocar esta tabla. Ver
+DEC-2026-018.
+
+### Dashboard cliente
+Eliminados de la UI (sin tocar datos): gráfica de peso, "Mensaje de tu entrenador"
+(IA) y la métrica de energía de 30 días — todas leían del sistema Tally antiguo sin
+distinguirse del check-in nuevo. Nueva sección "Entrenamientos esta semana: X/Y"
+(`Y = Clientes.Entrenamientos_objetivo`, objetivo fijo, no varía semana a semana —
+limitación documentada, no hay fuente de asignación semanal real; `X` = días con
+`entrenamiento_realizado=true` en la semana). "Tu check-in" ahora muestra estado
+independiente por tipo. Ver DEC-2026-020.
+
+### UI del entrenador (`/checkin-config`)
+Tres bloques "Diario/Semanal/Periódico" con su propio `LanzamientoCheckin` +
+`ProgramacionTipo` (día de semana / intervalo o día del mes). Lista única de campos
+con checkboxes de tipo múltiple (no un `<select>` exclusivo) — `activo`/`orden` siguen
+siendo propiedades globales del campo, no por tipo, a propósito (evita explotar la
+complejidad).
+
+### Validación
+`tsc --noEmit`, `eslint`, `next build` sin errores. Prueba E2E con fixtures aislados
+y desechables (mismo patrón DEC-2026-009) cubriendo: independencia real de los 3
+tipos, campo multi-tipo, "No he entrenado" (backend no bloquea nada indebido),
+historial intacto tras desactivar un campo, cliente inactivo bloqueado en 4 endpoints
+y reactivado sin pérdida, X/Y, notas privadas con RLS verificada contra un token de
+otro usuario (no solo ausencia de ruta), y `Reportes`/Tally sin romperse.
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta
+sesión) — verificado contra la API real, Airtable real y Supabase real.
+
+**Pendiente real para Parte 2:** motor de señales + análisis longitudinal + alertas +
+acciones/intervenciones sobre `Registros_checkin` (las notas privadas quedan siempre
+fuera de esa cadena, por diseño). Decidir si/cuándo migrar Tally → check-in in-app.
+
+---
 
 ## RetainCoach MVP Parte 1 — lanzamiento programable del check-in (2026-08-13)
 

@@ -1,80 +1,98 @@
-import type { CampoCheckinFields, AirtableRecord } from './airtable'
+import type { AirtableRecord, CampoCheckinFields, RegistroCheckinFields } from './airtable'
 
-export type TipoCampoCheckin = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple'
+export type TipoCampoCheckin = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
 export type FrecuenciaCheckin = 'diario' | 'semanal' | 'periodico'
+export type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'
+export type ModoPeriodico = 'intervalo' | 'dia_mes'
+
+export interface DependenciaCampo {
+  campoId: string
+  valorRequerido: unknown
+}
 
 export interface CampoCheckinDef {
   id: string
   nombre: string
   tipo: TipoCampoCheckin
   categoria: string
-  frecuenciaDefault: FrecuenciaCheckin
+  // Un campo puede pertenecer a varios tipos de check-in a la vez (Parte 1.5) — ver
+  // DECISIONS.md. Reemplaza al antiguo `frecuenciaDefault` (un único valor, Parte 1).
+  tiposDefault: FrecuenciaCheckin[]
   unidad?: string
   opciones?: string[]
   ordenDefault: number
+  // Deshabilita este campo en frontend/backend cuando el campo del que depende no tiene
+  // el valor requerido (regla "No he entrenado"). Ningún campo estándar actual lo usa —
+  // ver DECISIONS.md: auditado explícitamente, ninguno depende estructuralmente de haber
+  // entrenado. El mecanismo queda listo para un futuro campo de detalle de sesión.
+  dependeDe?: DependenciaCampo
 }
 
-// Biblioteca inicial de campos estándar (brief RetainCoach MVP Parte 1).
-// Dolor se separa en nivel+zona y Comentario en diario/semanal porque un campo
-// solo puede tener una frecuencia en este modelo — ver DECISIONS.md.
+// Catálogo estándar definitivo (Parte 1.5). Cambios respecto a Parte 1:
+// - `dolor_nivel` + `dolor_zona` se unifican en un único campo lógico `dolor` (tipo
+//   compuesto, ver serializarValor/deserializarValor).
+// - `comentario` + `reflexion_semanal` se unifican en un único `comentario` (multi-tipo).
+// - Los ids viejos (`dolor_nivel`, `dolor_zona`, `reflexion_semanal`) no se reutilizan;
+//   quedan en CAMPOS_ESTANDAR_DEPRECADOS solo para resolver historial ya existente.
 export const CAMPOS_ESTANDAR: CampoCheckinDef[] = [
   {
     id: 'entrenamiento_realizado',
     nombre: 'Entrenamiento realizado',
     tipo: 'si_no',
     categoria: 'entrenamiento',
-    frecuenciaDefault: 'diario',
+    tiposDefault: ['diario'],
     ordenDefault: 1,
   },
-  { id: 'energia', nombre: 'Energía', tipo: 'escala', categoria: 'bienestar', frecuenciaDefault: 'diario', ordenDefault: 2 },
-  { id: 'fatiga', nombre: 'Fatiga', tipo: 'escala', categoria: 'bienestar', frecuenciaDefault: 'diario', ordenDefault: 3 },
+  { id: 'energia', nombre: 'Energía', tipo: 'escala', categoria: 'bienestar', tiposDefault: ['diario', 'semanal'], ordenDefault: 2 },
+  { id: 'fatiga', nombre: 'Fatiga', tipo: 'escala', categoria: 'bienestar', tiposDefault: ['diario'], ordenDefault: 3 },
   {
     id: 'animo',
     nombre: 'Estado de ánimo',
     tipo: 'escala',
     categoria: 'bienestar',
-    frecuenciaDefault: 'diario',
+    tiposDefault: ['diario'],
     ordenDefault: 4,
   },
   {
-    id: 'dolor_nivel',
+    id: 'dolor',
     nombre: 'Dolor/molestias',
-    tipo: 'seleccion',
+    tipo: 'dolor',
     categoria: 'dolor',
-    frecuenciaDefault: 'diario',
+    tiposDefault: ['diario'],
     opciones: ['Ninguno', 'Leve', 'Moderado', 'Alto'],
     ordenDefault: 5,
   },
-  {
-    id: 'dolor_zona',
-    nombre: 'Zona del dolor',
-    tipo: 'texto',
-    categoria: 'dolor',
-    frecuenciaDefault: 'diario',
-    ordenDefault: 6,
-  },
-  { id: 'comentario', nombre: 'Comentario', tipo: 'texto', categoria: 'comentario', frecuenciaDefault: 'diario', ordenDefault: 7 },
+  { id: 'comentario', nombre: 'Comentario', tipo: 'texto', categoria: 'comentario', tiposDefault: ['semanal', 'periodico'], ordenDefault: 6 },
   {
     id: 'adherencia',
     nombre: 'Adherencia',
     tipo: 'escala',
     categoria: 'adherencia',
-    frecuenciaDefault: 'semanal',
-    ordenDefault: 8,
+    tiposDefault: ['semanal'],
+    ordenDefault: 7,
   },
-  {
-    id: 'reflexion_semanal',
-    nombre: 'Comentario/reflexión semanal',
-    tipo: 'texto',
-    categoria: 'comentario',
-    frecuenciaDefault: 'semanal',
-    ordenDefault: 9,
-  },
-  { id: 'peso', nombre: 'Peso', tipo: 'numero', categoria: 'medida', frecuenciaDefault: 'periodico', unidad: 'kg', ordenDefault: 10 },
-  { id: 'medidas', nombre: 'Medidas', tipo: 'texto', categoria: 'medida', frecuenciaDefault: 'periodico', ordenDefault: 11 },
+  { id: 'peso', nombre: 'Peso', tipo: 'numero', categoria: 'medida', tiposDefault: ['semanal', 'periodico'], unidad: 'kg', ordenDefault: 8 },
+  { id: 'medidas', nombre: 'Medidas', tipo: 'texto', categoria: 'medida', tiposDefault: ['periodico'], ordenDefault: 9 },
 ]
 
 export const CAMPOS_ESTANDAR_POR_ID = new Map(CAMPOS_ESTANDAR.map((c) => [c.id, c]))
+
+// Ids estándar retirados del catálogo activo (nunca ofrecidos en config/formulario), pero
+// necesarios para seguir resolviendo nombre/tipo de envíos históricos en Registros_checkin
+// — ninguna fila histórica se borra ni se reescribe (ver DECISIONS.md).
+export interface CampoCheckinDeprecado {
+  id: string
+  nombre: string
+  tipo: TipoCampoCheckin
+}
+
+export const CAMPOS_ESTANDAR_DEPRECADOS: CampoCheckinDeprecado[] = [
+  { id: 'dolor_nivel', nombre: 'Dolor/molestias (nivel) [antiguo]', tipo: 'seleccion' },
+  { id: 'dolor_zona', nombre: 'Zona del dolor [antiguo]', tipo: 'texto' },
+  { id: 'reflexion_semanal', nombre: 'Comentario/reflexión semanal [antiguo]', tipo: 'texto' },
+]
+
+export const CAMPOS_ESTANDAR_DEPRECADOS_POR_ID = new Map(CAMPOS_ESTANDAR_DEPRECADOS.map((c) => [c.id, c]))
 
 export const CUSTOM_FIELD_PREFIX = 'custom_'
 
@@ -83,12 +101,13 @@ export interface CampoCheckinResuelto {
   nombre: string
   tipo: TipoCampoCheckin
   categoria: string
-  frecuencia: FrecuenciaCheckin
+  tipos: FrecuenciaCheckin[]
   unidad?: string
   opciones?: string[]
   activo: boolean
   orden: number
   esEstandar: boolean
+  dependeDe?: DependenciaCampo
 }
 
 function parseOpciones(raw?: string): string[] | undefined {
@@ -99,6 +118,19 @@ function parseOpciones(raw?: string): string[] | undefined {
   } catch {
     return undefined
   }
+}
+
+// Un campo puede tener varios tipos a la vez (Campos_checkin.Tipos, multiSelect). Si esa
+// fila todavía no tiene `Tipos` seteado (overrides creados en Parte 1, antes de esta
+// migración), cae a `Frecuencia` (el singleSelect viejo, deprecado pero intacto) para no
+// perder la config existente. Ver DECISIONS.md, migración de Campos_checkin.
+function resolverTiposCampo(
+  fields: { Tipos?: FrecuenciaCheckin[]; Frecuencia?: FrecuenciaCheckin },
+  tiposDefault: FrecuenciaCheckin[]
+): FrecuenciaCheckin[] {
+  if (Array.isArray(fields.Tipos) && fields.Tipos.length > 0) return fields.Tipos
+  if (fields.Frecuencia) return [fields.Frecuencia]
+  return tiposDefault
 }
 
 // Mergea el catálogo de código con los overrides/campos personalizados de Airtable
@@ -115,7 +147,7 @@ export function resolverCamposEfectivos(filas: AirtableRecord<CampoCheckinFields
       nombre: def.nombre,
       tipo: def.tipo,
       categoria: def.categoria,
-      frecuencia: (override?.fields.Frecuencia as FrecuenciaCheckin) ?? def.frecuenciaDefault,
+      tipos: override ? resolverTiposCampo(override.fields, def.tiposDefault) : def.tiposDefault,
       unidad: def.unidad,
       opciones: def.opciones,
       // Airtable omite los campos checkbox de la respuesta cuando valen false
@@ -124,6 +156,7 @@ export function resolverCamposEfectivos(filas: AirtableRecord<CampoCheckinFields
       activo: override ? override.fields.Activo === true : true,
       orden: override?.fields.Orden ?? def.ordenDefault,
       esEstandar: true,
+      dependeDe: def.dependeDe,
     }
   })
 
@@ -132,7 +165,7 @@ export function resolverCamposEfectivos(filas: AirtableRecord<CampoCheckinFields
     nombre: f.fields.Nombre,
     tipo: f.fields.Tipo as TipoCampoCheckin,
     categoria: f.fields.Categoria ?? 'personalizado',
-    frecuencia: f.fields.Frecuencia as FrecuenciaCheckin,
+    tipos: resolverTiposCampo(f.fields, []),
     unidad: f.fields.Unidad,
     opciones: parseOpciones(f.fields.Opciones),
     activo: f.fields.Activo === true,
@@ -143,25 +176,119 @@ export function resolverCamposEfectivos(filas: AirtableRecord<CampoCheckinFields
   return [...estandar, ...custom].sort((a, b) => a.orden - b.orden)
 }
 
+// Resuelve nombre/tipo de un Field_id histórico en Registros_checkin, incluso si ya no
+// está en el catálogo activo (desactivado, o retirado como dolor_nivel/dolor_zona/
+// reflexion_semanal). Usado por la vista del entrenador (GET /api/checkins) para no
+// romper la lectura de envíos antiguos.
+export function resolverNombreTipoHistorico(
+  fieldId: string,
+  camposActuales: Map<string, CampoCheckinResuelto>
+): { nombre: string; tipo: TipoCampoCheckin } | null {
+  const actual = camposActuales.get(fieldId)
+  if (actual) return { nombre: actual.nombre, tipo: actual.tipo }
+  const deprecado = CAMPOS_ESTANDAR_DEPRECADOS_POR_ID.get(fieldId)
+  if (deprecado) return { nombre: deprecado.nombre, tipo: deprecado.tipo }
+  return null
+}
+
 export function agruparPorFrecuencia(campos: CampoCheckinResuelto[]) {
   return {
-    diario: campos.filter((c) => c.activo && c.frecuencia === 'diario'),
-    semanal: campos.filter((c) => c.activo && c.frecuencia === 'semanal'),
-    periodico: campos.filter((c) => c.activo && c.frecuencia === 'periodico'),
+    diario: campos.filter((c) => c.activo && c.tipos.includes('diario')),
+    semanal: campos.filter((c) => c.activo && c.tipos.includes('semanal')),
+    periodico: campos.filter((c) => c.activo && c.tipos.includes('periodico')),
   }
 }
 
-// Cuándo vuelve a tocar un check-in ya enviado, según su frecuencia.
+// Regla "No he entrenado": si el campo del que depende `campo` no tiene el valor
+// requerido, el campo se considera no disponible — usado tanto en frontend (deshabilitar)
+// como en backend (rechazar valores incompatibles aunque se manipule la petición).
+export function campoDisponible(campo: Pick<CampoCheckinResuelto, 'dependeDe'>, valores: Record<string, unknown>): boolean {
+  if (!campo.dependeDe) return true
+  return valores[campo.dependeDe.campoId] === campo.dependeDe.valorRequerido
+}
+
+const DIAS_SEMANA_ISO: Record<DiaSemana, number> = {
+  lunes: 1,
+  martes: 2,
+  miercoles: 3,
+  jueves: 4,
+  viernes: 5,
+  sabado: 6,
+  domingo: 7,
+}
+
+export function inicioDeHoyUTC(ahoraMs = Date.now()): number {
+  const ahora = new Date(ahoraMs)
+  return Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())
+}
+
+// Generaliza el antiguo `inicioDeSemanaUTC()` (hardcodeado a lunes) para respetar el día
+// de la semana configurado por el entrenador para el check-in semanal.
+export function inicioDePeriodoSemanalUTC(diaSemana: DiaSemana = 'lunes', ahoraMs = Date.now()): number {
+  const objetivo = DIAS_SEMANA_ISO[diaSemana]
+  const ahora = new Date(ahoraMs)
+  const hoy = Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate())
+  const diaActualIso = ahora.getUTCDay() === 0 ? 7 : ahora.getUTCDay()
+  let diff = diaActualIso - objetivo
+  if (diff < 0) diff += 7
+  return hoy - diff * 24 * 60 * 60 * 1000
+}
+
+function ultimoDiaDelMesUTC(anio: number, mesIndex0: number): number {
+  return new Date(Date.UTC(anio, mesIndex0 + 1, 0)).getUTCDate()
+}
+
+export interface ProgramacionResuelta {
+  diaSemana?: DiaSemana
+  modoPeriodico?: ModoPeriodico
+  fechaInicioPeriodico?: string
+  intervaloDiasPeriodico?: number
+  diaMesPeriodico?: number
+}
+
+// Próxima fecha del check-in periódico. Dos modos:
+// - intervalo: cada N días desde una fecha de inicio.
+// - dia_mes: un día concreto de cada mes.
+// Limitación documentada (no se inventa una solución compleja, ver CLAUDE.md): en meses
+// más cortos que el día configurado (p.ej. día 31 en febrero), cae al último día válido
+// de ese mes — no se "reprograma" al mes siguiente.
+export function calcularProximaFechaPeriodico(config: ProgramacionResuelta, ahoraMs = Date.now()): string | null {
+  if (config.modoPeriodico === 'intervalo' && config.fechaInicioPeriodico && config.intervaloDiasPeriodico) {
+    const inicioMs = new Date(config.fechaInicioPeriodico).getTime()
+    if (!Number.isFinite(inicioMs) || config.intervaloDiasPeriodico <= 0) return null
+    const intervaloMs = config.intervaloDiasPeriodico * 24 * 60 * 60 * 1000
+    if (ahoraMs <= inicioMs) return new Date(inicioMs).toISOString()
+    const periodosPasados = Math.floor((ahoraMs - inicioMs) / intervaloMs) + 1
+    return new Date(inicioMs + periodosPasados * intervaloMs).toISOString()
+  }
+  if (config.modoPeriodico === 'dia_mes' && config.diaMesPeriodico) {
+    const ahora = new Date(ahoraMs)
+    const anio = ahora.getUTCFullYear()
+    const mes = ahora.getUTCMonth()
+    const diaEsteMes = Math.min(config.diaMesPeriodico, ultimoDiaDelMesUTC(anio, mes))
+    const fechaEsteMesMs = Date.UTC(anio, mes, diaEsteMes)
+    if (fechaEsteMesMs >= inicioDeHoyUTC(ahoraMs)) return new Date(fechaEsteMesMs).toISOString()
+    const diaMesSiguiente = Math.min(config.diaMesPeriodico, ultimoDiaDelMesUTC(anio, mes + 1))
+    return new Date(Date.UTC(anio, mes + 1, diaMesSiguiente)).toISOString()
+  }
+  return null
+}
+
+// Cuándo vuelve a tocar un check-in ya enviado, según su tipo.
 // diario/semanal: el siguiente periodo empieza justo al terminar el actual.
-// periódico no tiene cadencia fija — siempre disponible, nunca "toca esperar".
-// No implica ningún bloqueo de envío: Registros_checkin es insert-only (ver
-// DECISIONS.md DEC-2026-007), esto es puramente informativo para el cliente.
-export function calcularProximaDisponibilidad(
+// periódico: fecha calculada por calcularProximaFechaPeriodico, independiente de si ya se
+// envió (no tiene un "periodo actual" acotado de la misma forma).
+// Nunca implica bloqueo de envío: Registros_checkin es insert-only (ver DECISIONS.md
+// DEC-2026-007), esto es puramente informativo para el cliente.
+export function calcularProximaFecha(
   tipo: FrecuenciaCheckin,
   yaEnviado: boolean,
-  inicioPeriodoActualMs: number | null
+  inicioPeriodoActualMs: number | null,
+  programacion: ProgramacionResuelta,
+  ahoraMs = Date.now()
 ): string | null {
-  if (!yaEnviado || tipo === 'periodico' || inicioPeriodoActualMs === null) return null
+  if (tipo === 'periodico') return calcularProximaFechaPeriodico(programacion, ahoraMs)
+  if (!yaEnviado || inicioPeriodoActualMs === null) return null
   const incrementoMs = (tipo === 'diario' ? 1 : 7) * 24 * 60 * 60 * 1000
   return new Date(inicioPeriodoActualMs + incrementoMs).toISOString()
 }
@@ -171,14 +298,69 @@ export interface EstadoLanzamiento {
   disponibleDesde: string | null
 }
 
-// Estado de lanzamiento del check-in de un entrenador (Entrenadores.Checkin_disponible_desde):
-// vacío = borrador (cliente no ve nada); fecha pasada/presente = lanzado; fecha
-// futura = programado, se abre solo al llegar esa fecha. Se recalcula en cada
-// request (sin cron) — por eso "se auto-abre" simplemente con que el cliente
+// Estado de lanzamiento de UN tipo de check-in (borrador/programado/lanzado). Se recalcula
+// en cada request (sin cron) — por eso "se auto-abre" simplemente con que el cliente
 // vuelva a cargar la página después de la fecha programada.
 export function resolverLanzamiento(disponibleDesde: string | null | undefined, ahoraMs = Date.now()): EstadoLanzamiento {
   if (!disponibleDesde) return { lanzado: false, disponibleDesde: null }
   return { lanzado: new Date(disponibleDesde).getTime() <= ahoraMs, disponibleDesde }
+}
+
+// Los tres tipos de check-in son independientes (Parte 1.5): cada uno tiene su propia fila
+// opcional en Checkin_tipos. Si un tipo concreto todavía no tiene fila propia, hereda el
+// campo legacy Entrenadores.Checkin_disponible_desde (mismo valor que veían los tres tipos
+// antes de esta migración) — preserva el comportamiento exacto hasta que el entrenador
+// configure ese tipo específico desde la nueva UI. Ver DECISIONS.md, migración.
+export function resolverLanzamientoPorTipo(
+  disponibleDesdeDelTipo: string | null | undefined,
+  disponibleDesdeLegacy: string | null | undefined,
+  filaTipoExiste: boolean,
+  ahoraMs = Date.now()
+): EstadoLanzamiento {
+  if (filaTipoExiste) return resolverLanzamiento(disponibleDesdeDelTipo, ahoraMs)
+  return resolverLanzamiento(disponibleDesdeLegacy, ahoraMs)
+}
+
+// Shape mínima de una fila de Checkin_tipos (o su ausencia) necesaria para resolver el
+// estado de lanzamiento + programación de un tipo. Reutilizada por todas las rutas que
+// exponen configuración de check-in al entrenador, para no duplicar esta lógica.
+export interface FilaCheckinTipoLike {
+  Disponible_desde?: string | null
+  Dia_semana?: DiaSemana
+  Modo_periodico?: ModoPeriodico
+  Fecha_inicio_periodico?: string
+  Intervalo_dias_periodico?: number
+  Dia_mes_periodico?: number
+}
+
+export interface ProgramacionTipoResuelta extends EstadoLanzamiento {
+  diaSemana: DiaSemana
+  modoPeriodico?: ModoPeriodico
+  fechaInicioPeriodico?: string
+  intervaloDiasPeriodico?: number
+  diaMesPeriodico?: number
+}
+
+export function resolverProgramacionTipo(
+  filaTipo: FilaCheckinTipoLike | undefined,
+  disponibleDesdeLegacy: string | null | undefined,
+  ahoraMs = Date.now()
+): ProgramacionTipoResuelta {
+  const { lanzado, disponibleDesde } = resolverLanzamientoPorTipo(
+    filaTipo?.Disponible_desde,
+    disponibleDesdeLegacy,
+    Boolean(filaTipo),
+    ahoraMs
+  )
+  return {
+    lanzado,
+    disponibleDesde,
+    diaSemana: filaTipo?.Dia_semana ?? 'lunes',
+    modoPeriodico: filaTipo?.Modo_periodico,
+    fechaInicioPeriodico: filaTipo?.Fecha_inicio_periodico,
+    intervaloDiasPeriodico: filaTipo?.Intervalo_dias_periodico,
+    diaMesPeriodico: filaTipo?.Dia_mes_periodico,
+  }
 }
 
 export function generarFieldIdPersonalizado(nombre: string): string {
@@ -206,6 +388,14 @@ export function serializarValor(tipo: TipoCampoCheckin, valor: unknown): string 
       const n = Number(valor)
       return Number.isFinite(n) ? String(n) : null
     }
+    case 'dolor': {
+      if (typeof valor !== 'object') return null
+      const v = valor as { nivel?: unknown; zona?: unknown }
+      const nivel = typeof v.nivel === 'string' ? v.nivel.trim() : ''
+      const zona = typeof v.zona === 'string' ? v.zona.trim() : ''
+      if (!nivel && !zona) return null
+      return JSON.stringify({ nivel, zona })
+    }
     default:
       return String(valor).trim() || null
   }
@@ -225,7 +415,35 @@ export function deserializarValor(tipo: TipoCampoCheckin, valor: string): unknow
     case 'numero':
     case 'escala':
       return Number(valor)
+    case 'dolor':
+      try {
+        const parsed = JSON.parse(valor)
+        return { nivel: typeof parsed.nivel === 'string' ? parsed.nivel : '', zona: typeof parsed.zona === 'string' ? parsed.zona : '' }
+      } catch {
+        return { nivel: '', zona: '' }
+      }
     default:
       return valor
   }
+}
+
+// X/Y de "Entrenamientos esta semana". X = días distintos con entrenamiento_realizado=true
+// dentro de la semana. `registrosOrdenadosDesc` debe venir ya ordenado desc por Fecha (la
+// convención de getRegistrosCheckinByClienteEmail) — así, la primera fila vista por día es
+// la más reciente, resolviendo correcciones del mismo día (insert-only) sin contar dos
+// veces ni quedarse con un valor obsoleto.
+export function contarEntrenamientosSemana(
+  registrosOrdenadosDesc: AirtableRecord<RegistroCheckinFields>[],
+  inicioSemanaMs: number
+): number {
+  const ultimoValorPorDia = new Map<string, boolean>()
+  for (const r of registrosOrdenadosDesc) {
+    if (r.fields.Field_id !== 'entrenamiento_realizado' || r.fields.Tipo_registro !== 'diario') continue
+    const fechaMs = new Date(r.fields.Fecha).getTime()
+    if (fechaMs < inicioSemanaMs) continue
+    const diaKey = new Date(fechaMs).toISOString().slice(0, 10)
+    if (ultimoValorPorDia.has(diaKey)) continue
+    ultimoValorPorDia.set(diaKey, r.fields.Valor === 'true')
+  }
+  return [...ultimoValorPorDia.values()].filter(Boolean).length
 }

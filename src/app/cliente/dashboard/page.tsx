@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '@/lib/supabase'
-import { ClientePerfil } from '@/lib/types'
+import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
 
 function formatFecha(fechaISO: string) {
   return new Date(fechaISO).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
@@ -18,6 +18,7 @@ export default function ClienteDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [sinCliente, setSinCliente] = useState(false)
   const [puedeVolver, setPuedeVolver] = useState(false)
+  const [checkinHoyPendiente, setCheckinHoyPendiente] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -68,6 +69,18 @@ export default function ClienteDashboardPage() {
         setError('Error al cargar tus datos.')
       } finally {
         setLoading(false)
+      }
+
+      try {
+        const checkinRes = await fetch('/api/cliente/checkin', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (checkinRes.ok) {
+          const checkinData: ClienteCheckinResponse = await checkinRes.json()
+          setCheckinHoyPendiente(checkinData.diario.campos.length > 0 && !checkinData.diario.yaEnviado)
+        }
+      } catch {
+        // Si falla, simplemente no se muestra el banner de check-in
       }
     }
     init()
@@ -148,6 +161,18 @@ export default function ClienteDashboardPage() {
             Objetivo: {perfil.objetivo} · Entrenador: {perfil.entrenadorNombre}
           </p>
         </section>
+
+        {checkinHoyPendiente && (
+          <section className="flex items-center justify-between rounded-xl border border-primary bg-card p-6 shadow-sm">
+            <p className="text-sm text-card-foreground">Todavía no has registrado tu check-in de hoy.</p>
+            <button
+              onClick={() => router.push('/cliente/checkin')}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+            >
+              Registrar ahora
+            </button>
+          </section>
+        )}
 
         {perfil.alertaReciente && (
           <section className="rounded-xl border border-warning bg-card p-6 shadow-sm">

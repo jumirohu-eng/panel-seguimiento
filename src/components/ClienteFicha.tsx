@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Cliente, Reporte, ReportesResponse } from '@/lib/types'
+import { Cliente, Reporte, ReportesResponse, CheckinEnvio, ChecklinsResponse } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import AIAnalysis from './AIAnalysis'
@@ -47,6 +47,12 @@ export default function ClienteFicha({
   const [creandoAcceso, setCreandoAcceso] = useState(false)
   const [accesoCreado, setAccesoCreado] = useState<string | null>(null)
   const [errorAcceso, setErrorAcceso] = useState<string | null>(null)
+  const [checkins, setCheckins] = useState<CheckinEnvio[]>([])
+  const [checkinsPage, setCheckinsPage] = useState(0)
+  const [checkinsHasMore, setCheckinsHasMore] = useState(false)
+  const [loadingCheckins, setLoadingCheckins] = useState(true)
+  const [loadingMoreCheckins, setLoadingMoreCheckins] = useState(false)
+  const [errorCheckins, setErrorCheckins] = useState<string | null>(null)
   const notasTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getToken = useCallback(async () => {
@@ -193,6 +199,42 @@ export default function ClienteFicha({
     }
     load()
     // Solo al cambiar de cliente: cargarReportes cambia de identidad en cada render de cliente.id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cliente.id])
+
+  const cargarCheckins = useCallback(
+    async (pagina = 0) => {
+      const esMas = pagina > 0
+      const token = await getToken()
+      if (esMas) setLoadingMoreCheckins(true)
+      else setLoadingCheckins(true)
+      setErrorCheckins(null)
+      try {
+        const params = new URLSearchParams({ clienteId: cliente.id, page: String(pagina) })
+        const res = await fetch(`/api/checkins?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error('No se pudieron cargar los check-ins')
+        const data: ChecklinsResponse = await res.json()
+        setCheckins((prev) => (esMas ? [...prev, ...data.checkins] : data.checkins))
+        setCheckinsHasMore(data.hasMore)
+        setCheckinsPage(pagina)
+      } catch {
+        setErrorCheckins('Error al cargar los check-ins.')
+      } finally {
+        if (esMas) setLoadingMoreCheckins(false)
+        else setLoadingCheckins(false)
+      }
+    },
+    [cliente.id, getToken]
+  )
+
+  useEffect(() => {
+    async function load() {
+      await cargarCheckins(0)
+    }
+    load()
+    // Solo al cambiar de cliente: cargarCheckins cambia de identidad en cada render de cliente.id
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente.id])
 
@@ -354,6 +396,8 @@ export default function ClienteFicha({
         </div>
       </div>
 
+      <h3 className="text-sm font-semibold text-muted">Reportes semanales (Tally)</h3>
+
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {loading ? (
@@ -400,6 +444,48 @@ export default function ClienteFicha({
               className="w-fit rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground transition hover:bg-background disabled:opacity-50"
             >
               {loadingMore ? 'Cargando…' : 'Ver más'}
+            </button>
+          )}
+        </div>
+      )}
+
+      <h3 className="mt-2 text-sm font-semibold text-muted">Check-ins recientes (app)</h3>
+
+      {errorCheckins && <p className="text-sm text-danger">{errorCheckins}</p>}
+
+      {loadingCheckins ? (
+        <p className="text-sm text-muted">Cargando check-ins…</p>
+      ) : checkins.length === 0 ? (
+        <p className="text-sm text-muted">Este cliente todavía no ha registrado ningún check-in desde la app.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {checkins.map((c) => (
+            <div key={c.fecha} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-card-foreground">{formatDateTime(c.fecha)}</p>
+                <span className="rounded-full bg-muted/10 px-3 py-1 text-xs font-medium text-muted capitalize">
+                  {c.tipo}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1 text-sm text-card-foreground">
+                {c.valores.map((v) => (
+                  <p key={v.fieldId}>
+                    <span className="text-muted">{v.nombre}: </span>
+                    {typeof v.valor === 'boolean' ? (v.valor ? 'Sí' : 'No') : Array.isArray(v.valor) ? v.valor.join(', ') : String(v.valor)}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {checkinsHasMore && (
+            <button
+              type="button"
+              onClick={() => cargarCheckins(checkinsPage + 1)}
+              disabled={loadingMoreCheckins}
+              className="w-fit rounded-lg border border-border px-4 py-2 text-sm font-medium text-card-foreground transition hover:bg-background disabled:opacity-50"
+            >
+              {loadingMoreCheckins ? 'Cargando…' : 'Ver más'}
             </button>
           )}
         </div>

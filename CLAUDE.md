@@ -39,12 +39,63 @@ Datos:
 - Airtable es la fuente de datos operativa de clientes, entrenadores y reportes.
 - `Clientes.Entrenador` contiene el email del entrenador y es la fuente de verdad para ownership.
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
+- `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`): modelo de check-in in-app del cliente (MVP Parte 1). Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 009.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## RetainCoach MVP Parte 1 — check-in configurable in-app (2026-08-13)
+
+Rama: `retaincoach-checkin-mvp1` (no mergeada a `main` todavía).
+
+**Qué se construyó:** el cliente ahora puede loguearse en RetainCoach y registrar su
+seguimiento diario/semanal/periódico él mismo, sin depender del Tally externo. El
+entrenador puede activar/desactivar/reordenar campos y añadir campos personalizados
+desde `/checkin-config`.
+
+- Modelo de datos nuevo (solo datos crudos, ver DEC-2026-006): `Campos_checkin`
+  (config por entrenador: overrides de campos estándar + definiciones de campos
+  personalizados) y `Registros_checkin` (EAV insert-only: una fila = un campo de
+  un envío, nunca se sobrescribe, hay historial completo).
+- Catálogo de 11 campos estándar en código: `src/lib/checkinFields.ts` (mismo
+  espíritu que `lib/productos.ts`).
+- API nueva: `GET/PUT /api/entrenador/checkin-config`, `POST /api/entrenador/checkin-config/campos`,
+  `GET/POST /api/cliente/checkin`, `GET /api/checkins` (vista del entrenador, mismo
+  patrón de ownership que `/api/reportes`).
+- UI nueva: `/cliente/checkin` (registro rápido), `/checkin-config` (config del
+  entrenador), sección "Check-ins recientes (app)" en `ClienteFicha.tsx`, banner
+  "Registrar check-in de hoy" en `/cliente/dashboard`, botón "⚙️ Check-in" en `Header.tsx`.
+- **El flujo Tally → n8n → `Reportes` → análisis IA de los lunes NO se tocó.**
+  Convive en paralelo. `ClienteFicha` muestra ambas listas por separado y
+  etiquetadas ("Reportes semanales (Tally)" vs "Check-ins recientes (app)").
+- **Diferido a Parte 2, a propósito:** tablas/lógica de Señales calculadas,
+  Análisis IA, Alertas y Acciones/intervenciones sobre el nuevo modelo. Ver
+  DEC-2026-006.
+
+**Probado end-to-end con datos aislados de prueba** (creados y borrados en la misma
+sesión, sin tocar clientes/entrenadores reales ni `Reportes` histórico): entrenador
+y cliente ficticios (`test-checkin-mvp1@example.com` / `test-checkin-mvp1-cliente@example.com`),
+tokens Supabase obtenidos vía `generateLink`/`verifyOtp` (sin contraseña real, mismo
+patrón que sesiones anteriores). Verificado: catálogo por defecto (11 campos),
+desactivar un campo estándar (con bug encontrado y corregido, ver DEC-2026-008),
+crear campo personalizado de tipo selección, el cliente ve el campo personalizado
+en su formulario diario, envío diario + periódico, y el entrenador ve ambos envíos
+agrupados y con nombres legibles (incluido el campo personalizado) vía
+`GET /api/checkins`. Verificado con `tsc --noEmit`, `eslint` y `next build`, los
+tres sin errores. Limpieza confirmada en las 4 tablas afectadas (0 filas de prueba
+restantes) y usuarios Supabase de prueba borrados.
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en
+esta sesión) — verificado solo contra la API real y Airtable real.
+
+**Siguiente paso — Parte 2:** motor de señales + análisis longitudinal + alertas +
+acciones/intervenciones sobre `Registros_checkin`, y decidir si/cuándo consolidar
+el flujo Tally hacia el check-in in-app.
+
+---
 
 ## Migración en curso — auditoría 2026-08-13
 

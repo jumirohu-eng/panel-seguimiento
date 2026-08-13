@@ -127,6 +127,46 @@ export interface ClientePerfil {
   alertaReciente: string | null
 }
 
+export interface CampoCheckinResuelto {
+  id: string
+  nombre: string
+  tipo: 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple'
+  categoria: string
+  frecuencia: 'diario' | 'semanal' | 'periodico'
+  unidad?: string
+  opciones?: string[]
+  activo: boolean
+  orden: number
+  esEstandar: boolean
+}
+
+export interface CheckinConfigResponse {
+  campos: CampoCheckinResuelto[]
+}
+
+export interface CheckinFrecuenciaEstado {
+  campos: CampoCheckinResuelto[]
+  yaEnviado: boolean
+  ultimosValores: Record<string, unknown>
+}
+
+export interface ClienteCheckinResponse {
+  diario: CheckinFrecuenciaEstado
+  semanal: CheckinFrecuenciaEstado
+  periodico: CheckinFrecuenciaEstado
+}
+
+export interface CheckinEnvio {
+  fecha: string
+  tipo: 'diario' | 'semanal' | 'periodico'
+  valores: { fieldId: string; nombre: string; valor: unknown }[]
+}
+
+export interface ChecklinsResponse {
+  checkins: CheckinEnvio[]
+  hasMore: boolean
+}
+
 export interface MetricasNegocio {
   total_clientes_historicos: number
   total_clientes_actuales: number

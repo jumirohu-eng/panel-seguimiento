@@ -4,10 +4,20 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { supabase } from '@/lib/supabase'
-import { ClientePerfil } from '@/lib/types'
+import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
 
 function formatFecha(fechaISO: string) {
   return new Date(fechaISO).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
+}
+
+function formatFechaLarga(fechaISO: string) {
+  return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
+}
+
+const TITULOS_CHECKIN: Record<'diario' | 'semanal' | 'periodico', string> = {
+  diario: 'Diario',
+  semanal: 'Semanal',
+  periodico: 'Periódico',
 }
 
 export default function ClienteDashboardPage() {
@@ -18,6 +28,7 @@ export default function ClienteDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [sinCliente, setSinCliente] = useState(false)
   const [puedeVolver, setPuedeVolver] = useState(false)
+  const [checkin, setCheckin] = useState<ClienteCheckinResponse | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -68,6 +79,18 @@ export default function ClienteDashboardPage() {
         setError('Error al cargar tus datos.')
       } finally {
         setLoading(false)
+      }
+
+      try {
+        const checkinRes = await fetch('/api/cliente/checkin', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (checkinRes.ok) {
+          const checkinData: ClienteCheckinResponse = await checkinRes.json()
+          setCheckin(checkinData)
+        }
+      } catch {
+        // Si falla, simplemente no se muestra el banner de check-in
       }
     }
     init()
@@ -149,6 +172,42 @@ export default function ClienteDashboardPage() {
           </p>
         </section>
 
+        {checkin && (checkin.diario.campos.length > 0 || checkin.semanal.campos.length > 0 || checkin.periodico.campos.length > 0) && (
+          <section className="rounded-xl border border-primary bg-card p-6 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-card-foreground">Tu check-in</h2>
+            <div className="flex flex-col gap-3">
+              {(['diario', 'semanal', 'periodico'] as const).map((tipo) => {
+                const estado = checkin[tipo]
+                if (estado.campos.length === 0) return null
+                return (
+                  <div key={tipo} className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-card-foreground">{TITULOS_CHECKIN[tipo]}</p>
+                      {estado.yaEnviado ? (
+                        estado.proximaDisponibilidad ? (
+                          <p className="text-xs text-muted">
+                            ✓ Completado — vuelve a estar disponible el {formatFechaLarga(estado.proximaDisponibilidad)}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted">✓ Actualizado — disponible cuando quieras</p>
+                        )
+                      ) : (
+                        <p className="text-xs text-warning">Pendiente</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => router.push('/cliente/checkin')}
+                      className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
+                    >
+                      {estado.yaEnviado ? 'Ver/actualizar' : 'Registrar'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
         {perfil.alertaReciente && (
           <section className="rounded-xl border border-warning bg-card p-6 shadow-sm">
             <h2 className="mb-2 text-sm font-semibold text-warning">Mensaje de tu entrenador</h2>
@@ -222,7 +281,10 @@ export default function ClienteDashboardPage() {
         </section>
 
         <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-2 text-lg font-semibold text-card-foreground">Próximo check-in</h2>
+          <h2 className="mb-2 text-lg font-semibold text-card-foreground">Próximo check-in semanal (Tally)</h2>
+          <p className="mb-2 text-xs text-muted">
+            Basado en el formulario semanal externo, independiente del check-in de arriba.
+          </p>
           {perfil.proximoCheckinDias === null ? (
             <p className="text-sm text-muted">Todavía no has hecho tu primer check-in.</p>
           ) : perfil.proximoCheckinDias > 0 ? (

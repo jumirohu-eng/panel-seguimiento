@@ -9,6 +9,8 @@ const TABLE_SNAPSHOTS = 'tbliaBxJa4GIYoHId'
 const TABLE_SNAPSHOTS_ENTRENADORES = 'tblEaBtZvUXyzPk8y'
 const TABLE_ARCHIVO = 'tblgwKrbv6kRYqrAt'
 const TABLE_ADMINS = 'tbl9rBIoivD65ojPx'
+const TABLE_CAMPOS_CHECKIN = 'tblY8lFGaO2iA29Zf'
+const TABLE_REGISTROS_CHECKIN = 'tbl7usdXJYJA83lsm'
 
 export interface AirtableRecord<T> {
   id: string
@@ -91,6 +93,35 @@ export interface SnapshotEntrenadorFields {
   Total_entrenadores: number
   Total_activos: number
   Total_prueba: number
+}
+
+export type TipoCampoCheckinAirtable = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple'
+export type FrecuenciaCheckinAirtable = 'diario' | 'semanal' | 'periodico'
+
+export interface CampoCheckinFields {
+  Nombre: string
+  Field_id: string
+  Entrenador: string
+  Tipo: TipoCampoCheckinAirtable
+  Categoria?: string
+  Opciones?: string
+  Unidad?: string
+  Frecuencia: FrecuenciaCheckinAirtable
+  Activo?: boolean
+  Orden?: number
+  Es_estandar?: boolean
+  Last_modified?: string
+}
+
+export interface RegistroCheckinFields {
+  Fecha: string
+  Cliente: string[]
+  Field_id: string
+  Tipo_registro: FrecuenciaCheckinAirtable
+  Valor: string
+  Cliente_Email?: string[]
+  Entrenador_email?: string[]
+  Last_modified?: string
 }
 
 function airtableHeaders() {
@@ -476,6 +507,48 @@ export async function getReportesConMensajeSugerido() {
 export interface ArchivoConMensajeFields {
   Cliente_Email?: string
   Fecha?: string
+}
+
+export async function getCamposCheckinByEntrenador(email: string) {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Entrenador} = "${escapeFormulaValue(email)}"`)
+  const data = await airtableGet<{ records: AirtableRecord<CampoCheckinFields>[] }>(
+    TABLE_CAMPOS_CHECKIN,
+    params
+  )
+  return data.records
+}
+
+export async function crearCampoCheckin(fields: Partial<CampoCheckinFields>) {
+  return airtableWrite<AirtableRecord<CampoCheckinFields>>(TABLE_CAMPOS_CHECKIN, 'POST', fields)
+}
+
+export async function actualizarCampoCheckin(recordId: string, fields: Partial<CampoCheckinFields>) {
+  return airtableWrite<AirtableRecord<CampoCheckinFields>>(
+    `${TABLE_CAMPOS_CHECKIN}/${recordId}`,
+    'PATCH',
+    fields
+  )
+}
+
+export async function crearRegistrosCheckin(filas: Partial<RegistroCheckinFields>[]) {
+  const creados: AirtableRecord<RegistroCheckinFields>[] = []
+  for (const fields of filas) {
+    creados.push(await airtableWrite<AirtableRecord<RegistroCheckinFields>>(TABLE_REGISTROS_CHECKIN, 'POST', fields))
+  }
+  return creados
+}
+
+export async function getRegistrosCheckinByClienteEmail(clienteEmail: string) {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `FIND("${escapeFormulaValue(clienteEmail)}", ARRAYJOIN({Cliente_Email})) > 0`)
+  params.set('sort[0][field]', 'Fecha')
+  params.set('sort[0][direction]', 'desc')
+  const data = await airtableGet<{ records: AirtableRecord<RegistroCheckinFields>[] }>(
+    TABLE_REGISTROS_CHECKIN,
+    params
+  )
+  return data.records
 }
 
 export async function getArchivoConMensajeSugerido() {

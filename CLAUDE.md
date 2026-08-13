@@ -39,12 +39,132 @@ Datos:
 - Airtable es la fuente de datos operativa de clientes, entrenadores y reportes.
 - `Clientes.Entrenador` contiene el email del entrenador y es la fuente de verdad para ownership.
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
+- `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`): modelo de check-in in-app del cliente (MVP Parte 1). Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 009.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## RetainCoach MVP Parte 1 — correcciones de navegación y frecuencia (2026-08-13)
+
+Rama: `retaincoach-checkin-mvp1-fixes` (derivada de `retaincoach-checkin-mvp1`, no mergeada a `main`).
+
+Detectados durante validación manual del deployment por Juanmi. Los dos bugs
+compartían la misma causa raíz de fondo: partes del sistema nuevo (check-in
+in-app) convivían sin distinguirse claramente de partes del sistema antiguo
+(Tally semanal), y el segundo se colaba en la experiencia del primero.
+
+**BUG 1 — sin acceso visible a `/checkin-config`:** el único punto de entrada
+era un botón en `Header.tsx` gateado con `!isAdmin`. Un admin usando "Ver como
+entrenador" (decisión 45, `isAdmin` se mantiene `true` en ese modo) nunca veía
+el botón — y es exactamente el modo en el que Juanmi (multi-rol) prueba la
+vista de entrenador. **Fix:** el botón se movió al toolbar de `ClientesLista.tsx`
+(junto a "+ Registrar cliente"), que renderiza igual para un entrenador real y
+para un admin en "Ver como entrenador" — visible en ambos casos sin lógica
+condicional nueva. Se quitó el botón del Header en vez de mantener dos puntos
+de entrada.
+
+**BUG 2 — "próximo check-in en ~3 días" tras completar el diario:** revisado
+todo el código y confirmado que **no era un bug de cálculo en el sistema
+nuevo** — la tarjeta "Próximo check-in" de `/cliente/dashboard` nunca perteneció
+al check-in diario/semanal/periódico nuevo; siempre leyó `proximoCheckinDias`
+de `GET /api/cliente/perfil`, calculado sobre `Reportes` (el Tally semanal
+antiguo, ciclo de 7 días). Al completar el check-in diario nuevo, esa tarjeta
+vieja seguía mostrando su propio conteo (basado en cuándo fue el último
+`Reporte` de Tally), leyéndose como un mensaje contradictorio. **Fix real**
+(no solo cosmético):
+- Nueva función pura `calcularProximaDisponibilidad()` en `checkinFields.ts`,
+  usada por `GET /api/cliente/checkin`: diario → +1 día desde el inicio de hoy
+  si ya se envió; semanal → +7 días desde el inicio de la semana si ya se envió;
+  periódico → siempre `null` (sin cadencia fija, nunca "toca esperar"). Nunca
+  bloquea el envío (`Registros_checkin` sigue insert-only, ver DEC-2026-007) —
+  es puramente informativo.
+- `/cliente/dashboard` reemplaza el banner efímero por una sección persistente
+  "Tu check-in" con el estado real de cada frecuencia activa (pendiente /
+  completado + próxima disponibilidad real).
+- La tarjeta antigua se **relabeled** a "Próximo check-in semanal (Tally)" con
+  una nota aclaratoria, para no volver a leerse como parte del sistema nuevo.
+
+**Revisión 3 (frecuencia por campo) y Revisión 4 (config no destruye historial)
+— verificadas, sin bugs encontrados, sin cambios de código necesarios:** el
+diseño ya soportado por `Campos_checkin`/`agruparPorFrecuencia` permite
+frecuencia independiente por campo (confirmado con test real: cambiar `peso`
+de periódico a semanal no afecta a `energia`/`entrenamiento_realizado`, que
+siguen en diario). Desactivar/reactivar/reordenar/cambiar frecuencia de un
+campo nunca toca `Registros_checkin` — el historial se mantiene intacto y
+`GET /api/checkins` sigue resolviendo el nombre/valor de campos ya
+desactivados (usa la lista completa resuelta, no solo los activos). Confirmado
+con prueba E2E dedicada, no solo lectura de código. Ver DEC-2026-010 a 012.
+
+**Probado con fixtures aislados y desechables** (mismo patrón que DEC-2026-009,
+entrenador/cliente `test-checkin-fixes@example.com` / `...-cliente@example.com`,
+creados y borrados en la sesión). Verificado con `tsc --noEmit`, `eslint` y
+`next build`, los tres sin errores. **Nota real observada durante la prueba**:
+mientras se probaba, se detectó actividad real y concurrente de Juanmi sobre su
+cuenta real (`jumirohu@gmail.com`, cliente `reccN567mhDPMes36`) con un envío
+diario real en `Registros_checkin` sobre las 18:43 UTC — coincide con el
+momento en que probablemente se originó el bug report. No se tocó ese dato
+(fuera del alcance de la limpieza de esta sesión, es actividad real, no de
+prueba).
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome
+en esta sesión) — verificado contra la API real y Airtable real.
+
+---
+
+## RetainCoach MVP Parte 1 — check-in configurable in-app (2026-08-13)
+
+Rama: `retaincoach-checkin-mvp1` (no mergeada a `main` todavía).
+
+**Qué se construyó:** el cliente ahora puede loguearse en RetainCoach y registrar su
+seguimiento diario/semanal/periódico él mismo, sin depender del Tally externo. El
+entrenador puede activar/desactivar/reordenar campos y añadir campos personalizados
+desde `/checkin-config`.
+
+- Modelo de datos nuevo (solo datos crudos, ver DEC-2026-006): `Campos_checkin`
+  (config por entrenador: overrides de campos estándar + definiciones de campos
+  personalizados) y `Registros_checkin` (EAV insert-only: una fila = un campo de
+  un envío, nunca se sobrescribe, hay historial completo).
+- Catálogo de 11 campos estándar en código: `src/lib/checkinFields.ts` (mismo
+  espíritu que `lib/productos.ts`).
+- API nueva: `GET/PUT /api/entrenador/checkin-config`, `POST /api/entrenador/checkin-config/campos`,
+  `GET/POST /api/cliente/checkin`, `GET /api/checkins` (vista del entrenador, mismo
+  patrón de ownership que `/api/reportes`).
+- UI nueva: `/cliente/checkin` (registro rápido), `/checkin-config` (config del
+  entrenador), sección "Check-ins recientes (app)" en `ClienteFicha.tsx`, banner
+  sección "Tu check-in" en `/cliente/dashboard`, botón "⚙️ Configurar check-in" en
+  el toolbar de `ClientesLista.tsx` (movido desde `Header.tsx`, ver corrección
+  de navegación más abajo).
+- **El flujo Tally → n8n → `Reportes` → análisis IA de los lunes NO se tocó.**
+  Convive en paralelo. `ClienteFicha` muestra ambas listas por separado y
+  etiquetadas ("Reportes semanales (Tally)" vs "Check-ins recientes (app)").
+- **Diferido a Parte 2, a propósito:** tablas/lógica de Señales calculadas,
+  Análisis IA, Alertas y Acciones/intervenciones sobre el nuevo modelo. Ver
+  DEC-2026-006.
+
+**Probado end-to-end con datos aislados de prueba** (creados y borrados en la misma
+sesión, sin tocar clientes/entrenadores reales ni `Reportes` histórico): entrenador
+y cliente ficticios (`test-checkin-mvp1@example.com` / `test-checkin-mvp1-cliente@example.com`),
+tokens Supabase obtenidos vía `generateLink`/`verifyOtp` (sin contraseña real, mismo
+patrón que sesiones anteriores). Verificado: catálogo por defecto (11 campos),
+desactivar un campo estándar (con bug encontrado y corregido, ver DEC-2026-008),
+crear campo personalizado de tipo selección, el cliente ve el campo personalizado
+en su formulario diario, envío diario + periódico, y el entrenador ve ambos envíos
+agrupados y con nombres legibles (incluido el campo personalizado) vía
+`GET /api/checkins`. Verificado con `tsc --noEmit`, `eslint` y `next build`, los
+tres sin errores. Limpieza confirmada en las 4 tablas afectadas (0 filas de prueba
+restantes) y usuarios Supabase de prueba borrados.
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en
+esta sesión) — verificado solo contra la API real y Airtable real.
+
+**Siguiente paso — Parte 2:** motor de señales + análisis longitudinal + alertas +
+acciones/intervenciones sobre `Registros_checkin`, y decidir si/cuándo consolidar
+el flujo Tally hacia el check-in in-app.
+
+---
 
 ## Migración en curso — auditoría 2026-08-13
 

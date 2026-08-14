@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
 import AdminNavDropdown from '@/components/AdminNavDropdown'
+import ChangePasswordModal from '@/components/ChangePasswordModal'
 
 function formatFechaLarga(fechaISO: string) {
   return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
@@ -27,6 +28,7 @@ export default function ClienteDashboardPage() {
   const [puedeVolver, setPuedeVolver] = useState(false)
   const [esAdmin, setEsAdmin] = useState(false)
   const [checkin, setCheckin] = useState<ClienteCheckinResponse | null>(null)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -179,6 +181,12 @@ export default function ClienteDashboardPage() {
             )
           )}
           <button
+            onClick={() => setShowChangePassword(true)}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+          >
+            Cambiar contraseña
+          </button>
+          <button
             onClick={handleLogout}
             className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
           >
@@ -278,6 +286,10 @@ export default function ClienteDashboardPage() {
           </section>
         )}
       </main>
+
+      {showChangePassword && (
+        <ChangePasswordModal email={email} onClose={() => setShowChangePassword(false)} />
+      )}
     </div>
   )
 }

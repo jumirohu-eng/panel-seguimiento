@@ -1667,6 +1667,15 @@ Antes de fusionar, auditoría puntual solicitada explícitamente (sin tocar cód
 Tras la auditoría, confirmado por el usuario: **fusión a `main` (fast-forward limpio, sin conflictos) y push**, incluyendo en un único despliegue toda la cadena acumulada desde el último merge a `main` (`8eda0d2`): Parte 1.5.1 (onboarding/invitaciones), Parte 1.5.2 (Objetivos), el bugfix de `/planes`, Parte 1.5.3 (retirada de Tally, eliminación de Mis notas, programación clara) y esta sesión (Objetivos + Check-ins). Validado `next build`/`eslint` sobre `main` tras el fast-forward, sin errores, antes del push. Vercel desplegó automáticamente a producción (`retaincoach.com`, deployment `dpl_2BTtqePvEyN9ebQQjtz1SXdT2dBB`, `READY` en ~21s) — flujo normal `push a main → Vercel despliega` (DEC-2026-021), sin promoción manual.
 
 **Pendiente real tras el despliegue:**
-- Limpiar (con confirmación explícita) las 15 filas huérfanas de `Registros_checkin` mencionadas arriba.
+- ~~Limpiar las 15 filas huérfanas de `Registros_checkin`~~ — **hecho** (ver abajo).
 - Decidir con el entrenador dueño si convertir el objetivo real "peso" de Jose a modo `valor_objetivo`.
 - Prueba visual en navegador de todo lo desplegado (ninguna sesión de esta cadena la tuvo — todas verificadas solo contra API/Airtable/Supabase reales).
+
+### 2026-08-14 — Limpieza de las 15 filas huérfanas de `Registros_checkin`
+Confirmación explícita del usuario tras la auditoría anterior. Antes de borrar se
+reconsultaron las 15 filas (`{Cliente_Email}=""`) para confirmar que la lista no había
+cambiado desde la auditoría — coincidieron exactamente los mismos 15 IDs. Borradas vía
+API REST de Airtable (`DELETE`, en 2 tandas de máx. 10 IDs por límite de la API).
+Verificado tras el borrado: 0 filas huérfanas restantes, y los 5 registros reales de
+Jose (`jjoossee45678@gmail.com`) intactos, sin tocar. No se ha modificado ningún otro
+dato real.

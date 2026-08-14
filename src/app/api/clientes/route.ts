@@ -4,13 +4,6 @@ import { getClientesByEntrenador, getUltimosReportesPorClientes, crearCliente, g
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import { truncateResumen } from '@/lib/format'
 
-function linkTallyAlta(nombre: string, email: string, telefono: string, entrenador: string): string {
-  const base = process.env.NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL
-  if (!base) return ''
-  const params = new URLSearchParams({ nombre, email, telefono, entrenador })
-  return `${base}?${params.toString()}`
-}
-
 export async function GET(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
   if (!email) {
@@ -74,14 +67,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const link = linkTallyAlta(nombre, clienteEmail, telefono, email)
+    // Ya no se genera enlace de alta por Tally para clientes nuevos (Parte 1.5.2, ver
+    // DECISIONS.md) — el onboarding nativo (Parte 1.5.1) y los Objetivos configurables
+    // cubren lo que antes rellenaba ese formulario. `Link_tally_alta` se deja intacto en
+    // Airtable para clientes ya existentes que lo tuvieran.
     const record = await crearCliente({
       Nombre: nombre,
       Email: clienteEmail,
       'Teléfono': telefono,
       Entrenador: email,
       Estado: 'Activo',
-      ...(link ? { Link_tally_alta: link } : {}),
     })
     return NextResponse.json({
       id: record.id,
@@ -89,7 +84,6 @@ export async function POST(request: NextRequest) {
       email: record.fields.Email ?? '',
       telefono: record.fields['Teléfono'] ?? '',
       entrenador: record.fields.Entrenador,
-      linkTallyAlta: record.fields.Link_tally_alta ?? '',
       lastModified: record.fields.Last_modified ?? '',
     })
   } catch (err) {

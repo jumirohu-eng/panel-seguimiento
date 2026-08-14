@@ -163,6 +163,22 @@ export default function ClienteCheckinPage() {
                   </span>
                 )}
               </div>
+              {estado.objetivos.length > 0 && (
+                <div className="mb-4 flex flex-col gap-2 rounded-lg bg-background p-3">
+                  {estado.objetivos.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-card-foreground">{o.nombre}</span>
+                      {o.progreso && (
+                        <span className={o.progreso.completado ? 'font-medium text-success' : 'text-muted'}>
+                          {o.progreso.completado
+                            ? '✓ Completado'
+                            : `${o.progreso.valor}/${o.progreso.meta} ${o.unidad} — Pendiente`}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-col gap-4">
                 {estado.campos.map((campo) => (
                   <CampoInput

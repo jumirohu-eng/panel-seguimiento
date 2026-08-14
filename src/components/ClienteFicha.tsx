@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/format'
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import AIAnalysis from './AIAnalysis'
 import SuggestedMessage from './SuggestedMessage'
+import ObjetivosEntrenador from './ObjetivosEntrenador'
 
 const ESTADO_BADGE: Record<string, string> = {
   Activo: 'bg-success/10 text-success',
@@ -510,6 +511,8 @@ export default function ClienteFicha({
           )}
         </div>
       </div>
+
+      <ObjetivosEntrenador clienteId={cliente.id} />
 
       <h3 className="text-sm font-semibold text-muted">Reportes semanales (Tally)</h3>
 

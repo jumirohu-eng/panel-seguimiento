@@ -1,4 +1,4 @@
-import type { AirtableRecord, CampoCheckinFields, RegistroCheckinFields } from './airtable'
+import type { AirtableRecord, CampoCheckinFields } from './airtable'
 
 export type TipoCampoCheckin = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
 export type FrecuenciaCheckin = 'diario' | 'semanal' | 'periodico'
@@ -427,23 +427,3 @@ export function deserializarValor(tipo: TipoCampoCheckin, valor: string): unknow
   }
 }
 
-// X/Y de "Entrenamientos esta semana". X = días distintos con entrenamiento_realizado=true
-// dentro de la semana. `registrosOrdenadosDesc` debe venir ya ordenado desc por Fecha (la
-// convención de getRegistrosCheckinByClienteEmail) — así, la primera fila vista por día es
-// la más reciente, resolviendo correcciones del mismo día (insert-only) sin contar dos
-// veces ni quedarse con un valor obsoleto.
-export function contarEntrenamientosSemana(
-  registrosOrdenadosDesc: AirtableRecord<RegistroCheckinFields>[],
-  inicioSemanaMs: number
-): number {
-  const ultimoValorPorDia = new Map<string, boolean>()
-  for (const r of registrosOrdenadosDesc) {
-    if (r.fields.Field_id !== 'entrenamiento_realizado' || r.fields.Tipo_registro !== 'diario') continue
-    const fechaMs = new Date(r.fields.Fecha).getTime()
-    if (fechaMs < inicioSemanaMs) continue
-    const diaKey = new Date(fechaMs).toISOString().slice(0, 10)
-    if (ultimoValorPorDia.has(diaKey)) continue
-    ultimoValorPorDia.set(diaKey, r.fields.Valor === 'true')
-  }
-  return [...ultimoValorPorDia.values()].filter(Boolean).length
-}

@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
+import type { ObjetivoResuelto } from '@/lib/objetivos'
 import AdminNavDropdown from '@/components/AdminNavDropdown'
 import ChangePasswordModal from '@/components/ChangePasswordModal'
+import MisObjetivos from '@/components/MisObjetivos'
 
 function formatFechaLarga(fechaISO: string) {
   return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
@@ -28,6 +30,7 @@ export default function ClienteDashboardPage() {
   const [puedeVolver, setPuedeVolver] = useState(false)
   const [esAdmin, setEsAdmin] = useState(false)
   const [checkin, setCheckin] = useState<ClienteCheckinResponse | null>(null)
+  const [objetivos, setObjetivos] = useState<ObjetivoResuelto[]>([])
   const [showChangePassword, setShowChangePassword] = useState(false)
 
   useEffect(() => {
@@ -101,6 +104,18 @@ export default function ClienteDashboardPage() {
       } catch {
         // Si falla, simplemente no se muestra el banner de check-in
       }
+
+      try {
+        const objetivosRes = await fetch('/api/cliente/objetivos', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (objetivosRes.ok) {
+          const { objetivos: objetivosData } = await objetivosRes.json()
+          setObjetivos(objetivosData)
+        }
+      } catch {
+        // Si falla, simplemente no se muestra "Mis objetivos"
+      }
     }
     init()
   }, [router])
@@ -161,9 +176,6 @@ export default function ClienteDashboardPage() {
     )
   }
 
-  const { realizados, asignados } = perfil.entrenamientosSemana
-  const pctObjetivo = asignados > 0 ? Math.min(100, Math.round((realizados / asignados) * 100)) : 0
-
   return (
     <div className="min-h-screen bg-background">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-3 sm:px-6">
@@ -207,21 +219,7 @@ export default function ClienteDashboardPage() {
           </p>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-card-foreground">Entrenamientos esta semana</h2>
-          {asignados > 0 ? (
-            <>
-              <p className="mb-2 text-sm text-card-foreground">
-                {realizados} / {asignados} entrenamientos
-              </p>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-background">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${pctObjetivo}%` }} />
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted">Tu entrenador todavía no ha configurado un objetivo semanal.</p>
-          )}
-        </section>
+        <MisObjetivos objetivos={objetivos} />
 
         <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">

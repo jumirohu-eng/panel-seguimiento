@@ -16,9 +16,7 @@ export default function RegistrarClienteModal({
   const [telefono, setTelefono] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [link, setLink] = useState<string | null>(null)
-  const [linkGenerado, setLinkGenerado] = useState(false)
-  const [copiado, setCopiado] = useState(false)
+  const [clienteCreado, setClienteCreado] = useState(false)
   const [linkInvitacion, setLinkInvitacion] = useState<string | null>(null)
   const [errorInvitacion, setErrorInvitacion] = useState<string | null>(null)
   const [copiadoInvitacion, setCopiadoInvitacion] = useState(false)
@@ -69,24 +67,16 @@ export default function RegistrarClienteModal({
         alertaResumen: '',
         notasEntrenador: '',
         notasIniciales: '',
-        linkTallyAlta: creado.linkTallyAlta ?? '',
+        linkTallyAlta: '',
         lastModified: creado.lastModified ?? '',
       })
 
-      setLink(creado.linkTallyAlta || null)
-      setLinkGenerado(true)
+      setClienteCreado(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al crear el cliente')
     } finally {
       setLoading(false)
     }
-  }
-
-  async function handleCopy() {
-    if (!link) return
-    await navigator.clipboard.writeText(link)
-    setCopiado(true)
-    setTimeout(() => setCopiado(false), 2000)
   }
 
   async function handleCopyInvitacion() {
@@ -114,7 +104,7 @@ export default function RegistrarClienteModal({
           </button>
         </div>
 
-        {linkGenerado ? (
+        {clienteCreado ? (
           <div className="flex flex-col gap-4">
             <p className="text-sm text-success">Cliente creado ✅</p>
 
@@ -140,23 +130,6 @@ export default function RegistrarClienteModal({
               </p>
             )}
 
-            {link && (
-              <div className="flex flex-col gap-2 border-t border-border pt-3">
-                <p className="text-xs text-muted">
-                  Enlace de alta (Tally) — datos adicionales, opcional:
-                </p>
-                <p className="break-all rounded-lg border border-border bg-background p-2 text-xs text-muted">
-                  {link}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="w-fit rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
-                >
-                  {copiado ? '¡Copiado!' : 'Copiar'}
-                </button>
-              </div>
-            )}
             <button
               type="button"
               onClick={onClose}

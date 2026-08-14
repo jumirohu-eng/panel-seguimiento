@@ -41,12 +41,139 @@ Datos:
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
 - `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`) + `Checkin_tipos` (`tblsiRHYa7SFro2Th`, Parte 1.5): modelo de check-in in-app del cliente. Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 020.
 - `notas_privadas` (Supabase Postgres, no Airtable): libreta privada del cliente, Parte 1.5. Ver sección dedicada y `DECISIONS.md` DEC-2026-018.
+- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. Ver sección dedicada más abajo.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## RetainCoach Parte 1.5.2 — Objetivos, progreso y retirada de Tally para clientes nuevos (2026-08-14)
+
+Rama: `retaincoach-objetivos-parte-1.5.2` (derivada de `retaincoach-onboarding-parte-1.5.1`, no
+mergeada a `main`). **Sin push todavía** — a la espera de revisión explícita antes de subir la rama.
+
+### 1–2. Objetivos configurables + fuente de progreso
+Tabla nueva `Objetivos` (`tbl0IwhFmKLc0MolG`): `Nombre`, `Cliente` (link), `Cliente_Email`
+(texto, escrito por la app — no lookup, ver DEC-2026-024), `Periodicidad`
+(diario/semanal/mensual), `Meta`, `Unidad`, `Fuente_field_id` (opcional, `Field_id` de
+`Campos_checkin`), `Fecha_inicio`, `Fecha_fin` (opcional), `Activo`, `Orden`,
+`Last_modified`. El entrenador crea/edita/desactiva objetivos por cliente
+(`ObjetivosEntrenador.tsx` + `ObjetivoModal.tsx`, embebidos en `ClienteFicha.tsx`) — nunca se
+borran, solo se desactivan (mismo patrón que el resto del proyecto).
+
+Fuente de progreso: solo campos de check-in **activos** de tipo `si_no` o `numero` (validado
+server-side, `validarFuenteObjetivo()` en `src/lib/objetivos.ts`) — el resto de tipos
+(texto, selección, dolor…) no tiene un cálculo numérico claro y no se ofrecen como opción.
+"Sin fuente" es válido (objetivo puramente informativo, sin barra de progreso).
+
+### 3–4. Integración con check-ins y cálculo del progreso
+**Decisión de diseño importante, corregida durante esta misma sesión:** el campo fuente de
+un objetivo NO tiene que estar asignado al mismo tipo de check-in que la periodicidad del
+objetivo. El propio ejemplo del brief ("Entrenamientos — semanal — 4 — sesiones") se
+alimenta de `entrenamiento_realizado`, que en este proyecto solo se pregunta en el check-in
+**diario** — exigir coincidencia de tipo (diseño inicial de esta sesión, descartado antes de
+terminar) habría hecho ese ejemplo literalmente imposible de construir. El progreso se
+calcula agregando `Registros_checkin` por `Field_id` dentro de la ventana de la periodicidad
+del objetivo (hoy/semana/mes), sin filtrar por `Tipo_registro`:
+- `si_no`: cuenta de días con valor `true` dentro de la ventana (dedupe por día, se queda
+  con el envío más reciente — resuelve correcciones sin duplicar, mismo criterio que ya
+  usaba Parte 1.5).
+- `numero`: suma del valor más reciente de cada día dentro de la ventana.
+- Vigencia (`Fecha_inicio`/`Fecha_fin`) se respeta siempre, independiente del toggle Activo.
+
+"Mensual" (periodicidad de objetivo) se empareja con "periódico" (tipo de check-in) — es la
+cadencia existente más cercana a un mes (día del mes / cada N días, ver DEC-2026-014), tal
+como lo pide el brief explícitamente. Esa correspondencia (`PERIODICIDAD_A_TIPO_CHECKIN`,
+`src/lib/objetivos.ts`) solo decide en QUÉ SECCIÓN del check-in (`/cliente/checkin`) se
+muestra el objetivo — no de dónde sale su progreso (ver arriba). Solo se muestran ahí
+objetivos con progreso resoluble (`GET /api/cliente/checkin` filtra por
+`o.progreso !== null`), para no mostrar un objetivo sin forma de actuar sobre él.
+
+### 5. Dashboard cliente
+Eliminada la sección fija "Entrenamientos esta semana" (leía `Clientes.Entrenamientos_objetivo`,
+ver DEC-2026-020) y `ClientePerfil.entrenamientosObjetivo`/`entrenamientosSemana`. Sustituida
+por "Mis objetivos" (`MisObjetivos.tsx`), agrupada en Hoy/Esta semana/Este mes por
+`periodicidad`, mostrando solo objetivos `activo && vigenteHoy` (`GET /api/cliente/objetivos`).
+`Clientes.Entrenamientos_objetivo` **no se borra** de Airtable (histórico), simplemente deja
+de leerse. `contarEntrenamientosSemana()` (código muerto tras el cambio) se eliminó de
+`checkinFields.ts`.
+
+### 6. Ficha entrenador
+`ObjetivosEntrenador.tsx`: lista todos los objetivos (activos e inactivos, vigentes o no) con
+periodicidad, meta, progreso del periodo actual, estado (Activo/Fuera de vigencia/Desactivado)
+y botones editar/(des)activar. Colocado justo después del bloque de invitación y antes de
+"Reportes semanales (Tally)" — mismo sitio donde el entrenador ya revisa check-ins e historial,
+para que Objetivos → progreso → check-ins → datos quede junto, tal como pide el brief. No se
+implementan alertas ni IA (fuera de alcance explícito de esta parte).
+
+### 7. Preparado para IA futura (no implementada)
+El modelo (`ObjetivoResuelto`: nombre, periodicidad, meta, unidad, progreso, historial vía
+`Registros_checkin`) queda listo para que un futuro motor de señales lo consuma — no se
+construye ningún motor ni alerta en esta parte. `notas_privadas` sigue estructuralmente
+fuera de este y de cualquier flujo de IA (sin cambios, ver DEC-2026-018).
+
+### 8. Retirada de Tally (auditada antes de tocar nada)
+Auditados: Tally, n8n (`n8n_list_workflows`/`n8n_get_workflow`), `Reportes`, endpoints,
+componentes del dashboard. Workflows n8n activos confirmados: `Recepción entrenador`,
+`Seguimiento - Análisis Lunes`, `Seguimiento - Resumen&Alerta`, `Seguimiento - Alta cliente`,
+`Snapshot mensual` (los 5 ya documentados) + descubierto `Seguimiento - Limpieza de datos
+antiguos` (**inactivo**, archiva `Reportes` viejos a `Archivo` antes de borrarlos — no
+tocado, no se activó).
+
+**Única dependencia activa identificada para clientes nuevos:** `POST /api/clientes` generaba
+un `Link_tally_alta` (formulario Tally de alta) para que el cliente rellenara
+objetivo/notas/entrenamientos — ahora cubierto por el onboarding nativo (Parte 1.5.1) +
+Objetivos (esta parte). **Retirada:** ya no se genera para clientes nuevos
+(`linkTallyAlta()` eliminada de `src/app/api/clientes/route.ts`, bloque correspondiente
+eliminado de `RegistrarClienteModal.tsx`). `Link_tally_alta` de clientes ya existentes no se
+toca ni se borra — sigue mostrándose en `ClienteFicha` si lo tienen.
+
+**Deliberadamente NO tocado (fuera de alcance — "para nuevos clientes ni check-ins", no
+"para todo el mundo"):** el webhook `Seguimiento - Resumen&Alerta` (Tally semanal →
+`Reportes`) y `Seguimiento - Análisis Lunes` (IA sobre `Reportes`) siguen activos y en uso
+real por clientes existentes (ver DEC-2026-010, actividad real de
+`jumirohu@gmail.com`/`reccN567mhDPMes36`). El check-in in-app (Parte 1.5) nunca dependió de
+Tally — nada de esto es una dependencia para clientes nuevos ni para check-ins. Apagar ese
+flujo es una decisión de producto mayor (ver DEC-2026-006, "decidir si/cuándo migrar Tally →
+check-in in-app", todavía sin resolver) que rompería el uso real de hoy — no se toma en esta
+sesión sin confirmación explícita.
+
+### Backfill de continuidad
+4 clientes reales ya tenían `Entrenamientos_objetivo` > 0 (Carlos=5, Juanmi=5,
+`retaincoachsolution@gmail.com`=5, Sofia=4). Para no perder ese indicador de golpe en el
+dashboard, se creó para cada uno un `Objetivo` "Entrenamientos" (semanal, meta = su valor
+anterior, unidad "sesiones", fuente `entrenamiento_realizado`) — mismo criterio que backfills
+anteriores del proyecto (DEC-2026-013, DEC-2026-015). No se tocó `Entrenamientos_objetivo` en
+sí (queda igual, histórico). 2 clientes sin `Entrenamientos_objetivo`/`Objetivo` (nunca
+completaron alta) no recibieron backfill — no había nada que preservar.
+
+### Validación
+Prueba E2E con fixtures aislados y desechables (patrón DEC-2026-009), 46 comprobaciones:
+retirada de Tally (sin `Link_tally_alta` en clientes nuevos), validación de creación
+(periodicidad/meta/unidad/fuente inválidas → 400), ownership (entrenador ajeno → 403 en
+GET/POST/PATCH), el ejemplo exacto del brief (objetivo semanal desde fuente diaria) con
+progreso resuelto correctamente (0→1/3→3/3 tras backdatear registros dentro de la misma
+semana), objetivo numérico mensual (`peso`) sumando correctamente, integración en
+`/cliente/checkin` (el objetivo aparece en `semanal.objetivos`, no en `diario.objetivos`;
+el mensual aparece en `periodico.objetivos`), vigencia (fecha de inicio futura invisible
+para el cliente pero visible para el entrenador, progreso `null` sin fuente), desactivar/
+reactivar sin perder progreso ni historial, edición de nombre/meta, historial de
+`GET /api/checkins` intacto, y `Entrenamientos_objetivo` de un cliente real sin modificar.
+`tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Limpieza confirmada (0 filas
+de prueba restantes en las 3 tablas tocadas, 0 usuarios Supabase de prueba restantes).
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión)
+— verificado contra la API real, Airtable real y Supabase real.
+
+**Pendiente real:**
+- Prueba visual en navegador (creación de objetivos desde la ficha, vista del cliente en
+  dashboard y check-in).
+- Decisión de producto pendiente (no de esta sesión): si/cuándo retirar también el flujo
+  Tally semanal (`Reportes`) para clientes existentes — ver DEC-2026-006.
+
+---
 
 ## RetainCoach Parte 1.5.1 — onboarding y activación de clientes (2026-08-14)
 

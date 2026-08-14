@@ -6,6 +6,7 @@ import {
   getRegistrosCheckinByClienteEmail,
   crearRegistrosCheckin,
   getCheckinTiposByEntrenador,
+  getObjetivosByClienteEmail,
 } from '@/lib/airtable'
 import {
   resolverCamposEfectivos,
@@ -20,6 +21,7 @@ import {
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
+import { resolverObjetivo, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto } from '@/lib/objetivos'
 import { ClienteCheckinResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 
 function respuestaError(mensaje: string, status: number) {
@@ -41,17 +43,34 @@ export async function GET(request: NextRequest) {
   const cliente = gate.cliente
 
   try {
-    const [entrenador, filasTipos, filasConfig, registros] = await Promise.all([
+    const [entrenador, filasTipos, filasConfig, registros, filasObjetivos] = await Promise.all([
       getEntrenadorByEmail(cliente.fields.Entrenador),
       getCheckinTiposByEntrenador(cliente.fields.Entrenador),
       getCamposCheckinByEntrenador(cliente.fields.Entrenador),
       getRegistrosCheckinByClienteEmail(cliente.fields.Email ?? ''),
+      getObjetivosByClienteEmail(cliente.fields.Email ?? ''),
     ])
 
     const filaPorTipo = new Map(filasTipos.map((f) => [f.fields.Tipo, f.fields]))
     const camposResueltos = resolverCamposEfectivos(filasConfig)
     const grupos = agruparPorFrecuencia(camposResueltos)
     const camposPorId = new Map(camposResueltos.map((c) => [c.id, c]))
+    const diaSemanaCheckin = filaPorTipo.get('semanal')?.Dia_semana ?? 'lunes'
+
+    // Solo objetivos activos, vigentes hoy y con una fuente que de verdad puede recibir
+    // datos en ESTE tipo de check-in (progreso resuelto) — mostrar aquí un objetivo sin
+    // forma de registrar su dato no ayudaría al cliente (ver DECISIONS.md, sección 3).
+    const objetivosResueltos = filasObjetivos
+      .map((r) => resolverObjetivo(r, camposPorId, registros, diaSemanaCheckin))
+      .filter((o) => o.activo && o.vigenteHoy && o.progreso !== null)
+    const objetivosPorTipo = new Map<FrecuenciaCheckin, ObjetivoResuelto[]>([
+      ['diario', []],
+      ['semanal', []],
+      ['periodico', []],
+    ])
+    for (const o of objetivosResueltos) {
+      objetivosPorTipo.get(PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad])!.push(o)
+    }
 
     function estadoPara(
       tipo: FrecuenciaCheckin,
@@ -67,6 +86,7 @@ export async function GET(request: NextRequest) {
           yaEnviado: false,
           ultimosValores: {},
           proximaFecha: null,
+          objetivos: [],
         }
       }
 
@@ -89,14 +109,20 @@ export async function GET(request: NextRequest) {
 
       const proximaFecha = calcularProximaFecha(tipo, yaEnviado, inicioPeriodoActualMs, programacion)
 
-      return { lanzado: true, disponibleDesde: programacion.disponibleDesde, campos, yaEnviado, ultimosValores, proximaFecha }
+      return {
+        lanzado: true,
+        disponibleDesde: programacion.disponibleDesde,
+        campos,
+        yaEnviado,
+        ultimosValores,
+        proximaFecha,
+        objetivos: objetivosPorTipo.get(tipo) ?? [],
+      }
     }
-
-    const diaSemanaSemanal = filaPorTipo.get('semanal')?.Dia_semana ?? 'lunes'
 
     const response: ClienteCheckinResponse = {
       diario: estadoPara('diario', grupos.diario, inicioDeHoyUTC()),
-      semanal: estadoPara('semanal', grupos.semanal, inicioDePeriodoSemanalUTC(diaSemanaSemanal)),
+      semanal: estadoPara('semanal', grupos.semanal, inicioDePeriodoSemanalUTC(diaSemanaCheckin)),
       periodico: estadoPara('periodico', grupos.periodico, null),
     }
 

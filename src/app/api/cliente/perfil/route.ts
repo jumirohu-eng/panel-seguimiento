@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getClienteActivoAutenticado } from '@/lib/auth-server'
-import { getEntrenadorByEmail, getRegistrosCheckinByClienteEmail } from '@/lib/airtable'
-import { contarEntrenamientosSemana, inicioDePeriodoSemanalUTC } from '@/lib/checkinFields'
+import { getEntrenadorByEmail } from '@/lib/airtable'
 import { ClientePerfil } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
@@ -19,17 +18,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const entrenador = await getEntrenadorByEmail(cliente.fields.Entrenador)
-    const ahora = Date.now()
-
-    const registrosCheckin = await getRegistrosCheckinByClienteEmail(cliente.fields.Email ?? '')
-    const realizados = contarEntrenamientosSemana(registrosCheckin, inicioDePeriodoSemanalUTC('lunes', ahora))
 
     const perfil: ClientePerfil = {
       nombre: cliente.fields.Nombre,
       objetivo: cliente.fields.Objetivo,
       entrenadorNombre: entrenador?.fields.Nombre || cliente.fields.Entrenador,
-      entrenamientosObjetivo: cliente.fields.Entrenamientos_objetivo,
-      entrenamientosSemana: { realizados, asignados: cliente.fields.Entrenamientos_objetivo },
       onboardingCompletado: Boolean(cliente.fields.Objetivo),
     }
 

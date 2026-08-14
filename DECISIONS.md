@@ -938,6 +938,118 @@ más genérica a partir del código HTTP (500) y el mensaje corto de la SDK
 
 ---
 
+## DEC-2026-026 — Objetivos: el progreso se agrega por `Field_id` sin exigir que la fuente esté asignada al mismo tipo de check-in que la periodicidad del objetivo
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Modelo de datos
+**Estado:** Implementada (corrige un diseño intermedio de esta misma sesión, nunca llegó a commitearse)
+
+### Contexto
+Parte 1.5.2 pide objetivos configurables por cliente (nombre, periodicidad diario/semanal/
+mensual, meta, unidad, fecha de vigencia, fuente de progreso) con progreso calculado desde
+`Registros_checkin`, usando como ejemplo explícito: "Entrenamientos — semanal — 4 —
+sesiones".
+
+### Diseño inicial (descartado antes de terminar la sesión)
+La primera implementación exigía que el campo fuente estuviera asignado
+(`Campos_checkin.Tipos`) al mismo tipo de check-in que correspondería a la periodicidad del
+objetivo (diario→diario, semanal→semanal, mensual→periódico), y filtraba
+`Registros_checkin` también por `Tipo_registro` al calcular el progreso.
+
+### Por qué se descartó
+Auditando los datos reales del proyecto se confirmó que `entrenamiento_realizado` (el campo
+que da progreso al ejemplo "Entrenamientos" del propio brief) solo tiene `Tipos: ['diario']`
+para el único entrenador con override real (`jumirohu@gmail.com`) — y el catálogo estándar
+en código (`CAMPOS_ESTANDAR`) tampoco lo asigna a `semanal` por defecto. Con el diseño
+inicial, crear el objetivo "Entrenamientos — semanal" tal como lo describe el propio brief
+habría sido **imposible** (la validación lo habría rechazado) o, si se hubiera saltado la
+validación, el progreso siempre habría dado 0 (ningún `Registros_checkin` real tiene
+`Tipo_registro='semanal'` para ese campo, porque el cliente solo lo rellena en el check-in
+diario).
+
+### Decisión
+El progreso de un objetivo se calcula agregando `Registros_checkin` por `Field_id` dentro de
+la ventana de tiempo de la periodicidad del objetivo (hoy/semana/mes), **sin filtrar por
+`Tipo_registro`** — un campo que el cliente solo rellena en el check-in diario puede
+alimentar perfectamente un objetivo semanal o mensual (se suman/cuentan sus envíos dentro de
+esa ventana, venga del check-in que venga). `validarFuenteObjetivo()` solo exige que el
+campo exista, esté activo y sea de tipo `si_no`/`numero` — ya no exige coincidencia de tipo.
+
+`PERIODICIDAD_A_TIPO_CHECKIN` (diario→diario, semanal→semanal, mensual→periódico) se
+mantiene, pero pasa a tener un único propósito: decidir en qué sección de
+`/cliente/checkin` se muestra el objetivo (UX), no de dónde sale su progreso.
+
+### Por qué no es un problema de doble contabilización
+`calcularProgresoDesdeCheckins()` agrupa por día (quedándose con el envío más reciente de
+ese día, igual que ya hacía Parte 1.5 para "Entrenamientos esta semana") antes de contar/
+sumar — así que si el mismo `Field_id` llegara a rellenarse dos veces el mismo día desde
+tipos de check-in distintos, solo cuenta una vez.
+
+### Verificación
+Prueba E2E: objetivo "Entrenamientos" (semanal, meta 3, fuente `entrenamiento_realizado`,
+que solo vive en el check-in diario) — tras 3 envíos diarios en la misma semana (uno vía
+`POST /api/cliente/checkin` real, dos backdateados directamente en Airtable para simular
+días anteriores), el progreso pasa de 0/3 a 3/3 y `completado=true`. El objetivo aparece en
+`checkin.semanal.objetivos` y explícitamente NO en `checkin.diario.objetivos`, confirmando
+que la periodicidad del objetivo (no la del campo fuente) decide dónde se muestra.
+
+---
+
+## DEC-2026-027 — Retirada de Tally alcanza solo a "clientes nuevos", no al flujo semanal existente
+
+**Fecha:** 2026-08-14
+**Tipo:** Producto / Infraestructura
+**Estado:** Implementada (parcial, a propósito)
+
+### Contexto
+El brief de Parte 1.5.2 pide auditar y retirar la dependencia de Tally, con el objetivo
+final explícito: "Clientes + onboarding + check-ins + objetivos + progreso dentro de
+RetainCoach, **sin dependencia de Tally para nuevos clientes ni check-ins**" — y advierte
+explícitamente "no borrar históricos de Reportes ni tablas antiguas a ciegas" y "si algo
+requiere migración, documentarlo y no romperlo".
+
+### Auditoría (antes de tocar nada)
+Vía `n8n_list_workflows`/`n8n_get_workflow`: los 5 workflows ya documentados en `CLAUDE.md`
+siguen activos (`Recepción entrenador`, `Seguimiento - Análisis Lunes`,
+`Seguimiento - Resumen&Alerta`, `Seguimiento - Alta cliente`, `Snapshot mensual`), más un
+sexto no documentado hasta ahora: `Seguimiento - Limpieza de datos antiguos` (**inactivo**,
+archiva `Reportes` a `Archivo` antes de borrarlos — no se activó, no se tocó).
+
+De estos, la única dependencia que afecta a **clientes nuevos** es
+`Seguimiento - Alta cliente` (webhook del formulario Tally al que apuntaba
+`Clientes.Link_tally_alta`, generado por `POST /api/clientes`) — el resto
+(`Seguimiento - Resumen&Alerta` + `Seguimiento - Análisis Lunes`) es el flujo semanal de
+`Reportes`, que **no depende del check-in in-app** (nunca lo hizo, desde Parte 1.5, ver
+DEC-2026-006) y sigue en uso real por clientes existentes (`jumirohu@gmail.com`/
+`reccN567mhDPMes36`, ver actividad real documentada en DEC-2026-010).
+
+### Decisión
+Se retira únicamente la generación del enlace de alta por Tally para clientes nuevos —
+`POST /api/clientes` ya no genera `Link_tally_alta` (lo que antes recogía ese formulario:
+objetivo, notas iniciales, entrenamientos por semana, ahora lo cubren el onboarding nativo
+de Parte 1.5.1 y los Objetivos de esta parte). El webhook `Seguimiento - Alta cliente` en
+n8n **no se desactiva** — simplemente deja de recibir tráfico nuevo porque ya no se
+distribuye el link que lo dispara; un cliente antiguo que todavía tenga ese link guardado
+seguiría pudiendo usarlo sin error.
+
+El flujo Tally semanal → `Reportes` → `Seguimiento - Análisis Lunes` **no se toca** —
+seguirá activo para quien lo use. Apagarlo es la migración mayor que ya dejó explícitamente
+abierta DEC-2026-006 ("decidir si/cuándo migrar Tally → check-in in-app"); esta sesión no
+la resuelve porque haría eso, sin haberlo pedido explícitamente, rompería el uso real de
+hoy de al menos un cliente real.
+
+### Por qué no se borra nada de `Reportes`
+No se tocó el workflow inactivo de limpieza/archivado ni se borró ninguna fila de
+`Reportes`/`Archivo` — la instrucción del brief es explícita ("no borrar históricos... a
+ciegas") y esta sesión no tenía ningún motivo nuevo para hacerlo.
+
+### Verificación
+Prueba E2E: `POST /api/clientes` ya no devuelve `linkTallyAlta` en la respuesta ni escribe
+`Link_tally_alta` en Airtable para un cliente nuevo. Lectura directa de n8n confirma que
+ningún workflow fue modificado ni (des)activado durante esta sesión.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -1000,3 +1112,11 @@ más genérica a partir del código HTTP (500) y el mensaje corto de la SDK
 
 ### 2026-08-14 — Diagnóstico signup cliente / Supabase Auth
 - Añadida `DEC-2026-025`, que **corrige** el diagnóstico de la entrada anterior ("SMTP no configurado"): el SMTP sí funciona con dominios reales; el 500 en las pruebas E2E era el rechazo de Supabase al dominio `@example.com` en su entorno de pruebas. Confirmado comparando código (signup de entrenador y cliente usan el mismo mecanismo, sin diferencias), logs de Auth de Supabase, y una prueba de punta a punta con un email real (`gmail.com`) sin errores. Retirado de los bloqueantes de `CLAUDE.md`. Sin cambios de código ni de configuración.
+
+### 2026-08-14 — RetainCoach Parte 1.5.2: Objetivos, progreso y retirada de Tally
+- Nueva tabla Airtable `Objetivos` (`tbl0IwhFmKLc0MolG`): objetivos configurables por cliente (nombre, periodicidad diario/semanal/mensual, meta, unidad, fuente de progreso opcional, vigencia, activo), sustituyendo al indicador fijo `Clientes.Entrenamientos_objetivo` en el dashboard (el campo Airtable no se borra, solo deja de leerse).
+- Añadida `DEC-2026-026`: el progreso se agrega por `Field_id` en la ventana de la periodicidad del objetivo, sin exigir que la fuente esté asignada al mismo tipo de check-in — corrige un diseño intermedio de esta misma sesión que habría hecho imposible el propio ejemplo del brief ("Entrenamientos — semanal" desde un campo que solo se pregunta a diario).
+- Añadida `DEC-2026-027`: retirada de Tally acotada a clientes nuevos (deja de generarse `Link_tally_alta`) — el flujo semanal Tally→`Reportes`→Análisis Lunes no se toca, sigue en uso real por clientes existentes; auditados los 6 workflows de n8n (5 activos ya documentados + `Seguimiento - Limpieza de datos antiguos`, inactivo, descubierto en esta auditoría) sin modificar ninguno.
+- `GET /api/cliente/checkin` expone `objetivos` por tipo (diario/semanal/periodico) para integrar Objetivos con el check-in, respetando la configuración de campos de Parte 1.5. Dashboard cliente: nueva sección "Mis objetivos" (agrupada Hoy/Esta semana/Este mes) sustituye a "Entrenamientos esta semana". Ficha entrenador: nueva sección "Objetivos" (crear/editar/desactivar + progreso) junto a check-ins e historial.
+- Backfill de continuidad: 4 clientes reales con `Entrenamientos_objetivo` > 0 recibieron un `Objetivo` "Entrenamientos" equivalente (mismo patrón que backfills anteriores del proyecto), sin tocar el campo Airtable original.
+- Validado con prueba E2E de fixtures aislados (patrón DEC-2026-009), 46 comprobaciones, cubriendo los puntos de la sección 9 del brief. `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.

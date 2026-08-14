@@ -1,3 +1,5 @@
+import type { ObjetivoResuelto } from './objetivos'
+
 export interface Cliente {
   id: string
   nombre: string
@@ -132,10 +134,6 @@ export interface ClientePerfil {
   nombre: string
   objetivo: string
   entrenadorNombre: string
-  entrenamientosObjetivo: number
-  // X/Y de entrenamientos de la semana en curso. Y reutiliza Entrenamientos_objetivo (no
-  // hay una fuente de asignación semanal variable — ver DECISIONS.md).
-  entrenamientosSemana: { realizados: number; asignados: number }
   // Onboarding nativo (Parte 1.5.1): true si el cliente ya tiene Objetivo guardado.
   // El dashboard redirige a /cliente/onboarding cuando es false.
   onboardingCompletado: boolean
@@ -197,6 +195,10 @@ export interface CheckinFrecuenciaEstado {
   // Fecha ISO de la próxima apertura de este tipo. diario/semanal: solo tras enviar (null
   // = disponible ahora). periódico: siempre calculada según su programación.
   proximaFecha: string | null
+  // Objetivos del cliente cuya periodicidad corresponde a este tipo de check-in (Parte
+  // 1.5.2, ver DECISIONS.md) — solo los que tienen una fuente activa y compatible aquí,
+  // para que el cliente siempre pueda registrar el dato que les da progreso.
+  objetivos: ObjetivoResuelto[]
 }
 
 export interface ClienteCheckinResponse {

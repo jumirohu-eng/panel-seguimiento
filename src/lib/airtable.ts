@@ -13,6 +13,7 @@ const TABLE_CAMPOS_CHECKIN = 'tblY8lFGaO2iA29Zf'
 const TABLE_REGISTROS_CHECKIN = 'tbl7usdXJYJA83lsm'
 const TABLE_CHECKIN_TIPOS = 'tblsiRHYa7SFro2Th'
 const TABLE_INVITACIONES_CLIENTE = 'tblrWxTzzuPSFPzNP'
+const TABLE_OBJETIVOS = 'tbl0IwhFmKLc0MolG'
 
 export interface AirtableRecord<T> {
   id: string
@@ -162,6 +163,30 @@ export interface CheckinTipoFields {
   Fecha_inicio_periodico?: string
   Intervalo_dias_periodico?: number
   Dia_mes_periodico?: number
+  Last_modified?: string
+}
+
+// Objetivos configurables por cliente (Parte 1.5.2, ver DECISIONS.md). Sustituyen a
+// Clientes.Entrenamientos_objetivo como indicador fijo — ese campo no se borra (histórico),
+// pero deja de leerse para el dashboard/ficha.
+export type PeriodicidadObjetivoAirtable = 'diario' | 'semanal' | 'mensual'
+
+export interface ObjetivoFields {
+  Nombre: string
+  Cliente: string[]
+  // Escrito por la app al crear, no es un lookup de Airtable — ver DEC-2026-024 (filtrar
+  // por ARRAYJOIN sobre un campo enlazado no funciona de forma fiable).
+  Cliente_Email: string
+  Periodicidad: PeriodicidadObjetivoAirtable
+  Meta: number
+  Unidad: string
+  // Field_id de Campos_checkin (estándar o personalizado) usado para calcular el
+  // progreso. Vacío/null = objetivo sin fuente automática, solo informativo.
+  Fuente_field_id?: string | null
+  Fecha_inicio: string
+  Fecha_fin?: string | null
+  Activo: boolean
+  Orden?: number
   Last_modified?: string
 }
 
@@ -701,6 +726,35 @@ export async function upsertCheckinTipo(
   const fila = existentes.find((f) => f.fields.Tipo === tipo)
   if (fila) return actualizarCheckinTipo(fila.id, fields)
   return crearCheckinTipo({ Entrenador: email, Tipo: tipo, ...fields })
+}
+
+export async function getObjetivosByClienteEmail(clienteEmail: string) {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Cliente_Email} = "${escapeFormulaValue(clienteEmail)}"`)
+  params.set('sort[0][field]', 'Orden')
+  params.set('sort[0][direction]', 'asc')
+  const data = await airtableGet<{ records: AirtableRecord<ObjetivoFields>[] }>(TABLE_OBJETIVOS, params)
+  return data.records
+}
+
+export async function getObjetivoById(id: string): Promise<AirtableRecord<ObjetivoFields> | null> {
+  const baseId = process.env.AIRTABLE_BASE_ID
+  const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_OBJETIVOS}/${id}`
+  const res = await fetchWithRetry(url, { headers: airtableHeaders(), cache: 'no-store' })
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Airtable error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export async function crearObjetivo(fields: Partial<ObjetivoFields>) {
+  return airtableWrite<AirtableRecord<ObjetivoFields>>(TABLE_OBJETIVOS, 'POST', fields)
+}
+
+export async function actualizarObjetivo(recordId: string, fields: Partial<ObjetivoFields>) {
+  return airtableWrite<AirtableRecord<ObjetivoFields>>(`${TABLE_OBJETIVOS}/${recordId}`, 'PATCH', fields)
 }
 
 export async function getArchivoConMensajeSugerido() {

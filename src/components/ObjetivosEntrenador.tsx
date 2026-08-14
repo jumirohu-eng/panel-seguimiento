@@ -122,14 +122,24 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
               <div key={o.id} className="rounded-lg bg-background p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-card-foreground">{o.nombre}</p>
-                    <p className="text-xs text-muted">
-                      {TITULOS_PERIODICIDAD[o.periodicidad]} · {o.meta} {o.unidad}
-                      {o.fuenteNombre ? ` · fuente: ${o.fuenteNombre}` : ' · sin fuente automática'}
-                      {o.modoProgreso === 'valor_objetivo' && o.direccion
-                        ? ` · valor objetivo (${o.direccion}, inicial ${o.valorInicial} ${o.unidad})`
-                        : ''}
-                    </p>
+                    {o.modoProgreso === 'valor_objetivo' ? (
+                      <>
+                        <p className="truncate text-sm font-medium text-card-foreground">
+                          {o.nombre} objetivo: {o.meta} {o.unidad}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {o.progreso ? `Actual: ${o.progreso.valor} ${o.unidad}` : 'Sin datos todavía'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="truncate text-sm font-medium text-card-foreground">{o.nombre}</p>
+                        <p className="text-xs text-muted">
+                          {TITULOS_PERIODICIDAD[o.periodicidad]}
+                          {o.progreso ? ` · ${formatearProgresoTexto(o.unidad, o.progreso)}` : ` · meta: ${o.meta} ${o.unidad}`}
+                        </p>
+                      </>
+                    )}
                   </div>
                   <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${estado.className}`}>
                     {estado.label}
@@ -144,7 +154,9 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
                         style={{ width: `${Math.min(100, Math.max(0, o.progreso.porcentaje))}%` }}
                       />
                     </div>
-                    <span className="shrink-0 text-xs text-muted">{formatearProgresoTexto(o.unidad, o.progreso)}</span>
+                    {o.modoProgreso !== 'valor_objetivo' && (
+                      <span className="shrink-0 text-xs text-muted">{formatearProgresoTexto(o.unidad, o.progreso)}</span>
+                    )}
                   </div>
                 )}
 

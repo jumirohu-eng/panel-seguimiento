@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Cliente } from '@/lib/types'
 import RegistrarClienteModal from './RegistrarClienteModal'
 
@@ -22,7 +21,6 @@ export default function ClientesLista({
   onSelect: (id: string) => void
   onClienteCreado: (cliente: Cliente) => void
 }) {
-  const router = useRouter()
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('activos')
   const [mostrarRegistro, setMostrarRegistro] = useState(false)
@@ -58,15 +56,8 @@ export default function ClientesLista({
         </select>
         <button
           type="button"
-          onClick={() => router.push('/checkin-config')}
-          className="ml-auto rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground transition hover:bg-background"
-        >
-          ⚙️ Configurar check-in
-        </button>
-        <button
-          type="button"
           onClick={() => setMostrarRegistro(true)}
-          className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
+          className="ml-auto rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
         >
           + Registrar cliente
         </button>

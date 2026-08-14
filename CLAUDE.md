@@ -52,6 +52,76 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Parte UX — Objetivos primero, Revisiones aparte (2026-08-15)
+
+Rediseño puramente de UX/frontend, sin tocar modelo de datos, endpoints ni lógica de cálculo.
+Objetivo: que la app se entienda como seguimiento (Objetivo = qué quiere conseguir el cliente,
+Revisión = qué quiere preguntarle el entrenador), no como un constructor de check-ins.
+
+**Mapeo (sin API nueva):** Objetivo sigue siendo una fila de `Objetivos` tal cual. Revisión es
+cualquier campo de `Campos_checkin` que no sea la fuente (`Fuente_field_id`) de ningún objetivo
+vigente del cliente — distinción calculada en el frontend cruzando `objetivo.fuenteFieldId`
+contra `campo.id`, sin tabla ni endpoint nuevo.
+
+**Entrenador:** `ClienteFicha.tsx` agrupa `ObjetivosEntrenador` + el nuevo
+`RevisionesEntrenador.tsx` bajo "Seguimiento del cliente". `ObjetivosEntrenador.tsx` y
+`ObjetivoModal.tsx` pierden la jerga técnica de la vista compacta (fuente/Field_id/modoProgreso)
+y el modal reordena el flujo como "qué mide → meta → frecuencia → guardar", con la fuente
+elegida por chips en lenguaje humano (nombre del campo) en vez de un `<select>` técnico.
+`RevisionesEntrenador.tsx` reutiliza `GET/PUT /api/entrenador/checkin-config` tal cual (mismo
+catálogo que hoy alimenta `/checkin-config`) con una nota explícita: **las revisiones son por
+entrenador, no por cliente** — `Campos_checkin` no tiene relación con `Clientes`, así que
+gestionarlas "dentro de la ficha de un cliente" solo es una conveniencia de UI; el cambio se
+aplica a todos los clientes de ese entrenador. `RevisionModal.tsx` (nuevo, hermano de
+`CampoPersonalizadoModal.tsx`, que se deja intacto) crea revisiones con el mismo endpoint
+(`POST /api/entrenador/checkin-config/campos`) usando `describirRecurrencia()` para mostrar
+"Cada día"/"Cada lunes"/"El día 1 de cada mes" en vez de checkboxes técnicos.
+
+**Navegación:** el botón "⚙️ Configurar check-in" se quitó de `ClientesLista.tsx` y de la ficha
+del cliente — la pantalla `/checkin-config` (sin tocar) ahora se accede desde un icono en
+`Header.tsx` (prop `showCheckinConfigLink`), pasado explícitamente solo en el branch de
+`dashboard/page.tsx` que ya se renderiza igual para un entrenador real y para un admin en "Ver
+como entrenador" — **a propósito no se gatea por `isAdmin`**, para no repetir el bug de
+`DEC-2026-011`.
+
+**Cliente:** `MisObjetivos.tsx` añade una acción "Registrar" (deep-link
+`/cliente/checkin?campo={fuenteFieldId}` + `scrollIntoView`, puramente frontend) y una tarjeta
+propia para objetivos `valor_objetivo` (peso: "objetivo: X kg / Actual: Y kg" + barra lineal
+dirigida, reutilizando `progreso.direccion/porcentaje` ya calculado). `/cliente/checkin`
+particiona los campos activos de cada sección en "campos que alimentan un objetivo" (se
+registran junto al objetivo, un único input aunque varios objetivos compartan la misma fuente
+— verificado con fixture: 2 objetivos de "pasos" con periodicidad distinta, 1 solo registro
+alimenta ambos progresos) y "Revisión" (el resto, con el texto "Esto es una revisión de tu
+estado, no un objetivo."). El campo estándar `peso`, cuando alimenta un objetivo
+`valor_objetivo`, se relabela "¿Cuánto pesas?" con la barra lineal encima del input.
+`/cliente/dashboard` oculta la tarjeta "Revisión" para un tipo si todos sus campos activos son
+ya fuente de algún objetivo (ya cubiertos por "Mis objetivos").
+
+**Validación:** `tsc --noEmit`, `eslint`, `next build` sin errores. Prueba E2E con fixtures
+desechables (patrón `DEC-2026-009`): objetivo diario "Pasos" (métrica nueva) + objetivo semanal
+"60.000 pasos" con la misma métrica → el campo `Pasos` no se duplicó (`custom_pasos_...` único),
+ambos objetivos comparten `fuenteFieldId`; un único `POST /api/cliente/checkin` con `pasos=8500`
+actualizó el progreso diario (8500/10000, 85%) y semanal (8500/60000, 14%) desde el mismo dato;
+la partición objetivo/revisión excluyó correctamente "pasos" de la lista de revisión del día
+(dejando `entrenamiento_realizado`/`energia`/`fatiga`/`animo`/`dolor`); objetivo de peso
+`valor_objetivo` (bajar, inicial 80, meta 75) tras registrar 78 dio `porcentaje: 40` — coincide
+con el cálculo esperado. Fixtures borrados al terminar.
+
+**No probado visualmente en navegador** (sin acceso a Chrome/Playwright en esta sesión) —
+verificado el cálculo/forma de los datos que consumen las pantallas nuevas contra la API real,
+no el renderizado en sí.
+
+**Pendiente real (adaptación técnica, fuera de alcance de esta fase):**
+- Revisiones por cliente (hoy son por entrenador) requeriría relacionar `Campos_checkin` con
+  `Clientes` — cambio de modelo de datos, no se hace aquí.
+- La acción "Registrar" del dashboard del cliente navega a `/cliente/checkin` con deep-link
+  (`scrollIntoView`); un registro verdaderamente inline en el propio dashboard requeriría
+  extraer `CampoInput` a un flujo de guardado propio — no se construyó en esta fase.
+- Prueba visual real en navegador de todas las pantallas nuevas (Seguimiento del cliente,
+  modal de objetivo con chips, Revisiones, dashboard/check-in del cliente).
+
+---
+
 ## Bugfix — mensaje propio cuando la cuenta no está registrada como entrenador (2026-08-14)
 
 **Síntoma reportado (segunda vez, tras DEC-2026-028):** entrenador nuevo, con `Seguimiento`

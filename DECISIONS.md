@@ -1692,6 +1692,22 @@ dato real.
   con fixture desechable contra el servidor real. Pendiente real: corregir a mano en Airtable el
   email con errata para desbloquear el acceso real de `espartakofake@gmail.com`.
 
+### 2026-08-15 — Parte UX: Objetivos primero, Revisiones aparte
+- Añadida `DEC-2026-039`: rediseño puramente de UX/frontend (Objetivo vs Revisión), sin tocar
+  modelo de datos ni endpoints. La distinción se calcula en el cliente cruzando
+  `objetivo.fuenteFieldId` contra `campo.id` de `Campos_checkin` — un campo es "de objetivo" si
+  al menos un objetivo vigente del cliente lo usa como fuente; el resto son "Revisión". Nuevo
+  `RevisionesEntrenador.tsx`/`RevisionModal.tsx` (hermanos de `ObjetivosEntrenador.tsx` y
+  `CampoPersonalizadoModal.tsx`, que se dejan intactos) dentro de la ficha del cliente, con nota
+  explícita de que las revisiones son compartidas por entrenador (no por cliente). Botón de
+  configuración avanzada (`/checkin-config`, sin tocar) movido a `Header.tsx`
+  (`showCheckinConfigLink`), gateado por el branch de render correcto para no repetir
+  `DEC-2026-011`. Validado con prueba E2E de fixtures desechables (patrón `DEC-2026-009`): 2
+  objetivos de "pasos" con periodicidad distinta comparten la misma fuente sin duplicar el
+  campo, un único registro alimenta ambos progresos, y objetivo de peso (`valor_objetivo`)
+  calcula correctamente la dirección. `tsc --noEmit`, `eslint` y `next build` sin errores. No
+  probado visualmente en navegador (sin acceso a Chrome/Playwright en esta sesión).
+
 ---
 
 ## DEC-2026-038 — `/api/entrenador/perfil` distingue "no registrado" de "sin plan"
@@ -1754,3 +1770,93 @@ La fila de `Entrenadores` con la errata `esprartakofake@gmail.com` sigue en Airt
 `Soluciones=["Seguimiento"]` asignado, y la cuenta real `espartakofake@gmail.com` sigue sin
 ninguna fila de Entrenador propia — ese entrenador real todavía no puede acceder hasta corregir
 el email a mano en Admin (o dar de baja la fila con la errata).
+
+---
+
+## DEC-2026-039 — Parte UX: Objetivos primero, Revisiones aparte
+
+**Fecha:** 2026-08-15
+**Tipo:** UX / Frontend
+**Estado:** Implementada
+
+### Contexto
+RetainCoach se percibía como un "constructor de check-ins" (`Campos_checkin`, tipos
+diario/semanal/periódico, `/checkin-config`) en vez de una app de seguimiento. El brief pidió
+introducir dos conceptos claros para el entrenador y el cliente — **Objetivo** (algo que el
+cliente quiere conseguir y se mide) y **Revisión** (preguntas/sensaciones que el entrenador
+quiere conocer) — explícitamente **solo en la capa de presentación**: sin tocar Supabase,
+Airtable, n8n, esquemas, endpoints ni el cálculo de progreso.
+
+### Decisión
+- **Objetivo** sigue siendo, sin ningún cambio, una fila de `Objetivos` (`GET/POST/PATCH/DELETE
+  /api/clientes/[id]/objetivos[/[objetivoId]]`).
+- **Revisión** = cualquier campo de `Campos_checkin` que **no** sea la fuente
+  (`Fuente_field_id`) de ningún objetivo vigente del cliente. Se calcula en el frontend
+  cruzando `objetivo.fuenteFieldId` (ya expuesto en `ObjetivoResuelto`, `src/lib/objetivos.ts`)
+  contra `campo.id` — sin tabla, campo ni endpoint nuevo. Verificado con fixture real: al crear
+  un objetivo con fuente "Pasos", ese campo desaparece de la lista de "campos de revisión" de
+  la sección correspondiente automáticamente.
+- **Revisiones se gestionan dentro de la ficha del cliente** (nuevo `RevisionesEntrenador.tsx` +
+  `RevisionModal.tsx`) aunque el catálogo (`Campos_checkin`) sea por entrenador, no por cliente
+  — decisión explícita del usuario tras señalar que no hay forma de que sea por cliente sin
+  tocar el modelo de datos (fuera de alcance). La UI lo deja explícito: "Estas preguntas se
+  aplican a todos tus clientes." `CampoPersonalizadoModal.tsx` (usado por `/checkin-config`) se
+  deja intacto — `RevisionModal.tsx` es un componente hermano, mismo endpoint (`POST
+  /api/entrenador/checkin-config/campos`), copy simplificado y periodicidad en lenguaje humano
+  vía `describirRecurrencia()` (ya existía, `src/lib/checkinFields.ts`, usado hasta ahora por
+  `ProgramacionTipo.tsx`) en vez de checkboxes técnicos "Diario/Semanal/Periódico".
+- **Acceso avanzado** (`/checkin-config`, sin tocar su página ni componentes) se sacó de
+  `ClientesLista.tsx` y de la ficha del cliente, y pasó a un icono en `Header.tsx`
+  (`showCheckinConfigLink`, nuevo prop). Se pasa explícitamente solo desde el branch de
+  `dashboard/page.tsx` que ya se renderiza igual para un entrenador real y para un admin en "Ver
+  como entrenador" — **a propósito no se gatea por `isAdmin`**, decisión explícita del usuario
+  para no repetir el bug de `DEC-2026-011` (el botón desaparecía en "Ver como entrenador" cuando
+  se gateaba por `isAdmin`).
+- **Objetivos `valor_objetivo` (peso)** obtienen tarjeta y copy propios ("objetivo: X kg / Actual:
+  Y kg" + barra lineal dirigida) tanto en la ficha del entrenador como en el dashboard/check-in
+  del cliente (etiqueta "¿Cuánto pesas?" cuando el campo `peso` alimenta un objetivo así) —
+  reutilizando `ProgresoObjetivo.direccion/valorInicial/porcentaje` y `formatearProgresoTexto()`
+  ya calculados por `calcularProgresoValorObjetivo()`, sin tocar `objetivos.ts`.
+- **Deep-link "Registrar"** desde `/cliente/dashboard` (`MisObjetivos.tsx`) a
+  `/cliente/checkin?campo={fuenteFieldId}` + `scrollIntoView()` al montar — puramente frontend
+  (query param + DOM), no requiere ninguna API nueva.
+- `ObjetivoModal.tsx` reordena el formulario ("qué mide → meta → frecuencia → guardar") y
+  sustituye el selector de fuente por chips con nombres humanos de los campos ya existentes +
+  "Otra métrica" (antes "Métrica nueva") + un enlace secundario para el caso sin fuente (antes
+  un radio de igual peso visual que los demás) — misma lógica de estado y `handleSubmit`, cero
+  cambios de comportamiento al guardar.
+
+### Por qué no se tocó backend
+Cada pieza de información que la nueva UX necesita ya la devuelven los endpoints existentes
+(`fuenteFieldId` en `ObjetivoResuelto`, `describirRecurrencia()`/`proximaAperturaGenerica()` en
+`checkinFields.ts`, `ProgresoObjetivo` completo desde `resolverObjetivo()`) — el trabajo de esta
+fase fue enteramente de derivación y presentación en el cliente.
+
+### Verificación
+Prueba E2E con fixtures desechables (patrón `DEC-2026-009`, entrenador+cliente `@example.com`,
+borrados al terminar) contra el servidor real:
+- Objetivo diario "10.000 pasos" con métrica nueva "Pasos" (numérica) → campo creado una vez
+  (`custom_pasos_...`).
+- Objetivo semanal "60.000 pasos" con el mismo nombre de métrica → **no** duplicó el campo (1
+  solo `Pasos` en el catálogo tras el segundo objetivo) — confirma el dedup de `DEC-2026-034`
+  sigue intacto y es justo lo que la nueva UX necesita para "el cliente registra una vez,
+  alimenta ambos objetivos".
+- `POST /api/cliente/checkin` con `pasos=8500` (una sola llamada) → `GET` posterior mostró
+  progreso diario `8500/10000 (85%)` **y** semanal `8500/60000 (14%)` desde el mismo dato.
+- Partición objetivo/revisión: en la sección diaria, el campo "pasos" quedó excluido de la
+  lista de "campos de revisión" (que sí incluyó `entrenamiento_realizado`/`energia`/`fatiga`/
+  `animo`/`dolor`) — exactamente el cálculo que usa el nuevo `/cliente/checkin`.
+- Objetivo de peso (`valor_objetivo`, bajar, inicial 80, meta 75) tras registrar `peso=78` →
+  `porcentaje: 40` (coincide con `(80-78)/(80-75)=40%`, cálculo ya existente sin modificar).
+- `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.
+
+**No probado visualmente en navegador** (sin Chrome/Playwright disponibles en esta sesión) — se
+verificó la forma y corrección de los datos que las pantallas nuevas consumen, no su
+renderizado real.
+
+### Pendiente real (adaptación técnica, explícitamente fuera de alcance de esta fase)
+- Revisiones por cliente (hoy por entrenador) requeriría relacionar `Campos_checkin` con
+  `Clientes` — cambio de modelo de datos.
+- Un registro verdaderamente inline en `/cliente/dashboard` (sin navegar a `/cliente/checkin`)
+  requeriría extraer `CampoInput` a un flujo de guardado propio.
+- Prueba visual real en navegador de todas las pantallas nuevas.

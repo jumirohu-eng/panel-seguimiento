@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/format'
 import AIAnalysis from './AIAnalysis'
 import SuggestedMessage from './SuggestedMessage'
 import ObjetivosEntrenador from './ObjetivosEntrenador'
+import RevisionesEntrenador from './RevisionesEntrenador'
 
 const ESTADO_BADGE: Record<string, string> = {
   Activo: 'bg-success/10 text-success',
@@ -483,7 +484,11 @@ export default function ClienteFicha({
         </div>
       </div>
 
-      <ObjetivosEntrenador clienteId={cliente.id} />
+      <div className="flex flex-col gap-4">
+        <h3 className="text-sm font-semibold text-muted">Seguimiento del cliente</h3>
+        <ObjetivosEntrenador clienteId={cliente.id} />
+        <RevisionesEntrenador clienteId={cliente.id} />
+      </div>
 
       {reportes.length > 0 && (
         <div>

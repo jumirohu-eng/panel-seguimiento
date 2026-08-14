@@ -220,7 +220,8 @@ export default function ClienteDashboardPage() {
 
         {checkin && (
           <section className="rounded-xl border border-primary bg-card p-6 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-card-foreground">Tus check-ins</h2>
+            <h2 className="text-sm font-semibold text-card-foreground">Revisión</h2>
+            <p className="mb-3 text-xs text-muted">Preguntas de tu entrenador sobre cómo te encuentras.</p>
             <div className="flex flex-col gap-3">
               {(['diario', 'semanal', 'periodico'] as const).map((tipo) => {
                 const estado = checkin[tipo]
@@ -238,7 +239,11 @@ export default function ClienteDashboardPage() {
                     </div>
                   )
                 }
-                if (estado.campos.length === 0) return null
+                // Si todos los campos activos de este tipo son la fuente de un objetivo, ya se
+                // registran desde "Mis objetivos" — esta tarjeta es solo para revisiones.
+                const idsObjetivo = new Set(estado.objetivos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
+                const tieneRevision = estado.campos.some((c) => !idsObjetivo.has(c.id))
+                if (!tieneRevision) return null
                 return (
                   <div key={tipo} className="flex items-center justify-between gap-3">
                     <div>

@@ -1050,6 +1050,66 @@ ningún workflow fue modificado ni (des)activado durante esta sesión.
 
 ---
 
+## DEC-2026-028 — `/planes` no re-comprobaba el acceso: página sin salida tras conceder un plan
+
+**Fecha:** 2026-08-14
+**Tipo:** Bug / UX / Routing
+**Estado:** Corregido
+
+### Hallazgo
+Reportado: un entrenador de prueba con `Seguimiento` concedido desde Admin seguía viendo
+"Solicita acceso a un plan" en su dashboard.
+
+### Investigación
+Se auditó el flujo completo antes de tocar nada: `tienePlanBase()` (`src/lib/productos.ts`),
+`PUT /api/admin/entrenadores/[email]` (escribe `Soluciones` en Airtable), `GET
+/api/entrenador/perfil` (lee `Soluciones` del entrenador autenticado) y el gate de
+`src/app/dashboard/page.tsx` (`if (!tienePlanBase(perfil.soluciones)) router.push('/planes')`).
+Se reprodujo el ciclo completo contra la API real y Airtable real con un fixture aislado:
+crear entrenador sin soluciones → `perfil.soluciones=[]` → admin concede `Seguimiento` vía
+el mismo PUT que usa la ficha de Admin → Airtable confirma `Soluciones: ["Seguimiento"]` →
+`GET /api/entrenador/perfil` ya devuelve `["Seguimiento"]` → `tienePlanBase()` da `true`.
+**Todo el ciclo de datos funciona correctamente** — no hay bug de persistencia, lectura,
+identificación de entrenador, nombre del producto ni en `tienePlanBase()` en sí.
+
+El bug real está en `src/app/planes/page.tsx`: la página a la que `/dashboard` redirige
+cuando `tienePlanBase()` es `false` **nunca vuelve a comprobar nada** — no llama a
+`/api/entrenador/perfil`, no llama a `tienePlanBase()`, no tiene ningún `router.push` salvo
+el de "sin sesión → `/login`". Un entrenador que aterriza ahí porque en ese momento no
+tenía plan se queda viendo esa página para siempre, aunque el admin le conceda un plan
+segundos después — recargar `/planes` no cambia nada porque la página es estática respecto
+al plan. La única forma de "arreglarlo" sin tocar código era navegar manualmente a
+`/dashboard` (URL directa) o cerrar sesión y volver a entrar (que sí pasa por `/dashboard`
+y sí revalúa). Esto explica exactamente el síntoma reportado: el dato en Airtable ya era
+correcto, pero la pantalla en la que se quedó la cuenta de prueba nunca lo llegó a
+consultar de nuevo.
+
+### Decisión
+`src/app/planes/page.tsx` replica ahora, al cargar, el mismo chequeo que ya hace
+`src/app/dashboard/page.tsx` (rol `admin` → `/dashboard`; `tienePlanBase(soluciones)` →
+`/dashboard`; si ninguno aplica, se queda mostrando la página). No se cambió
+`tienePlanBase()`, no se tocó el modelo de `Soluciones` ni ningún endpoint de Admin, no se
+concedió acceso manualmente a ninguna cuenta real.
+
+### Por qué esta y no otra causa
+Se descartaron explícitamente, con evidencia, las demás causas posibles pedidas en el
+brief: persistencia (Airtable confirma el valor tras el PUT), lectura (`GET
+/api/entrenador/perfil` devuelve el valor recién escrito, sin desfase), identificación del
+entrenador (mismo `email` de principio a fin, `getEntrenadorByEmail` resuelve el mismo
+registro para el PUT de Admin y el GET del propio entrenador), nombre/ID del producto
+(`'Seguimiento'` coincide exactamente entre `SOLUCIONES_BASE`, el choice real del campo
+`Soluciones` en Airtable, y el botón de la ficha de Admin), y `tienePlanBase()` (lógica
+trivial y correcta, probada). No se encontraron entrenadores duplicados en Airtable
+(comprobado por email normalizado) que pudieran causar una lectura/escritura desalineada.
+
+### Verificación
+Prueba E2E contra la API real: sin `Seguimiento` → `tienePlanBase=false`; se concede →
+`true`; se quita → `false`; se vuelve a conceder → `true`; se comprueba que `Referidos`
+solo y `Captación` sola no interfieren entre sí (otros planes/productos intactos).
+`tsc --noEmit`, `eslint` y `next build` sin errores.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -1120,3 +1180,6 @@ ningún workflow fue modificado ni (des)activado durante esta sesión.
 - `GET /api/cliente/checkin` expone `objetivos` por tipo (diario/semanal/periodico) para integrar Objetivos con el check-in, respetando la configuración de campos de Parte 1.5. Dashboard cliente: nueva sección "Mis objetivos" (agrupada Hoy/Esta semana/Este mes) sustituye a "Entrenamientos esta semana". Ficha entrenador: nueva sección "Objetivos" (crear/editar/desactivar + progreso) junto a check-ins e historial.
 - Backfill de continuidad: 4 clientes reales con `Entrenamientos_objetivo` > 0 recibieron un `Objetivo` "Entrenamientos" equivalente (mismo patrón que backfills anteriores del proyecto), sin tocar el campo Airtable original.
 - Validado con prueba E2E de fixtures aislados (patrón DEC-2026-009), 46 comprobaciones, cubriendo los puntos de la sección 9 del brief. `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.
+
+### 2026-08-14 — Bugfix: `/planes` no se autocorregía tras conceder un plan
+- Añadida `DEC-2026-028`: investigado el bug reportado ("entrenador con Seguimiento concedido sigue viendo 'Solicita acceso a un plan'"). Todo el ciclo de datos (Admin PUT → Airtable → `GET /api/entrenador/perfil` → `tienePlanBase()`) funciona correctamente, verificado con una prueba E2E contra la API real. La causa real es que `src/app/planes/page.tsx` nunca comprobaba el plan ni redirigía de vuelta a `/dashboard` — página sin salida una vez que un entrenador aterrizaba ahí, aunque el admin le concediera un plan después. Corregido replicando en `/planes` el mismo chequeo que ya hace `/dashboard`. Sin cambios en `tienePlanBase()`, el modelo de `Soluciones` ni ningún endpoint de Admin.

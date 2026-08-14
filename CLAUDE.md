@@ -55,7 +55,10 @@ Auth/API:
 ## RetainCoach — Objetivos + Check-ins: integración robusta (2026-08-14)
 
 Rama: `retaincoach-objetivos-checkins-integracion` (derivada de
-`retaincoach-parte-1.5.3`). Push pendiente hasta confirmar con el usuario.
+`retaincoach-parte-1.5.3`). **Fusionada a `main` (fast-forward) y desplegada a
+producción** tras una auditoría puntual pre-merge (deduplicación/concurrencia del
+check-in + objetivo real de peso) — ver `DECISIONS.md`, entrada "Auditoría puntual
+pre-merge + fusión a `main`".
 
 **Auditoría previa (regla de este archivo):** se releyeron `objetivos.ts`,
 `checkinFields.ts`, las rutas de check-in/objetivos y `ObjetivoModal`/`ObjetivosEntrenador`
@@ -112,8 +115,8 @@ sesión) — verificado contra la API real, Airtable real y Supabase real.
 ## RetainCoach Parte 1.5.3 — Limpieza, programación clara y objetivos integrados (2026-08-14)
 
 Rama: `retaincoach-parte-1.5.3` (derivada de `retaincoach-objetivos-parte-1.5.2`, que ya
-incluía el fast-forward del bugfix de `/planes`). Push pendiente hasta confirmar con el
-usuario — ver "Pendiente real" al final de esta sección.
+incluía el fast-forward del bugfix de `/planes`). **Fusionada a `main` y desplegada a
+producción** (2026-08-14, junto con la sesión de Objetivos + Check-ins) — ver arriba.
 
 **Contradicción señalada antes de implementar (regla de `CLAUDE.md`):** DEC-2026-027
 había decidido explícitamente NO tocar el flujo Tally semanal

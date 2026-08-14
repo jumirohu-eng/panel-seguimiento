@@ -713,6 +713,39 @@ con `Entrenamientos_objetivo=4` del fixture y 0 días entrenados esa semana.
 
 ---
 
+## DEC-2026-021 — Parte 1.5 fusionada a `main` y en producción tras promoción manual desde Vercel
+
+**Fecha:** 2026-08-14
+**Tipo:** Proceso / Despliegue
+**Estado:** Aplicada
+
+### Contexto
+El plan original de Parte 1.5 (ver contexto de esta sesión) indicaba explícitamente
+no fusionar a `main` ni desplegar a producción hasta revisión. Juanmi promovió un
+deployment intermedio de la rama `retaincoach-checkin-parte-1.5` (commit `0d8b1a3`)
+directamente a producción desde el panel de Vercel ("Promote to Production"), sin
+pasar por `main` en git — probado desde `retaincoach.com` con una cuenta de cliente
+real, donde detectó que faltaba el botón "Cambiar contraseña" (añadido después, en
+el commit `7a4e929`).
+
+### Decisión
+Confirmado explícitamente con Juanmi: se hizo fast-forward merge de `main` a la
+punta de la rama (`main` → `7a4e929`, sin conflictos) y push. Esto deja `main` y lo
+que ya estaba en producción consistentes, y restablece el flujo normal de despliegue
+de Vercel (push a `main` → build → producción) en vez de depender de una promoción
+manual de un commit de rama que quedaría fuera de sincronía con `main` para siempre.
+
+### Aprendizaje
+Una "promoción a producción" manual desde el panel de Vercel puede desacoplar lo que
+sirve `retaincoach.com` de lo que dice `main` en git, sin que quede ningún rastro en
+el historial de commits — solo visible consultando el historial de deployments de
+Vercel (`target: "production"` en un deployment cuyo `githubCommitRef` no es
+`main`). Si en una sesión futura algo en producción no coincide con lo esperado por
+`main`, comprobar el historial de deployments de Vercel antes de asumir que el
+código no llegó a desplegarse.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -763,3 +796,5 @@ con `Entrenamientos_objetivo=4` del fixture y 0 días entrenados esa semana.
 - Añadida `DEC-2026-019`: cliente activo/inactivo — reutilizado `Clientes.Estado='Perdido'`, gate real en backend (`getClienteActivoAutenticado`) antes ausente, botón Reactivar.
 - Añadida `DEC-2026-020`: limpieza del dashboard cliente (peso/mensaje IA/energía del sistema Tally antiguo eliminados de la UI, sin tocar datos) y nueva métrica X/Y de entrenamientos semanales con limitación documentada de la fuente de Y.
 - Validado con prueba E2E de fixtures aislados (entrenador+cliente ficticios, creados y borrados en la sesión) cubriendo los 20 puntos de la sección 16 del brief de Parte 1.5, `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.
+- Ajustes tras revisión del preview: botón "Programar" apilado debajo de la fecha, dashboard cliente reordenado (Entrenamientos → Mis notas → Tus check-ins), eliminada la tarjeta "Próximo check-in semanal (Tally)" del dashboard cliente, añadido botón "Cambiar contraseña" en `/cliente/dashboard`.
+- Añadida `DEC-2026-021`: fusión de `retaincoach-checkin-parte-1.5` a `main` (fast-forward, sin conflictos) tras confirmación explícita de Juanmi — producción ya servía un commit intermedio de la rama, promovido manualmente desde Vercel.

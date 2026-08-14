@@ -50,7 +50,21 @@ Auth/API:
 
 ## RetainCoach Parte 1.5 — rediseño del check-in: tres tipos independientes (2026-08-14)
 
-Rama: `retaincoach-checkin-parte-1.5` (derivada de `main`, no mergeada).
+Rama: `retaincoach-checkin-parte-1.5` (derivada de `main`). **Fusionada a `main` y en
+producción (`retaincoach.com`)** — Juanmi promovió un deployment intermedio de esta
+rama directamente a producción desde el panel de Vercel (sin pasar por `main`), por
+lo que se hizo fast-forward merge de `main` a la punta de la rama (`7a4e929`) para
+que ambos queden consistentes y el flujo normal de despliegue (push a `main` → Vercel
+despliega) se restablezca. Sin conflictos (fast-forward limpio).
+
+Incluye, además de lo descrito abajo: ajustes de UI tras revisión del preview
+(botón "Programar" apilado debajo de la fecha en vez de al lado — se solapaba con la
+programación del tipo vecino; dashboard cliente reordenado: Entrenamientos esta
+semana → Mis notas → Tus check-ins; eliminada la tarjeta "Próximo check-in semanal
+(Tally)" del dashboard cliente) y un botón **"Cambiar contraseña"** en
+`/cliente/dashboard` (reutiliza `ChangePasswordModal`, ya usado por
+entrenador/admin en `Header.tsx` — el cliente no pasaba por ese componente y no
+tenía forma de cambiar su contraseña estando logueado).
 
 Rediseño grande sobre el check-in de Parte 1, pedido explícitamente por Juanmi:
 diario/semanal/periódico dejan de compartir lanzamiento y un campo deja de estar

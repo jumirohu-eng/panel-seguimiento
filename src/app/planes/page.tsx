@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { tienePlanBase } from '@/lib/productos'
 import Header from '@/components/Header'
 import PlanesCards from '@/components/PlanesCards'
 import { PLANES_COPY } from '@/content/plans-copy'
@@ -16,6 +17,7 @@ function linkWhatsapp(mensaje: string): string | null {
 export default function PlanesPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
+  const [checking, setChecking] = useState(true)
 
   useEffect(() => {
     async function init() {
@@ -24,12 +26,51 @@ export default function PlanesPage() {
         router.push('/login')
         return
       }
+
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+
+      // Esta página no tenía forma de detectar que el acceso cambió después de aterrizar
+      // aquí (ni admin la concede desde aquí, ni había re-comprobación al recargar) — un
+      // entrenador que llegaba sin plan se quedaba viendo "Solicita acceso" para siempre,
+      // aunque el admin le concediera un plan después, hasta que navegara manualmente a
+      // /dashboard o volviera a iniciar sesión. Se replica aquí el mismo chequeo que ya
+      // hace /dashboard, para que esta página se autocorrija en cada carga.
+      if (token) {
+        try {
+          const rolRes = await fetch('/api/auth/rol', { headers: { Authorization: `Bearer ${token}` } })
+          if (rolRes.ok) {
+            const { rol } = await rolRes.json()
+            if (rol === 'admin') {
+              router.push('/dashboard')
+              return
+            }
+          }
+        } catch {
+          // Si falla la resolución de rol, seguimos comprobando el plan por si acaso
+        }
+
+        try {
+          const perfilRes = await fetch('/api/entrenador/perfil', { headers: { Authorization: `Bearer ${token}` } })
+          if (perfilRes.ok) {
+            const perfil = await perfilRes.json()
+            if (tienePlanBase(perfil.soluciones ?? [])) {
+              router.push('/dashboard')
+              return
+            }
+          }
+        } catch {
+          // Si falla la comprobación de plan, mostramos esta página igualmente
+        }
+      }
+
       setEmail(data.user.email ?? '')
+      setChecking(false)
     }
     init()
   }, [router])
 
-  if (!email) return null
+  if (checking || !email) return null
 
   const href = linkWhatsapp('Hola, quiero activar un plan de RetainCoach')
 

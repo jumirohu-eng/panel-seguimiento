@@ -49,6 +49,48 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — `/planes` no se autocorregía tras conceder un plan (2026-08-14)
+
+Rama: `bugfix-planes-no-se-autocorrige` (derivada de `retaincoach-objetivos-parte-1.5.2`,
+no mergeada a `main`, sin push).
+
+**Síntoma reportado:** un entrenador con `Seguimiento` concedido desde Admin seguía viendo
+"Solicita acceso a un plan" en vez del dashboard.
+
+**Causa exacta (demostrada, no hipótesis):** `tienePlanBase()`, el PUT de Admin
+(`/api/admin/entrenadores/[email]`) y la lectura del entrenador
+(`/api/entrenador/perfil`) funcionan correctamente — verificado con una prueba E2E contra
+la API real que concede/quita/re-concede `Seguimiento` y confirma en cada paso el valor
+real en Airtable y lo que devuelve la API (ver Validación). El bug real está en
+`src/app/planes/page.tsx`: **esta página nunca comprobaba el plan del entrenador ni
+redirigía de vuelta a `/dashboard`** — confirmado leyendo el archivo completo, el único
+`router.push` era el de "no hay sesión → /login". Un entrenador sin plan que aterriza en
+`/dashboard` es redirigido a `/planes` (lógica correcta, ahí sí se comprueba
+`tienePlanBase`); pero una vez en `/planes`, esa página es estática — ni recargarla ni
+esperar vuelve a comprobar nada. Si el admin concede el plan mientras el entrenador ya
+está en esa pestaña, se queda viendo "Solicita acceso" indefinidamente hasta que navegue
+manualmente a `/dashboard` (o vuelva a iniciar sesión, que también pasa por `/dashboard`).
+
+**Dato que lo demuestra:** `grep -n "fetch\|tienePlanBase\|router.push" src/app/planes/page.tsx`
+antes del fix solo devolvía la línea del redirect a `/login` — cero llamadas a
+`/api/entrenador/perfil` ni a `tienePlanBase` en todo el archivo.
+
+**Cambio:** `/planes/page.tsx` replica ahora el mismo chequeo que ya hace
+`/dashboard/page.tsx` (rol admin → `/dashboard`; `tienePlanBase(soluciones)` → `/dashboard`;
+si no, se queda mostrando la página tal cual). Así la página se autocorrige en cada carga
+— basta con recargar o volver a `/planes` después de que el admin conceda el plan. No se
+tocó `tienePlanBase()`, el modelo de `Soluciones`, ni ningún endpoint de Admin.
+
+**Validación:** prueba E2E contra la API real (Airtable + Supabase reales, fixtures
+desechables): sin `Seguimiento` → `tienePlanBase=false`; se concede → `true`; se quita →
+`false`; se vuelve a conceder → `true`; se comprueba además que `Referidos`/`Captación`
+por separado no interfieren entre sí (planes independientes intactos). `tsc --noEmit`,
+`eslint` y `next build` sin errores. **No probado visualmente en navegador** (sin acceso
+a la extensión de Chrome en esta sesión) — la lógica de `/planes` añadida es una copia
+mecánica de la de `/dashboard`, ya probada en producción.
+
+---
+
 ## RetainCoach Parte 1.5.2 — Objetivos, progreso y retirada de Tally para clientes nuevos (2026-08-14)
 
 Rama: `retaincoach-objetivos-parte-1.5.2` (derivada de `retaincoach-onboarding-parte-1.5.1`, no

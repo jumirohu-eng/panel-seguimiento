@@ -114,41 +114,58 @@ válido generado por su propio entrenador.
 No se tocó nada del flujo Tally → n8n → `Reportes` semanal. El check-in in-app de Parte
 1.5 tampoco se tocó. `Link_tally_alta` se sigue generando igual en `POST /api/clientes`.
 
-### Bloqueante de infraestructura descubierto (no introducido por esta tarea)
-El SMTP de Supabase Auth no está configurado en este proyecto — `supabase.auth.signUp()`
-falla con `500 Error sending confirmation email` y **no llega a crear el usuario**. Esto
-ya estaba listado como pendiente en la sección "Bloqueantes técnicos/manuales" de este
-archivo, pero antes de esta sesión no estaba confirmado que rompiera el signup por
-completo (no solo el envío del email). Afecta igual al signup de entrenador (mismo
-mecanismo, no tocado en esta tarea). Hasta que se configure, ningún signup público
-(entrenador o cliente) funciona en producción tal cual — ver "Pendientes" más abajo.
+### Diagnóstico del 500 en signup — CORREGIDO (ver sesión de diagnóstico 2026-08-14)
+Esta sección decía originalmente que el SMTP de Supabase Auth "no estaba configurado".
+**Ese diagnóstico era incorrecto** — ver DEC-2026-025. El SMTP sí está configurado y
+funciona correctamente con dominios reales; el `500 Error sending confirmation email`
+observado en esta misma sesión ocurría porque las pruebas E2E usaban emails ficticios
+`@example.com`, y el proveedor SMTP de pruebas de Supabase rechaza explícitamente ese
+dominio (`550 "Invalid \`to\` field. Please use our testing email address instead of
+domains like example.com..."`, confirmado en los logs de Auth). Con un email real
+(`gmail.com`) el signup de cliente funciona de punta a punta: creación en Supabase Auth,
+solicitud de email de confirmación sin error, confirmación, login y onboarding. El
+mecanismo es idéntico al de entrenador (`supabase.auth.signUp()`, mismo cliente, mismo
+shape) — no hay diferencia de código entre ambos flujos.
 
 ### Validación
 Prueba E2E con fixtures aislados y desechables (mismo patrón DEC-2026-009): creación de
 cliente, generación de invitación, ownership (entrenador ajeno rechazado con 403), token
 único de 24h, validación pública, regeneración invalida el token anterior (410) y crea
-uno nuevo con 24h propias, registro simulado (ver bloqueante SMTP arriba — se usó Admin
-API como equivalente de `signUp` para no depender de un proveedor SMTP real), invalidación
-tras un solo uso (410 en validate y en complete repetido), manipulación de token de otro
-cliente no filtra datos ajenos, cuenta pendiente de activación no puede hacer login hasta
-confirmar el email, onboarding no completado tras primer login y completado tras guardar
-(con objetivos adicionales/días inválidos filtrados server-side), no reaparece tras
-completarse, estados activo/inactivo/reactivado (403 en `perfil` y `onboarding` para
-`Perdido`, recuperado tras reactivar sin perder el onboarding ya guardado), e invitación
-de entrenador (`/api/admin/invite`) sigue funcionando sin cambios. Durante la prueba se
-encontró y corrigió un bug real (no del test): el filtro de Airtable por campo enlazado
-`Cliente` no funcionaba — ver DEC-2026-024. `tsc --noEmit`, `eslint` y `next build`, los
-tres sin errores. Limpieza confirmada (0 filas de prueba restantes en las 5 tablas
-tocadas, 0 usuarios Supabase de prueba restantes).
+uno nuevo con 24h propias, registro con email `@example.com` para las partes no
+relacionadas con el envío real de correo (invalidación tras un solo uso, manipulación de
+token de otro cliente, estados, onboarding), invalidación tras un solo uso (410 en
+validate y en complete repetido), manipulación de token de otro cliente no filtra datos
+ajenos, cuenta pendiente de activación no puede hacer login hasta confirmar el email,
+onboarding no completado tras primer login y completado tras guardar (con objetivos
+adicionales/días inválidos filtrados server-side), no reaparece tras completarse, estados
+activo/inactivo/reactivado (403 en `perfil` y `onboarding` para `Perdido`, recuperado tras
+reactivar sin perder el onboarding ya guardado), e invitación de entrenador
+(`/api/admin/invite`) sigue funcionando sin cambios. Durante la prueba se encontró y
+corrigió un bug real (no del test): el filtro de Airtable por campo enlazado `Cliente` no
+funcionaba — ver DEC-2026-024. `tsc --noEmit`, `eslint` y `next build`, los tres sin
+errores. Limpieza confirmada (0 filas de prueba restantes en las 5 tablas tocadas, 0
+usuarios Supabase de prueba restantes).
+
+En una sesión de diagnóstico posterior (misma fecha) se repitió el flujo completo con un
+email real y controlable (`jumirohu+retaincoach-diag-...@gmail.com`, alias `+tag` de una
+bandeja real) contra Supabase real: `signUp()` sin error, usuario creado sin confirmar,
+login rechazado antes de confirmar, confirmación válida, login tras confirmar, onboarding
+completo — 13/13 comprobaciones OK, confirmado además contra los logs de Auth del
+proyecto (`status:200` en `/signup`, sin ningún error de `gomail`/envío). Ver DEC-2026-025.
+
+**No probado con un click real en el email recibido** (sin acceso a la bandeja de
+entrada) — se confirmó el email en su lugar generando un segundo link de confirmación
+válido vía Admin API para el mismo usuario ya creado por `signUp()`, ejercitando el
+endpoint real de verificación de Supabase (`/verify`) tal como lo haría el link del email.
+El envío real por SMTP se verificó de forma independiente contra los logs de Auth (sin
+error, a diferencia del caso `@example.com`).
 
 **No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta
 sesión) — verificado contra la API real, Airtable real y Supabase real.
 
 **Pendiente real:**
-- Configurar el SMTP de Supabase Auth (bloqueante confirmado esta sesión, ver arriba) —
-  sin esto, ningún cliente ni entrenador puede completar un signup público real.
 - Prueba visual en navegador del flujo completo (invitación → registro → confirmación →
-  onboarding → dashboard).
+  onboarding → dashboard) con un click real en el email recibido.
 
 ---
 
@@ -476,9 +493,11 @@ Este archivo contiene el estado actual que Claude Code debe conocer al iniciar u
 ### Bloqueantes técnicos/manuales
 - Configurar Supabase Auth `Site URL` = `https://retaincoach.com`.
 - Configurar Redirect URLs para `/signup/confirm` y `/reset-password`.
-- **Configurar el SMTP de Supabase Auth — bloqueante confirmado (Parte 1.5.1, 2026-08-14):
-  sin esto, `supabase.auth.signUp()` falla con 500 y no crea el usuario. Ningún signup
-  público (entrenador ni cliente) funciona en producción hasta configurarlo.**
+- ~~Configurar el SMTP de Supabase Auth~~ — **descartado como bloqueante** (sesión de
+  diagnóstico 2026-08-14, ver DEC-2026-025): el SMTP sí está configurado y funciona con
+  emails reales; el 500 observado antes era el rechazo de Supabase al dominio de pruebas
+  `@example.com`, no un fallo de configuración. Sigue pendiente probar con un click real
+  en el email recibido (no solo confirmación simulada vía Admin API).
 - Completar validación real del flujo de reset/signup desde producción.
 - Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` en Vercel si Marketplace debe funcionar.
 - Añadir manualmente `Metricas` como opción del multi-select `Entrenadores.Soluciones` si se quiere poder asignar ese producto.

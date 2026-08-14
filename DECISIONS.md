@@ -856,6 +856,88 @@ fix, `validate(token1)` devolvía `200` incorrectamente.
 
 ---
 
+## DEC-2026-025 — CORRECCIÓN: el SMTP de Supabase Auth sí está configurado; el 500 anterior era el rechazo del dominio `@example.com`, no un fallo de infraestructura
+
+**Fecha:** 2026-08-14
+**Tipo:** Corrección de diagnóstico / Infraestructura
+**Estado:** Confirmada
+
+### Decisión anterior que se reemplaza
+DEC de la sesión de Parte 1.5.1 (documentada en `CLAUDE.md`, sin número propio en este
+archivo) afirmaba: "el SMTP de Supabase Auth no está configurado — `supabase.auth.signUp()`
+falla con 500 y no crea el usuario [...] afecta igual al signup de entrenador". **Esa
+afirmación era incorrecta** y queda reemplazada por esta decisión.
+
+### Motivo del cambio
+Juanmi revisó los logs de Auth del proyecto (`jcijxhxdjabxdujldzml`) y encontró el error
+subyacente real detrás del 500: `gomail: could not send email 1: 550 "Invalid \`to\`
+field. Please use our testing email address instead of domains like example.com..."`. Es
+decir, el proveedor SMTP rechazaba específicamente el dominio de pruebas `example.com`
+(una restricción propia del entorno de pruebas de Supabase, documentada por Supabase para
+evitar que proyectos en el plan gratuito/pruebas envíen a dominios reservados), no un
+fallo general de configuración.
+
+### Evidencia recogida en esta sesión
+1. **Comparación de código:** `src/app/signup/page.tsx` (entrenador) y
+   `src/app/cliente/signup/page.tsx` (cliente) llaman a `supabase.auth.signUp()` de forma
+   idéntica (mismo cliente `@/lib/supabase`, mismo shape `{email, password, options:
+   {emailRedirectTo}}`). `/api/signup/complete` y `/api/signup/cliente/complete` son
+   estructuralmente paralelos (mismo patrón, solo cambian los helpers de
+   `Invitaciones`/`Invitaciones_cliente`). No hay diferencia de código entre ambos flujos
+   que explique un comportamiento distinto.
+2. **Prueba con email real:** `supabase.auth.signUp({ email:
+   'jumirohu+retaincoach-diag-<ts>@gmail.com', password })` (alias `+tag` de una bandeja
+   real y controlable, dominio `gmail.com`, no `example.com`) — **sin error**, usuario
+   creado sin confirmar (pendiente de activación real), tal como se espera.
+3. **Logs de Auth de Supabase** (vía `query_logs`) para esa misma petición: `POST /signup`
+   → `status:200`, evento `user_confirmation_requested` — ninguna traza de
+   `gomail`/`could not send`/500 en ningún punto del flujo (búsqueda explícita, 0
+   resultados), a diferencia del caso `@example.com` que sí deja ese error en los logs.
+4. **Flujo completo de punta a punta con ese email real**, contra la app real
+   (`next dev` + Airtable real + Supabase real): cliente creado por el entrenador →
+   invitación generada → `signUp()` real sin error → `POST /api/signup/cliente/complete`
+   (200, invitación marcada Usada) → login rechazado antes de confirmar (`400 email_not_
+   confirmed`, correcto) → confirmación (link de confirmación válido generado vía Admin
+   API para el mismo usuario ya creado por `signUp()`, ejercitando el endpoint real
+   `/verify` de Supabase tal como lo haría el click del email) → login normal funciona →
+   `GET/PUT /api/cliente/onboarding` funciona, onboarding completado y persistido. 13/13
+   comprobaciones OK. Confirmado también en los logs de Auth: `/token` con
+   `grant_type=password` devuelve `400 email_not_confirmed` antes de confirmar y `200`
+   después.
+
+### Límite de lo demostrado
+No se hizo click en el email realmente recibido en la bandeja (sin acceso a esa bandeja
+en esta sesión) — el paso de "confirmación" se completó generando un segundo link válido
+para el mismo usuario vía Admin API y consumiéndolo contra el endpoint real de Supabase,
+en vez de extraer el token del email efectivamente entregado. El envío real por SMTP se
+verificó de forma independiente y suficiente contra los logs de Auth (sin error), pero la
+entrega final a la bandeja de Gmail no se confirmó visualmente.
+
+### Decisión
+1. El signup de cliente (Parte 1.5.1) y el de entrenador comparten el mismo mecanismo y
+   ambos funcionan correctamente contra un dominio de email real — no hay bug de código.
+2. No se cambia nada en la configuración de Supabase ni de SMTP — no había nada que
+   arreglar.
+3. **No se implementa ningún workaround para `@example.com`** (instrucción explícita) —
+   los fixtures de pruebas E2E de este proyecto deben seguir usando `@example.com` salvo
+   que se necesite ejercitar específicamente el envío real de email (caso en el que debe
+   usarse un alias `+tag` de un email real y controlable, nunca un dominio inventado).
+4. Se retira "Configurar el SMTP de Supabase Auth" de los bloqueantes de
+   `CLAUDE.md` — no era un bloqueante real.
+
+### Aprendizaje
+Un 500 en una prueba automatizada con emails ficticios (`@example.com`,
+`test@test.com`, etc.) contra un proveedor de email real puede ser el proveedor
+rechazando el dominio de prueba, no un fallo de infraestructura. Antes de diagnosticar
+"servicio mal configurado" a partir de un error así, hay que mirar el mensaje de error
+completo del proveedor subyacente (aquí, los logs de Auth de Supabase lo decían
+explícitamente) y, si es posible, repetir la prueba con un dominio real antes de darlo
+por confirmado. La sesión anterior no llegó a mirar el log subyacente y asumió la causa
+más genérica a partir del código HTTP (500) y el mensaje corto de la SDK
+("Error sending confirmation email"), sin desglosar el motivo real del rechazo.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -914,4 +996,7 @@ fix, `validate(token1)` devolvía `200` incorrectamente.
 - Añadida `DEC-2026-023`: eliminado `POST /api/clientes/[id]/crear-acceso` (generaba contraseñas temporales), sustituido por el flujo de invitación con token.
 - Añadida `DEC-2026-024`: bug de Airtable corregido — un campo "link to record" en `filterByFormula` no se puede comparar contra el record id del registro enlazado (solo contra su campo primario); afectaba a la invalidación del token al regenerar una invitación de cliente.
 - Nueva tabla Airtable `Invitaciones_cliente` (mismo patrón que `Invitaciones` de entrenador) y campos nuevos `Clientes.Objetivos_adicionales`/`Clientes.Dias_disponibles` para el onboarding nativo — auditado antes de crear campos: el objetivo principal reutiliza `Objetivo` y el comentario reutiliza `Notas_iniciales`, ya existentes.
-- Validado con prueba E2E de fixtures aislados (patrón DEC-2026-009) cubriendo los 12 puntos de la sección 7 del brief, `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Confirmado como bloqueante de infraestructura (no introducido por esta tarea): el SMTP de Supabase Auth no está configurado, `supabase.auth.signUp()` falla con 500 y no crea el usuario — afecta igual al signup de entrenador ya existente.
+- Validado con prueba E2E de fixtures aislados (patrón DEC-2026-009) cubriendo los 12 puntos de la sección 7 del brief, `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.
+
+### 2026-08-14 — Diagnóstico signup cliente / Supabase Auth
+- Añadida `DEC-2026-025`, que **corrige** el diagnóstico de la entrada anterior ("SMTP no configurado"): el SMTP sí funciona con dominios reales; el 500 en las pruebas E2E era el rechazo de Supabase al dominio `@example.com` en su entorno de pruebas. Confirmado comparando código (signup de entrenador y cliente usan el mismo mecanismo, sin diferencias), logs de Auth de Supabase, y una prueba de punta a punta con un email real (`gmail.com`) sin errores. Retirado de los bloqueantes de `CLAUDE.md`. Sin cambios de código ni de configuración.

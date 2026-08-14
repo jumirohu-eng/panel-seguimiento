@@ -363,6 +363,66 @@ export function resolverProgramacionTipo(
   }
 }
 
+const NOMBRE_DIA_SEMANA: Record<DiaSemana, string> = {
+  lunes: 'lunes',
+  martes: 'martes',
+  miercoles: 'miércoles',
+  jueves: 'jueves',
+  viernes: 'viernes',
+  sabado: 'sábado',
+  domingo: 'domingo',
+}
+
+// Próxima ocurrencia (hoy o en adelante) del día de la semana configurado — a diferencia
+// de inicioDePeriodoSemanalUTC (que da el INICIO del periodo actual, pudiendo caer en el
+// pasado dentro de la semana en curso), esta función siempre mira hacia adelante. Usada
+// solo para mostrar al entrenador "próxima apertura" de forma genérica (no depende de si
+// un cliente concreto ya envió su check-in — eso ya lo resuelve calcularProximaFecha).
+export function proximaAperturaSemanal(diaSemana: DiaSemana, ahoraMs = Date.now()): string {
+  const inicioPeriodoMs = inicioDePeriodoSemanalUTC(diaSemana, ahoraMs)
+  const hoyMs = inicioDeHoyUTC(ahoraMs)
+  const proximaMs = inicioPeriodoMs < hoyMs ? inicioPeriodoMs + 7 * 24 * 60 * 60 * 1000 : inicioPeriodoMs
+  return new Date(proximaMs).toISOString()
+}
+
+// Subconjunto de ProgramacionTipoResuelta necesario para describir la recurrencia y su
+// próxima apertura — no depende de `lanzado`/`disponibleDesde` (eso es el estado de
+// borrador/programado/activo, un concepto distinto, ver LanzamientoCheckin).
+export type ReglaRecurrencia = Pick<
+  ProgramacionTipoResuelta,
+  'diaSemana' | 'modoPeriodico' | 'fechaInicioPeriodico' | 'intervaloDiasPeriodico' | 'diaMesPeriodico'
+>
+
+// Descripción en lenguaje claro de la recurrencia de un tipo de check-in (Parte 1.5.3,
+// simplificación de UX pedida explícitamente: "Cada lunes", "Cada 7 días", "El día 1 de
+// cada mes" en vez de exponer los campos técnicos crudos). No incluye hora: el modelo
+// actual programa por día (UTC), no por hora del día — ver DECISIONS.md, limitación
+// documentada a propósito, igual que el caso ya existente de día 31 en meses cortos.
+export function describirRecurrencia(tipo: FrecuenciaCheckin, programacion: ReglaRecurrencia): string {
+  if (tipo === 'diario') return 'Cada día'
+  if (tipo === 'semanal') return `Cada ${NOMBRE_DIA_SEMANA[programacion.diaSemana]}`
+  if (programacion.modoPeriodico === 'intervalo' && programacion.intervaloDiasPeriodico) {
+    return `Cada ${programacion.intervaloDiasPeriodico} días`
+  }
+  if (programacion.modoPeriodico === 'dia_mes' && programacion.diaMesPeriodico) {
+    return `El día ${programacion.diaMesPeriodico} de cada mes`
+  }
+  return 'Sin programar todavía'
+}
+
+// Próxima apertura genérica (no ligada a un cliente concreto) para mostrar al entrenador
+// en /checkin-config. Diario no tiene "próxima apertura" propia — está disponible todos
+// los días, así que no aplica (null).
+export function proximaAperturaGenerica(
+  tipo: FrecuenciaCheckin,
+  programacion: ReglaRecurrencia,
+  ahoraMs = Date.now()
+): string | null {
+  if (tipo === 'diario') return null
+  if (tipo === 'semanal') return proximaAperturaSemanal(programacion.diaSemana, ahoraMs)
+  return calcularProximaFechaPeriodico(programacion, ahoraMs)
+}
+
 export function generarFieldIdPersonalizado(nombre: string): string {
   const slug = nombre
     .toLowerCase()

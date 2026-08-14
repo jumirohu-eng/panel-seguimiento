@@ -5,13 +5,10 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
 import type { ObjetivoResuelto } from '@/lib/objetivos'
+import { formatFechaLarga } from '@/lib/format'
 import AdminNavDropdown from '@/components/AdminNavDropdown'
 import ChangePasswordModal from '@/components/ChangePasswordModal'
 import MisObjetivos from '@/components/MisObjetivos'
-
-function formatFechaLarga(fechaISO: string) {
-  return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
-}
 
 const TITULOS_CHECKIN: Record<'diario' | 'semanal' | 'periodico', string> = {
   diario: 'Diario',
@@ -220,21 +217,6 @@ export default function ClienteDashboardPage() {
         </section>
 
         <MisObjetivos objetivos={objetivos} />
-
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-card-foreground">Mis notas</h2>
-              <p className="text-xs text-muted">Tu libreta personal — solo tú puedes verla.</p>
-            </div>
-            <button
-              onClick={() => router.push('/cliente/notas')}
-              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
-            >
-              Abrir
-            </button>
-          </div>
-        </section>
 
         {checkin && (
           <section className="rounded-xl border border-primary bg-card p-6 shadow-sm">

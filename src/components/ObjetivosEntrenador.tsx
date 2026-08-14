@@ -23,6 +23,8 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
   const [error, setError] = useState<string | null>(null)
   const [modalAbierto, setModalAbierto] = useState<'nuevo' | ObjetivoResuelto | null>(null)
   const [cambiandoEstado, setCambiandoEstado] = useState<string | null>(null)
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState<string | null>(null)
+  const [eliminando, setEliminando] = useState<string | null>(null)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
@@ -71,6 +73,24 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
       setError('No se pudo cambiar el estado del objetivo.')
     } finally {
       setCambiandoEstado(null)
+    }
+  }
+
+  async function eliminar(o: ObjetivoResuelto) {
+    setEliminando(o.id)
+    const token = await getToken()
+    try {
+      const res = await fetch(`/api/clientes/${clienteId}/objetivos/${o.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+      setConfirmandoEliminar(null)
+      await cargar()
+    } catch {
+      setError('No se pudo eliminar el objetivo.')
+    } finally {
+      setEliminando(null)
     }
   }
 
@@ -126,23 +146,52 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
                   </div>
                 )}
 
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalAbierto(o)}
-                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card"
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleActivo(o)}
-                    disabled={cambiandoEstado === o.id}
-                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
-                  >
-                    {cambiandoEstado === o.id ? '…' : o.activo ? 'Desactivar' : 'Reactivar'}
-                  </button>
-                </div>
+                {confirmandoEliminar === o.id ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-danger">¿Eliminar «{o.nombre}»? No podrás reactivarlo.</span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmandoEliminar(null)}
+                      disabled={eliminando === o.id}
+                      className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => eliminar(o)}
+                      disabled={eliminando === o.id}
+                      className="rounded-lg bg-danger px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                      {eliminando === o.id ? 'Eliminando…' : 'Sí, eliminar'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalAbierto(o)}
+                      className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleActivo(o)}
+                      disabled={cambiandoEstado === o.id}
+                      className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
+                    >
+                      {cambiandoEstado === o.id ? '…' : o.activo ? 'Desactivar' : 'Reactivar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmandoEliminar(o.id)}
+                      className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-danger hover:bg-card"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}

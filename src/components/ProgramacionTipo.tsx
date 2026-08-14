@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { ProgramacionTipoConfig, DiaSemana, ModoPeriodico } from '@/lib/types'
+import { describirRecurrencia, proximaAperturaGenerica, ReglaRecurrencia } from '@/lib/checkinFields'
+import { formatFechaLarga } from '@/lib/format'
 
 const DIAS_SEMANA: { value: DiaSemana; label: string }[] = [
   { value: 'lunes', label: 'Lunes' },
@@ -33,6 +35,18 @@ export default function ProgramacionTipo({
   const [guardando, setGuardando] = useState(false)
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Resumen en lenguaje claro de la recurrencia tal como está configurada ahora mismo en
+  // el formulario (Parte 1.5.3) — se recalcula con cada cambio, sin esperar a guardar.
+  const regla: ReglaRecurrencia = {
+    diaSemana,
+    modoPeriodico,
+    fechaInicioPeriodico: fechaInicio || undefined,
+    intervaloDiasPeriodico: Number(intervaloDias) || undefined,
+    diaMesPeriodico: Number(diaMes) || undefined,
+  }
+  const resumen = describirRecurrencia(tipo, regla)
+  const proximaApertura = proximaAperturaGenerica(tipo, regla)
 
   async function guardar() {
     setGuardando(true)
@@ -67,7 +81,12 @@ export default function ProgramacionTipo({
 
   if (tipo === 'semanal') {
     return (
-      <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3">
+      <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3">
+        <p className="text-xs text-muted">
+          <span className="font-medium text-card-foreground">{resumen}</span>
+          {proximaApertura && <> — próxima apertura: {formatFechaLarga(proximaApertura)}</>}
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-muted">Día de la semana</label>
           <select
@@ -91,12 +110,18 @@ export default function ProgramacionTipo({
           {guardando ? 'Guardando…' : guardadoOk ? '✓ Guardado' : 'Guardar día'}
         </button>
         {error && <p className="text-sm text-danger">{error}</p>}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3">
+    <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3">
+      <p className="text-xs text-muted">
+        <span className="font-medium text-card-foreground">{resumen}</span>
+        {proximaApertura && <> — próxima apertura: {formatFechaLarga(proximaApertura)}</>}
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
       <div>
         <label className="mb-1 block text-xs font-medium text-muted">Modo</label>
         <select
@@ -155,6 +180,7 @@ export default function ProgramacionTipo({
         {guardando ? 'Guardando…' : guardadoOk ? '✓ Guardado' : 'Guardar programación'}
       </button>
       {error && <p className="text-sm text-danger">{error}</p>}
+      </div>
     </div>
   )
 }

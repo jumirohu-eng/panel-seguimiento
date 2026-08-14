@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Cliente, Reporte, ReportesResponse, CheckinEnvio, ChecklinsResponse, InvitacionClienteEstado } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
-import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import AIAnalysis from './AIAnalysis'
 import SuggestedMessage from './SuggestedMessage'
 import ObjetivosEntrenador from './ObjetivosEntrenador'
@@ -45,7 +44,6 @@ export default function ClienteFicha({
   const [errorBaja, setErrorBaja] = useState<string | null>(null)
   const [reactivando, setReactivando] = useState(false)
   const [errorReactivar, setErrorReactivar] = useState<string | null>(null)
-  const [copiadoLinkTally, setCopiadoLinkTally] = useState(false)
   const [conflictoError, setConflictoError] = useState<string | null>(null)
   const [invitacionEstado, setInvitacionEstado] = useState<InvitacionClienteEstado | null>(null)
   const [loadingInvitacion, setLoadingInvitacion] = useState(true)
@@ -154,13 +152,6 @@ export default function ClienteFicha({
       setReactivando(false)
     }
   }, [cliente.id, cliente.lastModified, getToken, onUpdated])
-
-  const handleCopyLinkTally = useCallback(async () => {
-    if (!cliente.linkTallyAlta) return
-    await navigator.clipboard.writeText(cliente.linkTallyAlta)
-    setCopiadoLinkTally(true)
-    setTimeout(() => setCopiadoLinkTally(false), 2000)
-  }, [cliente.linkTallyAlta])
 
   const cargarInvitacion = useCallback(async () => {
     setLoadingInvitacion(true)
@@ -305,11 +296,6 @@ export default function ClienteFicha({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente.id])
 
-  const ultimoReporte = reportes[0]
-  const estadoUltimo = calcularEstadoReporte(ultimoReporte?.fecha, ultimoReporte?.mensajeSugerido)
-  const linkWhatsapp =
-    estadoUltimo === 'alerta' && ultimoReporte?.linkAlerta ? ultimoReporte.linkAlerta : cliente.linkRecordatorio
-
   return (
     <div className="flex flex-col gap-6">
       <button type="button" onClick={onBack} className="w-fit text-sm text-muted hover:text-primary">
@@ -351,9 +337,9 @@ export default function ClienteFicha({
               📊 Ver métricas
             </button>
           )}
-          {linkWhatsapp && (
+          {cliente.linkRecordatorio && (
             <a
-              href={linkWhatsapp}
+              href={cliente.linkRecordatorio}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-card-foreground hover:bg-background"
@@ -435,21 +421,6 @@ export default function ClienteFicha({
             <p className="whitespace-pre-wrap text-sm text-card-foreground">{cliente.notasIniciales}</p>
           </div>
         )}
-        {cliente.linkTallyAlta && (
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background p-3">
-            <div className="min-w-0">
-              <p className="mb-1 text-xs font-medium text-muted">Link de alta (Tally)</p>
-              <p className="truncate text-xs text-muted">{cliente.linkTallyAlta}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleCopyLinkTally}
-              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card"
-            >
-              {copiadoLinkTally ? '¡Copiado!' : 'Copiar'}
-            </button>
-          </div>
-        )}
         <div className="mt-1 flex flex-col gap-2 rounded-lg bg-background p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium text-muted">Acceso al panel del cliente</p>
@@ -514,15 +485,18 @@ export default function ClienteFicha({
 
       <ObjetivosEntrenador clienteId={cliente.id} />
 
-      <h3 className="text-sm font-semibold text-muted">Reportes semanales (Tally)</h3>
+      {reportes.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-muted">Reportes semanales (histórico Tally)</h3>
+          <p className="text-xs text-muted">
+            El flujo de Tally se retiró (Parte 1.5.3) — esto es historial, ya no llegan reportes nuevos.
+          </p>
+        </div>
+      )}
 
       {error && <p className="text-sm text-danger">{error}</p>}
 
-      {loading ? (
-        <p className="text-sm text-muted">Cargando reportes…</p>
-      ) : reportes.length === 0 ? (
-        <p className="text-sm text-muted">Este cliente todavía no tiene reportes.</p>
-      ) : (
+      {loading ? null : reportes.length > 0 && (
         <div className="flex flex-col gap-4">
           {reportes.map((r) => (
             <div key={r.id} className="rounded-xl border border-border bg-card p-4 shadow-sm">

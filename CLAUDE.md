@@ -25,7 +25,10 @@ Al finalizar una tarea:
 
 Repositorio: `jumirohu-eng/panel-seguimiento`
 Rama: `main`
-Stack: Next.js 16 App Router + TypeScript + Tailwind; Supabase Auth; Vercel API Routes; Airtable; n8n self-hosted; Claude API; Tally; Resend.
+Stack: Next.js 16 App Router + TypeScript + Tailwind; Supabase Auth; Vercel API Routes; Airtable; n8n self-hosted; Claude API; Resend.
+Tally se retiró por completo en Parte 1.5.3 (ver `DECISIONS.md` DEC-2026-029) — ya no forma
+parte del stack operativo. El único punto de entrada de clientes es la invitación privada
+(entrenador → cliente → invitación → signup → onboarding → app).
 
 Arquitectura de roles:
 - `admin` se resuelve desde Airtable `Admins` con `Activo=true`.
@@ -40,14 +43,128 @@ Datos:
 - `Clientes.Entrenador` contiene el email del entrenador y es la fuente de verdad para ownership.
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
 - `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`) + `Checkin_tipos` (`tblsiRHYa7SFro2Th`, Parte 1.5): modelo de check-in in-app del cliente. Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 020.
-- `notas_privadas` (Supabase Postgres, no Airtable): libreta privada del cliente, Parte 1.5. Ver sección dedicada y `DECISIONS.md` DEC-2026-018.
-- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. Ver sección dedicada más abajo.
+- `notas_privadas` (Supabase Postgres, no Airtable): "Mis notas" se **eliminó por completo** de la app en Parte 1.5.3 (UI, rutas, API) — ver `DECISIONS.md` DEC-2026-030. La tabla en sí y su única fila real (de `jumirohu@gmail.com`, rol cliente) **no se han borrado**, por decisión explícita del usuario al confirmar la retirada — quedan huérfanas en Supabase, sin ningún endpoint que las use. No reintroducir esta funcionalidad sin revisar antes esa decisión.
+- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. `Objetivos.Eliminado` (checkbox, Parte 1.5.3) es un soft-delete distinto de `Activo` — ver `DECISIONS.md` DEC-2026-032. Ver sección dedicada más abajo.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## RetainCoach Parte 1.5.3 — Limpieza, programación clara y objetivos integrados (2026-08-14)
+
+Rama: `retaincoach-parte-1.5.3` (derivada de `retaincoach-objetivos-parte-1.5.2`, que ya
+incluía el fast-forward del bugfix de `/planes`). Push pendiente hasta confirmar con el
+usuario — ver "Pendiente real" al final de esta sección.
+
+**Contradicción señalada antes de implementar (regla de `CLAUDE.md`):** DEC-2026-027
+había decidido explícitamente NO tocar el flujo Tally semanal
+(`Resumen&Alerta`/`Análisis Lunes`) porque la cuenta real del usuario lo usaba. Este
+brief pedía retirarlo por completo. Se preguntó explícitamente antes de tocar nada — el
+usuario confirmó la retirada total, aceptando perder el análisis IA semanal sin
+sustituto hasta Parte 2. Ver DEC-2026-029 (reemplaza a DEC-2026-027).
+
+### 1. Retirada completa de Tally
+n8n: eliminados permanentemente (no solo desactivados) `Recepción entrenador`,
+`Seguimiento - Análisis Lunes`, `Seguimiento - Resumen&Alerta` y `Seguimiento - Alta
+cliente`. Se mantienen `Snapshot mensual` (no depende de Tally, solo lee
+Airtable directamente) y `Seguimiento - Limpieza de datos antiguos` (inactivo,
+archiva `Reportes`→`Archivo`, sin relación operativa con Tally).
+
+Código: eliminados `linkTallyAlta`/`tieneAlerta`/`alertaResumen` de `Cliente` (tipo, API,
+UI), `StatusBadge.tsx` (código muerto, nunca se importaba) y `estadoReporte.ts`.
+`ClienteFicha` ya no calcula el botón de WhatsApp a partir del último `Reporte` — usa
+siempre `Clientes.Link_recordatorio`. `Link_tally_alta` se quitó de `ClienteFields`
+(la app ya no lo lee ni escribe; la columna en Airtable no se toca). Variable de entorno
+`NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL` (ya muerta, sin uso en código) retirada de
+`.env.example`.
+
+**Decisión explícita: `Reportes`/`Archivo` se conservan como histórico de solo lectura.**
+`GET /api/reportes`, `getReportesConMensajeSugerido()`/`getArchivoConMensajeSugerido()`
+(usadas por `/api/admin/alertas-stats` y `/api/admin/metricas-negocio`) y la sección
+"Reportes semanales (histórico Tally)" en `ClienteFicha` (relabeled, con nota explícita
+de que ya no llegan reportes nuevos, solo visible si el cliente tiene reportes) se dejan
+tal cual — ningún dato se borra. Ver DEC-2026-029.
+
+### 2. Eliminación de "Mis notas" — salvo la tabla
+UI/rutas/API eliminadas por completo: `/cliente/notas`, `/api/cliente/notas`, el bloque
+"Mis notas" en `/cliente/dashboard`, y `createSupabaseUserClient()` en
+`supabase-server.ts` (quedaba sin ningún otro consumidor). **La tabla Postgres
+`notas_privadas` no se ha tocado** — antes de dropearla se auditó y tenía 1 fila real
+(no de prueba) escrita el mismo día por la cuenta real del usuario
+(`jumirohu@gmail.com`, rol cliente). Se preguntó explícitamente y el usuario pidió
+conservar la tabla/datos, eliminando solo la interfaz de la app. Ver DEC-2026-030.
+
+### 3. Programación de check-ins en lenguaje claro
+Nuevas funciones puras en `checkinFields.ts`: `describirRecurrencia()` ("Cada día" /
+"Cada lunes" / "Cada 7 días" / "El día 1 de cada mes") y `proximaAperturaGenerica()` /
+`proximaAperturaSemanal()` (próxima apertura calculada de forma genérica, no ligada a un
+cliente concreto — para la vista de configuración del entrenador). `ProgramacionTipo.tsx`
+y `CheckinConfigView.tsx` ahora muestran ese resumen. Reutiliza el modelo existente de
+`Checkin_tipos` (Parte 1.5, DEC-2026-014) sin cambios de esquema. **No se añadió hora del
+día** — el modelo sigue siendo día-granular en UTC; añadir una hora exacta habría sido
+inventar una capacidad que el sistema no tiene y que no es necesaria (el check-in es
+insert-only y nunca bloquea el envío). Ver DEC-2026-031.
+
+### 4-8. Objetivos: integración, recurrencia y fuentes ya estaban resueltos desde 1.5.2
+Auditado antes de tocar nada: la integración objetivo→check-in
+(`GET /api/cliente/checkin` ya exponía `objetivos` por tipo, sin duplicar en
+`Registros_checkin`), la recurrencia diario/semanal/mensual y la coexistencia de varios
+objetivos con la misma fuente (cada uno con su propio id/meta/periodicidad/progreso) ya
+funcionaban correctamente desde Parte 1.5.2 (DEC-2026-026). Verificado con la prueba E2E
+de esta sesión, sin necesitar cambios de arquitectura. Mejoras de UX añadidas: cabecera
+"Objetivos de hoy/esta semana/este periodo" en `/cliente/checkin`, y en `ObjetivoModal`
+el selector de fuente ya mostraba el nombre real del campo (nunca el `Field_id`) — se
+añadió además una frase explicando cómo se calcula el progreso según el tipo
+(sí/no → días con "Sí"; número → suma de lo registrado).
+
+### 9. Objetivos: eliminar (soft-delete), distinto de desactivar
+Nuevo campo Airtable `Objetivos.Eliminado` (checkbox). `getObjetivosByClienteEmail()` lo
+filtra de forma centralizada (`{Eliminado} != TRUE()`, nunca `= FALSE()` — ver
+DEC-2026-008) — un único punto de exclusión para toda la app. Nuevo
+`DELETE /api/clientes/[id]/objetivos/[objetivoId]` (mismo gate de ownership que
+GET/PATCH). Un objetivo eliminado se trata como inexistente (404) ante cualquier
+intento posterior de PATCH — no se puede reactivar ni editar manipulando la API.
+`ObjetivosEntrenador.tsx` añade el botón "Eliminar" con confirmación inline, distinto de
+"Desactivar/Reactivar". La fila de Airtable nunca se borra (soft-delete real). Ver
+DEC-2026-032.
+
+### 10-11. Seguridad y migración
+Todos los endpoints de objetivos ya comprobaban ownership del cliente
+(`cliente.fields.Entrenador !== email`) y del objetivo dentro del cliente
+(`objetivo.fields.Cliente?.includes(id)`, patrón DEC-2026-024) — el `DELETE` nuevo
+reutiliza exactamente el mismo patrón. Nada de lo eliminado en esta parte borra datos:
+`Reportes`/`Archivo` intactos, `notas_privadas` intacta, `Objetivos` eliminados quedan
+como filas con `Eliminado=true` (nunca se destruyen), `Registros_checkin` no se toca en
+ningún punto de esta sesión.
+
+### Validación
+`tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Prueba E2E con fixtures
+aislados y desechables (patrón DEC-2026-009: 2 entrenadores + 2 clientes ficticios,
+`@example.com`, borrados al terminar), 40 comprobaciones: programación clara y próxima
+apertura (semanal/periódico), creación de objetivos diario/semanal/mensual, dos
+objetivos con la misma fuente sin fusionarse ni interferir, objetivo con fuente de otro
+tipo de check-in (DEC-2026-026 sigue vigente), integración en `/api/cliente/checkin` por
+sección correcta, progreso actualizado tras un envío real y con metas independientes,
+edición reflejada, desactivar/reactivar sin perder historial, eliminar (soft-delete) y
+confirmación de que no reaparece ni es reactivable por API, aislamiento completo entre
+dos entrenadores (403 en GET/POST/PATCH/DELETE sobre cliente/objetivo ajeno, incluso con
+IDs reales adivinados), objetivo real de OTRO cliente con `objetivoId` cruzado (404),
+cliente inactivo bloqueado en check-in y objetivos, y confirmación de que
+`/cliente/notas` y `/api/cliente/notas` ya no existen (404).
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta
+sesión) — verificado contra la API real, Airtable real, Supabase real y n8n real.
+
+**Pendiente real:**
+- Prueba visual en navegador de la programación de check-ins y de "Objetivos de
+  hoy/esta semana/este periodo" en `/cliente/checkin`.
+- Confirmar con el usuario el mensaje de commit/push de esta rama antes de subirla.
+- Decisión de producto que sigue abierta (no de esta sesión): motor de señales/alertas
+  IA nuevo (Parte 2) — Tally ya no existe como sustituto parcial.
+
+---
 
 ## Bugfix — `/planes` no se autocorregía tras conceder un plan (2026-08-14)
 
@@ -670,7 +787,9 @@ Este archivo contiene el estado actual que Claude Code debe conocer al iniciar u
 - Completar validación real del flujo de reset/signup desde producción.
 - Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` en Vercel si Marketplace debe funcionar.
 - Añadir manualmente `Metricas` como opción del multi-select `Entrenadores.Soluciones` si se quiere poder asignar ese producto.
-- Crear y conectar el formulario Tally de `Recepción entrenador` si todavía no se ha hecho.
+- ~~Crear y conectar el formulario Tally de `Recepción entrenador`~~ — **descartado**
+  (Parte 1.5.3, ver DEC-2026-029): Tally se retiró por completo, ese workflow se
+  eliminó de n8n. El alta de entrenadores sigue haciéndose vía `/api/admin/invite`.
 
 ### Validación
 - Auditoría completa n8n ↔ Airtable ↔ Supabase.

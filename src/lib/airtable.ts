@@ -37,7 +37,6 @@ export interface ClienteFields {
   Link_recordatorio?: string
   Notas_entrenador?: string
   Notas_iniciales?: string
-  Link_tally_alta?: string
   Last_modified?: string
 }
 
@@ -186,6 +185,11 @@ export interface ObjetivoFields {
   Fecha_inicio: string
   Fecha_fin?: string | null
   Activo: boolean
+  // Soft-delete (Parte 1.5.3, ver DECISIONS.md) — distinto de Activo (que sí conserva
+  // historial y puede reactivarse). Un objetivo eliminado nunca se borra de Airtable: el
+  // registro se conserva por integridad, pero deja de listarse en cualquier consulta
+  // (ver getObjetivosByClienteEmail) y no puede reactivarse desde la UI.
+  Eliminado?: boolean
   Orden?: number
   Last_modified?: string
 }
@@ -261,7 +265,6 @@ export async function getClientesByEntrenador(email: string) {
     'Link_recordatorio',
     'Notas_entrenador',
     'Notas_iniciales',
-    'Link_tally_alta',
     'Last_modified',
   ].forEach((f) => params.append('fields[]', f))
   const data = await airtableGet<{ records: AirtableRecord<ClienteFields>[] }>(TABLE_CLIENTES, params)
@@ -315,44 +318,6 @@ export async function getReportesByClienteEmail(
     params
   )
   return { records: data.records, offset: data.offset }
-}
-
-export interface UltimoReporteResumen {
-  fecha?: string
-  mensajeSugerido?: string
-  analisisIA?: string
-}
-
-export async function getUltimosReportesPorClientes(
-  emails: string[]
-): Promise<Record<string, UltimoReporteResumen>> {
-  if (emails.length === 0) return {}
-
-  const formula = `OR(${emails
-    .map((email) => `FIND("${escapeFormulaValue(email)}", ARRAYJOIN({Cliente_Email})) > 0`)
-    .join(', ')})`
-  const params = new URLSearchParams()
-  params.set('filterByFormula', formula)
-  params.set('sort[0][field]', 'Fecha')
-  params.set('sort[0][direction]', 'desc')
-  ;['Cliente_Email', 'Fecha', 'Mensaje sugerido', 'Análisis IA'].forEach((f) => params.append('fields[]', f))
-
-  const data = await airtableGet<{ records: AirtableRecord<ReporteFields & { Cliente_Email?: string[] }>[] }>(
-    TABLE_REPORTES,
-    params
-  )
-
-  const porCliente: Record<string, UltimoReporteResumen> = {}
-  for (const record of data.records) {
-    const email = record.fields.Cliente_Email?.[0]
-    if (!email || porCliente[email]) continue
-    porCliente[email] = {
-      fecha: record.fields.Fecha,
-      mensajeSugerido: record.fields['Mensaje sugerido'],
-      analisisIA: record.fields['Análisis IA'],
-    }
-  }
-  return porCliente
 }
 
 export async function getInvitacionActivaByEmail(
@@ -728,9 +693,17 @@ export async function upsertCheckinTipo(
   return crearCheckinTipo({ Entrenador: email, Tipo: tipo, ...fields })
 }
 
+// Nunca devuelve objetivos con Eliminado=true (soft-delete, Parte 1.5.3, ver
+// DECISIONS.md) — un único punto de filtrado para que ningún consumidor (ficha del
+// entrenador, dashboard/check-in del cliente) tenga que acordarse de excluirlos.
+// `{Eliminado} != TRUE()` incluye correctamente el caso omitido (checkbox en false no
+// viaja en la respuesta de Airtable, ver DEC-2026-008) — no usar `{Eliminado} = FALSE()`.
 export async function getObjetivosByClienteEmail(clienteEmail: string) {
   const params = new URLSearchParams()
-  params.set('filterByFormula', `{Cliente_Email} = "${escapeFormulaValue(clienteEmail)}"`)
+  params.set(
+    'filterByFormula',
+    `AND({Cliente_Email} = "${escapeFormulaValue(clienteEmail)}", {Eliminado} != TRUE())`
+  )
   params.set('sort[0][field]', 'Orden')
   params.set('sort[0][direction]', 'asc')
   const data = await airtableGet<{ records: AirtableRecord<ObjetivoFields>[] }>(TABLE_OBJETIVOS, params)

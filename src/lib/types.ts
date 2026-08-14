@@ -9,11 +9,8 @@ export interface Cliente {
   estado: string
   entrenamientos_objetivo: number
   linkRecordatorio: string
-  tieneAlerta: boolean
-  alertaResumen: string
   notasEntrenador: string
   notasIniciales: string
-  linkTallyAlta: string
   lastModified: string
 }
 
@@ -140,7 +137,6 @@ export interface ClientePerfil {
 }
 
 // Onboarding nativo del cliente tras su primer login (Parte 1.5.1, ver DECISIONS.md).
-// No confundir con "Mis notas" (notas_privadas, Supabase, privadas del cliente).
 export interface OnboardingCliente {
   objetivo: string
   objetivosAdicionales: string[]

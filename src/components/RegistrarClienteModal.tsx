@@ -63,11 +63,8 @@ export default function RegistrarClienteModal({
         estado: 'Activo',
         entrenamientos_objetivo: 0,
         linkRecordatorio: '',
-        tieneAlerta: false,
-        alertaResumen: '',
         notasEntrenador: '',
         notasIniciales: '',
-        linkTallyAlta: '',
         lastModified: creado.lastModified ?? '',
       })
 

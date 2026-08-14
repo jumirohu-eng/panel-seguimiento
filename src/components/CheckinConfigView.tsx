@@ -90,7 +90,14 @@ export default function CheckinConfigView({
                 lanzadoInicial={programacion[t.value].lanzado}
                 disponibleDesdeInicial={programacion[t.value].disponibleDesde}
               />
-              {t.value !== 'diario' && <ProgramacionTipo token={token} tipo={t.value} programacionInicial={programacion[t.value]} />}
+              {t.value === 'diario' ? (
+                <p className="mt-3 border-t border-border pt-3 text-xs text-muted">
+                  <span className="font-medium text-card-foreground">Cada día</span> — se abre todos los días, sin
+                  recurrencia que configurar.
+                </p>
+              ) : (
+                <ProgramacionTipo token={token} tipo={t.value} programacionInicial={programacion[t.value]} />
+              )}
             </div>
           ))}
         </div>

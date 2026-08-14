@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClienteCheckinResponse } from '@/lib/types'
 import { campoDisponible } from '@/lib/checkinFields'
+import { formatFechaLarga } from '@/lib/format'
 import CampoInput from '@/components/CampoInput'
 
 type Seccion = 'diario' | 'semanal' | 'periodico'
@@ -15,8 +16,10 @@ const TITULOS: Record<Seccion, string> = {
   periodico: 'Tus datos',
 }
 
-function formatFechaLarga(fechaISO: string) {
-  return new Date(fechaISO).toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' })
+const TITULOS_OBJETIVOS: Record<Seccion, string> = {
+  diario: 'Objetivos de hoy',
+  semanal: 'Objetivos de esta semana',
+  periodico: 'Objetivos de este periodo',
 }
 
 export default function ClienteCheckinPage() {
@@ -165,6 +168,7 @@ export default function ClienteCheckinPage() {
               </div>
               {estado.objetivos.length > 0 && (
                 <div className="mb-4 flex flex-col gap-2 rounded-lg bg-background p-3">
+                  <p className="text-xs font-semibold text-muted">{TITULOS_OBJETIVOS[seccion]}</p>
                   {estado.objetivos.map((o) => (
                     <div key={o.id} className="flex items-center justify-between gap-2 text-sm">
                       <span className="text-card-foreground">{o.nombre}</span>

@@ -42,6 +42,13 @@ export default function ObjetivoModal({
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const campoSeleccionado = campos.find((c) => c.id === fuenteFieldId)
+  const explicacionFuente = !campoSeleccionado
+    ? null
+    : campoSeleccionado.tipo === 'si_no'
+      ? 'Se contará 1 por cada día del periodo en que el cliente responda "Sí" en el check-in.'
+      : 'Se sumará el valor que el cliente registre cada día del periodo en el check-in.'
+
   useEffect(() => {
     async function cargarCampos() {
       const { data: sessionData } = await supabase.auth.getSession()
@@ -192,13 +199,14 @@ export default function ObjetivoModal({
               <option value="">Sin fuente automática (solo informativo)</option>
               {campos.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.nombre} ({c.tipo === 'si_no' ? 'sí/no' : 'número'})
+                  {c.nombre} — {c.tipo === 'si_no' ? 'respuesta sí/no del check-in' : 'respuesta numérica del check-in'}
                 </option>
               ))}
             </select>
             {!loadingCampos && campos.length === 0 && (
               <p className="text-xs text-muted">No hay campos de check-in numéricos/booleanos activos todavía.</p>
             )}
+            {explicacionFuente && <p className="text-xs text-muted">{explicacionFuente}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

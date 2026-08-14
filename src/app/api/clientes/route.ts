@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getClientesByEntrenador, getUltimosReportesPorClientes, crearCliente, getEntrenadorByEmail } from '@/lib/airtable'
-import { calcularEstadoReporte } from '@/lib/estadoReporte'
-import { truncateResumen } from '@/lib/format'
+import { getClientesByEntrenador, crearCliente, getEntrenadorByEmail } from '@/lib/airtable'
 
 export async function GET(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
@@ -12,31 +10,19 @@ export async function GET(request: NextRequest) {
 
   try {
     const records = await getClientesByEntrenador(email)
-    const emails = records.map((r) => r.fields.Email).filter((e): e is string => Boolean(e))
-    const ultimosReportes = await getUltimosReportesPorClientes(emails)
-
-    const clientes = records.map((r) => {
-      const ultimo = r.fields.Email ? ultimosReportes[r.fields.Email] : undefined
-      const estadoReporte = calcularEstadoReporte(ultimo?.fecha, ultimo?.mensajeSugerido)
-      const tieneAlerta = estadoReporte === 'alerta'
-      const textoResumen = ultimo?.analisisIA?.trim() || ultimo?.mensajeSugerido?.trim() || ''
-      return {
-        id: r.id,
-        nombre: r.fields.Nombre,
-        email: r.fields.Email ?? '',
-        telefono: r.fields['Teléfono'] ?? '',
-        objetivo: r.fields.Objetivo,
-        estado: r.fields.Estado ?? '',
-        entrenamientos_objetivo: r.fields.Entrenamientos_objetivo ?? 0,
-        linkRecordatorio: r.fields.Link_recordatorio ?? '',
-        tieneAlerta,
-        alertaResumen: tieneAlerta && textoResumen ? truncateResumen(textoResumen) : '',
-        notasEntrenador: r.fields.Notas_entrenador ?? '',
-        notasIniciales: r.fields.Notas_iniciales ?? '',
-        linkTallyAlta: r.fields.Link_tally_alta ?? '',
-        lastModified: r.fields.Last_modified ?? '',
-      }
-    })
+    const clientes = records.map((r) => ({
+      id: r.id,
+      nombre: r.fields.Nombre,
+      email: r.fields.Email ?? '',
+      telefono: r.fields['Teléfono'] ?? '',
+      objetivo: r.fields.Objetivo,
+      estado: r.fields.Estado ?? '',
+      entrenamientos_objetivo: r.fields.Entrenamientos_objetivo ?? 0,
+      linkRecordatorio: r.fields.Link_recordatorio ?? '',
+      notasEntrenador: r.fields.Notas_entrenador ?? '',
+      notasIniciales: r.fields.Notas_iniciales ?? '',
+      lastModified: r.fields.Last_modified ?? '',
+    }))
     return NextResponse.json(clientes)
   } catch (err) {
     console.error('Error al obtener clientes de Airtable', err)
@@ -67,10 +53,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Ya no se genera enlace de alta por Tally para clientes nuevos (Parte 1.5.2, ver
-    // DECISIONS.md) — el onboarding nativo (Parte 1.5.1) y los Objetivos configurables
-    // cubren lo que antes rellenaba ese formulario. `Link_tally_alta` se deja intacto en
-    // Airtable para clientes ya existentes que lo tuvieran.
     const record = await crearCliente({
       Nombre: nombre,
       Email: clienteEmail,

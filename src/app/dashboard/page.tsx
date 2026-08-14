@@ -30,6 +30,7 @@ function DashboardPageContent() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loadingClientes, setLoadingClientes] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [noRegistrado, setNoRegistrado] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -80,6 +81,14 @@ function DashboardPageContent() {
           const perfilRes = await fetch('/api/entrenador/perfil', {
             headers: { Authorization: `Bearer ${token}` },
           })
+          if (perfilRes.status === 404) {
+            // Distinto de "sin plan" (eso redirige a /planes): aquí no existe ninguna
+            // fila de Entrenadores con este email — mensaje propio en vez de dejar caer
+            // en "Solicita acceso a un plan", que da a entender que sí eres entrenador.
+            setNoRegistrado(true)
+            setLoadingClientes(false)
+            return
+          }
           if (perfilRes.ok) {
             const perfil = await perfilRes.json()
             if (!tienePlanBase(perfil.soluciones ?? [])) {
@@ -133,6 +142,22 @@ function DashboardPageContent() {
         {email && <Header email={email} isAdmin />}
         <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
           <DashboardResumenView />
+        </main>
+      </div>
+    )
+  }
+
+  if (noRegistrado) {
+    return (
+      <div className="min-h-screen bg-background">
+        {email && <Header email={email} showMarketplace={false} />}
+        <main className="mx-auto flex max-w-5xl flex-col items-center gap-3 px-4 py-16 text-center sm:px-6">
+          <h1 className="text-xl font-semibold text-card-foreground">Cuenta no registrada</h1>
+          <p className="max-w-md text-sm text-muted">
+            Esta cuenta ({email}) no está dada de alta como entrenador en RetainCoach. Si crees
+            que es un error, contacta con el administrador para que revise el email exacto con
+            el que se te dio de alta.
+          </p>
         </main>
       </div>
     )

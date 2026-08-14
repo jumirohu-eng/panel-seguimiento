@@ -10,7 +10,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const entrenador = await getEntrenadorByEmail(email)
-    return NextResponse.json({ soluciones: entrenador?.fields.Soluciones ?? [] })
+    if (!entrenador) {
+      // Distinto de "entrenador sin plan" (soluciones: []) — aquí no existe ninguna fila
+      // de Entrenadores con este email exacto (cuenta no dada de alta, o email distinto
+      // al que se registró en Airtable). Un 200 con soluciones:[] hacía indistinguibles
+      // ambos casos para quien consume este endpoint.
+      return NextResponse.json(
+        { error: 'Esta cuenta no está registrada como entrenador' },
+        { status: 404 }
+      )
+    }
+    return NextResponse.json({ soluciones: entrenador.fields.Soluciones ?? [] })
   } catch (err) {
     console.error('Error al obtener el perfil del entrenador', err)
     return NextResponse.json({ error: 'Error al obtener el perfil' }, { status: 500 })

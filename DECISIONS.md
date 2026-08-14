@@ -1679,3 +1679,78 @@ API REST de Airtable (`DELETE`, en 2 tandas de máx. 10 IDs por límite de la AP
 Verificado tras el borrado: 0 filas huérfanas restantes, y los 5 registros reales de
 Jose (`jjoossee45678@gmail.com`) intactos, sin tocar. No se ha modificado ningún otro
 dato real.
+
+### 2026-08-14 — Bugfix: mensaje propio cuando la cuenta no está registrada como entrenador
+- Añadida `DEC-2026-038`: causa exacta demostrada con datos reales (errata de una letra entre
+  el email de la fila de `Entrenadores` creada desde Admin, `esprartakofake@gmail.com`, y la
+  cuenta real que inició sesión, `espartakofake@gmail.com`) — no un desajuste de mayúsculas
+  (hipótesis auditada y descartada) ni una regresión del fix de `DEC-2026-028` (confirmado
+  desplegado en producción). `GET /api/entrenador/perfil` devuelve ahora `404` cuando no existe
+  ninguna fila de Entrenador con ese email, en vez de `200 { soluciones: [] }` — antes
+  indistinguible de "entrenador real sin plan". `/dashboard` y `/planes` muestran una pantalla
+  "Cuenta no registrada" en ese caso. Validado `tsc --noEmit`/`eslint`/`next build` y prueba E2E
+  con fixture desechable contra el servidor real. Pendiente real: corregir a mano en Airtable el
+  email con errata para desbloquear el acceso real de `espartakofake@gmail.com`.
+
+---
+
+## DEC-2026-038 — `/api/entrenador/perfil` distingue "no registrado" de "sin plan"
+
+**Fecha:** 2026-08-14
+**Tipo:** Bug / Autenticación / UX
+**Estado:** Corregido
+
+### Hallazgo
+Reportado de nuevo el síntoma de `DEC-2026-028` ("entrenador con `Seguimiento` concedido sigue
+viendo 'Solicita acceso a un plan'"), pero esta vez con un entrenador accediendo por primera
+vez, no con una pestaña vieja sin recargar (la causa ya corregida en esa decisión).
+
+### Causa exacta (demostrada con datos reales de Airtable y Supabase Auth, no hipótesis)
+Dos cuentas distintas por una errata de una letra:
+- Fila de `Entrenadores` creada desde Admin: email `esprartakofake@gmail.com` (con una "r" de
+  más), `Soluciones=["Seguimiento"]` ya asignado, creada 2026-08-14 19:28:34.
+- Cuenta de Supabase Auth que realmente inició sesión: `espartakofake@gmail.com` (sin esa "r",
+  cuenta real preexistente desde 2026-08-10), `last_sign_in_at` 2026-08-14 19:29:28 — 13
+  segundos después de la creación de la fila con la errata.
+
+`getEntrenadorByEmail()` (`src/lib/airtable.ts`) filtra con `{Email} = "..."`, coincidencia
+exacta — con el email distinto, no encontró ninguna fila. Confirmado además que la tabla
+`Entrenadores` solo tenía, en el momento de la investigación, dos filas en total
+(`jumirohu@gmail.com` y `esprartakofake@gmail.com`) — ninguna para `espartakofake@gmail.com`.
+
+El bug de código real: `GET /api/entrenador/perfil` no distinguía "no existe ninguna fila de
+Entrenador con este email" de "existe pero sin plan" — ambos casos devolvían `200 { soluciones:
+[] }`. Cualquier desajuste de email (errata del admin al dar de alta, o cualquier otro motivo)
+caía silenciosamente en la misma pantalla que un entrenador real sin plan pagado.
+
+### Descartado antes de llegar a esta causa
+Se auditó primero, contra datos reales, la hipótesis de un desajuste de mayúsculas/minúsculas
+entre Airtable y Supabase Auth (motivada por el patrón defensivo ya existente en
+`findSupabaseUserByEmail()`, `src/lib/supabase-server.ts`, que compara ambos lados en
+minúsculas) — descartada: todos los emails reales están en minúsculas consistentes en ambos
+sistemas. También se descartó que el bugfix de `DEC-2026-028` no estuviera desplegado —
+confirmado que sí está en `main` y en el deployment real de producción de Vercel.
+
+### Decisión
+`GET /api/entrenador/perfil` devuelve `404 { error: 'Esta cuenta no está registrada como
+entrenador' }` cuando `getEntrenadorByEmail()` no encuentra nada, en vez de `200 { soluciones:
+[] }`. `src/app/dashboard/page.tsx` y `src/app/planes/page.tsx` (los dos puntos que redirigen
+según `tienePlanBase()`) comprueban ese `404` explícitamente y muestran una pantalla "Cuenta no
+registrada" con el email de la sesión activa, en vez de "Solicita acceso a un plan" (que da a
+entender que sí eres entrenador) o el error genérico de carga de clientes. Los demás
+consumidores del endpoint (`checkin-config`, `ClienteFicha`, `Marketplace`) ya manejaban
+`!res.ok` con su propio fallback — sin cambios necesarios ahí. Sin cambios en `tienePlanBase()`,
+el modelo de `Soluciones` ni ningún endpoint de Admin.
+
+### Verificación
+`tsc --noEmit`, `eslint` y `next build` sin errores. Prueba E2E contra el servidor real
+(`next dev` ya activo en el puerto 3100) y Supabase real: usuario desechable
+(`repro-perfil404-...@example.com`, patrón DEC-2026-009) sin ninguna fila de `Entrenadores` →
+`GET /api/entrenador/perfil` devuelve `404` con el mensaje nuevo. Usuario y script de prueba
+eliminados al terminar.
+
+### Pendiente real (dato de producción, no tocado sin confirmación)
+La fila de `Entrenadores` con la errata `esprartakofake@gmail.com` sigue en Airtable con
+`Soluciones=["Seguimiento"]` asignado, y la cuenta real `espartakofake@gmail.com` sigue sin
+ninguna fila de Entrenador propia — ese entrenador real todavía no puede acceder hasta corregir
+el email a mano en Admin (o dar de baja la fila con la errata).

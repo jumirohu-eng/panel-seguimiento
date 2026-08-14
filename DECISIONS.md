@@ -1356,6 +1356,219 @@ resumen en `CLAUDE.md`). `tsc --noEmit`, `eslint` y `next build` sin errores.
 
 ---
 
+## DEC-2026-034 — Check-in dinámico: un objetivo con métrica nueva crea (o reutiliza) el campo de check-in automáticamente
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Producto
+**Estado:** Implementada
+
+### Contexto
+Brief "Objetivos + Check-ins: integración robusta": el flujo debía pasar a ser
+`Entrenador configura objetivo → sistema identifica métrica/dato → check-in muestra
+campo`, no al revés. Hasta esta sesión, la única forma de que un campo existiera era que
+el entrenador lo creara primero manualmente en `/checkin-config`; el modal de Objetivos
+solo permitía elegir entre campos ya existentes (Parte 1.5.2).
+
+### Auditoría previa
+`resolverCamposEfectivos()`/`crearCampoCheckin()` (Parte 1) y el propio endpoint de
+campos personalizados (`POST /api/entrenador/checkin-config/campos`) ya cubrían toda la
+lógica de creación — no hacía falta un modelo nuevo, solo exponer esa capacidad desde el
+flujo de creación de un objetivo.
+
+### Decisión
+`ObjetivoModal` añade un tercer modo de fuente ("Métrica nueva", junto a "Métrica
+existente" y "Sin fuente") donde el entrenador escribe el nombre y elige tipo
+(sí/no o número). `POST`/`PATCH /api/clientes/[id]/objetivos(/[objetivoId])` aceptan
+`fuenteNueva: {nombre, tipo, unidad}` y, antes de crear el objetivo, llaman a la nueva
+`resolverOCrearCampoCheckinParaObjetivo()` (`src/lib/airtable.ts`):
+1. Busca entre los campos **activos** de ese entrenador uno del **mismo tipo** cuyo
+   nombre coincida (normalizado: `trim().toLowerCase()`) — si existe, reutiliza su
+   `Field_id` sin crear nada nuevo (evita duplicar la pregunta, pedido explícito del
+   brief: "si varios objetivos usan la misma métrica, no duplicar la pregunta").
+2. Si no existe, crea un campo personalizado nuevo con `Tipos: ['diario']` por defecto
+   — la periodicidad más granular, capaz de alimentar objetivos diario/semanal/mensual
+   por agregación (mismo principio que DEC-2026-026: la fuente no tiene que coincidir
+   con la periodicidad del objetivo). El entrenador puede ampliarlo a otros tipos desde
+   `/checkin-config` después si lo necesita — no se construyó una UI paralela para
+   elegir el tipo de check-in dentro del modal de Objetivos, para no duplicar esa
+   decisión en dos sitios.
+
+### Limitación conocida y aceptada
+La búsqueda-y-creación no es atómica (Airtable no ofrece transacciones vía API REST).
+Dos objetivos con el mismo nombre de métrica nueva creados en un margen de milisegundos
+podrían, en el peor caso, generar campos casi duplicados. Mismo tipo de riesgo ya
+aceptado y documentado para `upsertCheckinTipo` (Parte 1.5) — no se resuelve con
+infraestructura nueva (colas, locks) por ser un caso extremadamente improbable en el uso
+real de la app (un entrenador configurando objetivos uno detrás de otro, no en paralelo).
+
+### Verificación
+Prueba E2E: crear un objetivo con métrica nueva "Pasos" (número) → aparece exactamente 1
+fila nueva en `Campos_checkin`, activa, y el campo aparece automáticamente en el
+check-in diario del cliente sin que nadie lo configure a mano. Crear un segundo objetivo
+con el nombre "pasos" (minúsculas, para probar la normalización) → reutiliza el mismo
+`Field_id`, sigue habiendo solo 1 fila en `Campos_checkin`. Un tercer objetivo apuntando
+directamente al `fieldId` ya conocido también reutiliza. Un entrenador ajeno que intenta
+crear un objetivo con métrica nueva sobre un cliente que no es suyo recibe 403 y **no**
+llega a crear ningún campo de check-in (verificado contando filas de `Campos_checkin` de
+ese entrenador tras el intento fallido).
+
+---
+
+## DEC-2026-035 — Modo de progreso "valor objetivo": peso y métricas de estado puntual, con dirección y valor inicial explícitos
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Modelo de datos / Producto
+**Estado:** Implementada
+
+### Contexto
+El modelo de progreso existente (DEC-2026-026, "acumulado": sumar/contar registros
+dentro de la ventana) es correcto para métricas de actividad (pasos, entrenamientos)
+pero **no tiene sentido para el peso**: sumar los pesos registrados en una semana no
+significa nada. El brief pedía tratar el peso como "indicador de progreso" (barra, no
+gráfica), con dirección explícita (subir/bajar) que nunca se infiere, capaz de
+retroceder si el peso vuelve a subir, y de superar la meta sin romperse.
+
+### Decisión
+Nuevo campo `Objetivos.Modo_progreso` (`'acumulado' | 'valor_objetivo'`, ausente =
+`'acumulado'` — así ningún objetivo ya existente en producción cambia de comportamiento
+sin que nadie lo pida, ver "compatibilidad histórica" más abajo). Nuevos
+`Objetivos.Direccion` (`'subir'|'bajar'`) y `Objetivos.Valor_inicial` (número),
+obligatorios solo cuando `Modo_progreso='valor_objetivo'` — validados en conjunto por
+`validarConfiguracionProgreso()` (`src/lib/objetivos.ts`), que rechaza explícitamente
+cualquier combinación incoherente (valor_objetivo sin dirección, con fuente no numérica,
+o dirección/valor_inicial presentes en modo acumulado) en vez de ignorarlos en silencio.
+
+Progreso (`calcularProgresoValorObjetivo()`): `actual` = último registro real de la
+fuente (`obtenerUltimoValorNumerico()`, sin ventana temporal — a diferencia de
+"acumulado", el peso no tiene "periodo", siempre es una foto del dato más reciente
+conocido, venga de cuando venga); si todavía no hay ningún registro, `actual =
+Valor_inicial` (0% de avance, nunca se inventa un dato). `porcentaje` = distancia
+recorrida desde `Valor_inicial` hacia `Meta`, en la `Direccion` indicada — **puede
+superar 100** (meta superada, "sobre-meta", pedido explícito del brief: "progreso
+válido, UI correcta") y **puede retroceder** de una lectura a otra si el valor real se
+aleja de la meta (se recalcula desde cero en cada lectura, no es un contador
+acumulativo). Se recorta a un mínimo de 0 (no se muestra progreso negativo) pero no se
+recorta el valor real mostrado.
+
+### Valor inicial: nunca inferido, siempre explícito
+Sección 8 del brief: "no asumir que el último valor siempre es el inicial". Se auditó
+la alternativa de tomar automáticamente el registro más reciente ya existente como
+referencia al crear el objetivo — **se descartó**: el entrenador introduce
+`Valor_inicial` a mano en `ObjetivoModal`, como un dato más del objetivo (igual que
+`Meta`), sin pre-rellenarlo desde el historial. Auditado explícitamente si "puede
+utilizarse como referencia sin duplicar el registro" (sección 8): sí puede — copiar un
+número a `Objetivos.Valor_inicial` no crea ninguna fila en `Registros_checkin`, no hay
+riesgo de duplicación — pero se decidió no construir el auto-relleno para mantener el
+alcance acotado; queda documentado como posible mejora futura, no como limitación oculta.
+
+### Compatibilidad histórica
+Ningún objetivo existente en Airtable tiene `Modo_progreso` poblado — todos siguen
+leyéndose como `'acumulado'` exactamente igual que antes de esta sesión, sin backfill ni
+migración de datos. **Hallazgo de auditoría:** existe 1 objetivo real en producción
+(`Nombre: "peso"`, cliente `jjoossee45678@gmail.com`) con `Fuente_field_id = "peso"` —
+hoy sigue calculándose como "acumulado" (suma de los pesos registrados en su ventana),
+que casi con toda seguridad no es la semántica que se quiere para un objetivo de peso.
+**No se ha modificado este registro real** — cambiar su modo de progreso altera lo que
+ve un cliente real, y la instrucción explícita del brief es "no modificar clientes
+reales durante pruebas". El entrenador puede convertirlo a "valor objetivo" él mismo
+desde la ficha del cliente (editar objetivo → modo "Valor objetivo" → indicar dirección
+y valor inicial) ahora que la función existe. Queda anotado en `CLAUDE.md` como
+pendiente a comunicar.
+
+### Verificación
+Prueba E2E: objetivo "bajar de 70 a 65kg" sin registros → progreso = 70kg/0%; tras
+registrar 67.8kg → 67.8kg/44%; tras registrar 69kg (sube) → retrocede a 69kg/20%; tras
+registrar 63kg (supera la meta) → completado=true, 140% (sobre-meta, sin romperse).
+Objetivo "subir de 70 a 75kg" con el mismo historial (peso real bajando) → 0% (recorte
+correcto, nunca negativo). Validación cruzada: `valor_objetivo` sin dirección → 400;
+con fuente sí/no → 400; `acumulado` con dirección/valor_inicial presentes → 400.
+
+---
+
+## DEC-2026-036 — Validación estricta de tipo/rango en el check-in: rechazo explícito, nunca conversión ni descarte en silencio
+
+**Fecha:** 2026-08-14
+**Tipo:** Seguridad / Integridad de datos
+**Estado:** Implementada
+
+### Hallazgo de auditoría
+`POST /api/cliente/checkin` serializaba cada valor con `serializarValor()` y, si el
+resultado era `null` (tipo incompatible, texto no numérico, etc.), simplemente **omitía
+ese campo del envío sin informar de nada** — la petición podía responder `201` con éxito
+mientras uno o varios valores se perdían en silencio. Contradice explícitamente el
+brief: "no convertir silenciosamente texto a números ni aceptar tipos incompatibles".
+
+### Decisión
+Nueva `validarValorCampo()` (`src/lib/checkinFields.ts`), ejecutada **antes** de
+serializar: si un valor está presente pero es del tipo equivocado (texto en un campo
+número, string en un campo sí/no...) o fuera de rango (número negativo; escala fuera de
+1-5), la petición completa se rechaza con `400` y un mensaje por campo — nunca se guarda
+una parte y se descarta el resto. Un campo simplemente ausente de `valores` (no
+respondido) sigue siendo válido, no es un error. `numero`/`escala` rechazan valores
+negativos (dominio de la app: pasos, peso, medidas, sesiones — ninguno tiene sentido en
+negativo); `escala` además exige 1-5. `CampoInput.tsx` añade `min={0}` al input numérico
+como ayuda visual — el backend sigue siendo la fuente de verdad, el frontend no se
+considera suficiente ("no confiar en frontend", sección 13 del brief).
+
+### Verificación
+Prueba E2E: texto en campo numérico → 400; número negativo → 400; escala=9 (fuera de
+1-5) → 400; string `'si'` en campo sí/no → 400 (antes se habría descartado en silencio).
+
+---
+
+## DEC-2026-037 — Resiliencia ante doble envío del check-in: guard de escritura + por qué la corrección de datos sigue siendo segura incluso bajo concurrencia real
+
+**Fecha:** 2026-08-14
+**Tipo:** Seguridad / Resiliencia / Concurrencia
+**Estado:** Implementada (con limitación documentada, no un locking real)
+
+### Contexto
+`Registros_checkin` es insert-only por diseño (DEC-2026-007): cada envío crea filas
+nuevas, nunca sobrescribe. Esto ya protegía la **corrección** de datos (reenviar un
+valor distinto el mismo día crea una fila nueva, la lectura se queda con la más
+reciente), pero no protegía contra un **doble envío accidental** (doble clic, reintento
+de red) con el mismo payload: cada llamada insertaba sus propias filas sin comprobar si
+ya existían, multiplicando filas idénticas sin ningún beneficio.
+
+### Decisión
+Nueva `esEnvioDuplicadoReciente()` (`src/lib/checkinFields.ts`): antes de insertar,
+`POST /api/cliente/checkin` compara el nuevo lote contra el **último** lote de
+`Registros_checkin` de ese mismo tipo (mismos `Field_id`+`Valor`, agrupados por el
+`Fecha` exacto con el que se escribieron en una única llamada anterior) — si coincide
+byte a byte y se escribió hace menos de 5 segundos, no inserta nada y responde `200
+{duplicado: true}` en vez de `201`. Un envío con **cualquier valor distinto** nunca se
+bloquea, aunque llegue en el mismo segundo — sigue siendo insert-only para cualquier
+dato nuevo real, coherente con DEC-2026-007.
+
+### Limitación real, medida (no solo teórica)
+Esta comprobación es lectura-y-decisión, no una operación atómica — Airtable no ofrece
+locking vía API REST. Se probó explícitamente con **dos peticiones HTTP disparadas en
+paralelo** (`Promise.all`, no secuenciales) con payload idéntico: ambas devolvieron
+`201` y ambas insertaron sus filas — el guard NO evitó la duplicación bajo concurrencia
+real simultánea (sí la evita, verificado, cuando las peticiones llegan una detrás de
+otra con unos segundos de diferencia, el caso real de un doble clic humano).
+
+### Por qué la integridad de los datos no depende de que este guard sea perfecto
+Aunque el guard falle bajo concurrencia real, la corrección sigue siendo íntegra por una
+capa distinta, ya existente: `calcularProgresoDesdeCheckins()` (modo acumulado) dedupea
+por día quedándose con el registro **más reciente** de cada campo — dos filas idénticas
+el mismo día nunca se suman/cuentan dos veces, se cuentan como una. `calcularProgresoVal
+orObjetivo()` (modo valor objetivo) toma el registro más reciente sin ventana — dos
+filas con el mismo valor dan el mismo resultado sea cual sea la que "gane" por
+timestamp. Es decir: el guard de escritura reduce el ruido en `Registros_checkin`
+(menos filas basura) pero la corrección del progreso mostrado **nunca depende de él** —
+ya la garantizaba el diseño de lectura de DEC-2026-007/026. Documentado explícitamente
+para que una sesión futura no asuma que hace falta un locking distribuido: no hace
+falta, la resiliencia real vive en la capa de lectura.
+
+### Verificación
+Prueba E2E secuencial: mismo payload dos veces seguidas → 201 luego 200 `duplicado:true`,
+solo 2 filas nuevas en Airtable (las del primer envío). Prueba de concurrencia real
+(peticiones en paralelo, script aparte, no incluido en el commit): confirmado el
+comportamiento descrito arriba en 3 ejecuciones consecutivas.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -1437,3 +1650,10 @@ resumen en `CLAUDE.md`). `tsc --noEmit`, `eslint` y `next build` sin errores.
 - Añadida `DEC-2026-032`: nuevo campo `Objetivos.Eliminado` (soft-delete real, distinto de `Activo`/desactivar) + `DELETE /api/clientes/[id]/objetivos/[objetivoId]`, mismo patrón de ownership que el resto de la ruta.
 - Añadida `DEC-2026-033`: verificado sin bugs que la integración objetivo→check-in, la recurrencia diario/semanal/mensual y la coexistencia de varios objetivos con la misma fuente ya funcionaban correctamente desde Parte 1.5.2 — solo se aplicaron mejoras de UX (cabeceras "Objetivos de hoy/esta semana/este periodo", explicación de cómo se calcula el progreso por fuente).
 - Validado con prueba E2E de fixtures aislados (patrón DEC-2026-009, 2 entrenadores + 2 clientes ficticios), 40 comprobaciones cubriendo check-ins, objetivos, integración y seguridad (ownership, aislamiento entre entrenadores, IDs manipulados, cliente inactivo). `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.
+
+### 2026-08-14 — RetainCoach: Objetivos + Check-ins, integración robusta
+- Añadida `DEC-2026-034`: check-in dinámico — un objetivo con métrica nueva crea (o reutiliza por nombre, sin duplicar la pregunta) su propio campo de `Campos_checkin` automáticamente, vía nueva `resolverOCrearCampoCheckinParaObjetivo()`.
+- Añadida `DEC-2026-035`: nuevo modo de progreso `valor_objetivo` para objetivos tipo peso/medidas — dirección (subir/bajar) y valor inicial siempre explícitos, nunca inferidos; progreso por distancia al valor más reciente, puede superar el 100% y puede retroceder. Ningún objetivo existente cambia de comportamiento (ausencia de `Modo_progreso` = `acumulado`, igual que siempre). Auditado y documentado: 1 objetivo real de producción ("peso") sigue en modo acumulado — no se ha tocado sin confirmación del entrenador dueño.
+- Añadida `DEC-2026-036`: validación estricta de tipo/rango en `POST /api/cliente/checkin` — un valor incompatible ahora se rechaza con 400 explícito en vez de descartarse en silencio.
+- Añadida `DEC-2026-037`: guard de doble envío en el check-in (no atómico, limitación medida con una prueba de concurrencia real) + explicación de por qué la integridad del progreso mostrado no depende de ese guard, sino de la deduplicación de lectura ya existente desde Parte 1.5/1.5.2.
+- Validado con prueba E2E de fixtures aislados (2 entrenadores + 1 cliente ficticios), 51 comprobaciones: check-in dinámico, deduplicación de métricas por nombre, un registro alimentando 3 objetivos (día/semana/mes) sin duplicar el dato, ventanas temporales correctas, objetivo booleano sin doble conteo, doble envío idempotente, validación de tipo/rango, peso subir/bajar/sobre-meta/retroceso, validación cruzada de configuración de progreso, edición limpiando campos al cambiar de modo, eliminar objetivo sin borrar registros ni afectar a otros, y seguridad (ownership, aislamiento entre entrenadores, cliente inactivo, IDs manipulados). Prueba adicional de concurrencia real (peticiones en paralelo) fuera del commit. `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { ObjetivoResuelto } from '@/lib/objetivos'
+import { formatearProgresoTexto } from '@/lib/objetivos'
 import ObjetivoModal from './ObjetivoModal'
 
 const TITULOS_PERIODICIDAD: Record<ObjetivoResuelto['periodicidad'], string> = {
@@ -125,6 +126,9 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
                     <p className="text-xs text-muted">
                       {TITULOS_PERIODICIDAD[o.periodicidad]} · {o.meta} {o.unidad}
                       {o.fuenteNombre ? ` · fuente: ${o.fuenteNombre}` : ' · sin fuente automática'}
+                      {o.modoProgreso === 'valor_objetivo' && o.direccion
+                        ? ` · valor objetivo (${o.direccion}, inicial ${o.valorInicial} ${o.unidad})`
+                        : ''}
                     </p>
                   </div>
                   <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${estado.className}`}>
@@ -137,12 +141,10 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-card">
                       <div
                         className={`h-full rounded-full ${o.progreso.completado ? 'bg-success' : 'bg-primary'}`}
-                        style={{ width: `${o.progreso.porcentaje}%` }}
+                        style={{ width: `${Math.min(100, Math.max(0, o.progreso.porcentaje))}%` }}
                       />
                     </div>
-                    <span className="shrink-0 text-xs text-muted">
-                      {o.progreso.valor}/{o.progreso.meta} ({o.progreso.porcentaje}%)
-                    </span>
+                    <span className="shrink-0 text-xs text-muted">{formatearProgresoTexto(o.unidad, o.progreso)}</span>
                   </div>
                 )}
 

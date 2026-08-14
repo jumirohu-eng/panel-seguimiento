@@ -1,7 +1,17 @@
 import type { AirtableRecord, ObjetivoFields, RegistroCheckinFields } from './airtable'
-import { CampoCheckinResuelto, FrecuenciaCheckin, inicioDeHoyUTC, inicioDePeriodoSemanalUTC, DiaSemana } from './checkinFields'
+import { CampoCheckinResuelto, FrecuenciaCheckin, TipoCampoCheckin, inicioDeHoyUTC, inicioDePeriodoSemanalUTC, DiaSemana } from './checkinFields'
 
 export type PeriodicidadObjetivo = 'diario' | 'semanal' | 'mensual'
+
+// Modo de cálculo de progreso (integración Objetivos↔Check-ins). 'acumulado' (por
+// defecto, comportamiento histórico desde Parte 1.5.2): suma/cuenta registros dentro de
+// la ventana de la periodicidad — sirve para métricas de actividad (pasos,
+// entrenamientos, movilidad...). 'valor_objetivo': el progreso es la distancia entre un
+// Valor_inicial explícito y el último registro real hacia una Meta, en una Direccion
+// (subir/bajar) — sirve para métricas de estado puntual como el peso, donde sumar/contar
+// no tiene sentido (DECISIONS.md, sección "Peso como objetivo").
+export type ModoProgresoObjetivo = 'acumulado' | 'valor_objetivo'
+export type DireccionObjetivo = 'subir' | 'bajar'
 
 // Un objetivo vive en su propia periodicidad (diario/semanal/mensual), pero su fuente de
 // progreso siempre es un campo de check-in, que vive en diario/semanal/periodico (Parte
@@ -72,8 +82,16 @@ export function esVigenteHoy(
 export interface ProgresoObjetivo {
   valor: number
   meta: number
+  // Para 'valor_objetivo': puede superar 100 (meta ya superada, "sobre-meta" — ver
+  // DECISIONS.md) — la UI decide cómo recortar visualmente la barra, el número real no
+  // se trunca aquí. Para 'acumulado' se mantiene acotado [0, 100] como hasta ahora.
   porcentaje: number
   completado: boolean
+  // Presentes solo cuando el objetivo es de modo 'valor_objetivo' (peso y similares) —
+  // ausentes (undefined) para 'acumulado', así el consumidor puede distinguir el modo
+  // sin tener que leer el objetivo completo.
+  direccion?: DireccionObjetivo
+  valorInicial?: number
 }
 
 // Progreso desde Registros_checkin para UN campo fuente dentro de una ventana de periodo.
@@ -119,6 +137,45 @@ export function calcularProgresoDesdeCheckins(
   return { valor, meta, porcentaje, completado: meta > 0 && valor >= meta }
 }
 
+// Último valor numérico REAL registrado para un campo, sin acotar a ninguna ventana de
+// tiempo (a diferencia de calcularProgresoDesdeCheckins) — un objetivo 'valor_objetivo'
+// (peso) no tiene "ventana": siempre refleja el dato más reciente conocido, venga de
+// cuando venga. `null` si el cliente todavía no ha registrado nunca ese campo.
+export function obtenerUltimoValorNumerico(registros: AirtableRecord<RegistroCheckinFields>[], fieldId: string): number | null {
+  let masReciente: { valor: number; fechaMs: number } | null = null
+  for (const r of registros) {
+    if (r.fields.Field_id !== fieldId) continue
+    const n = Number(r.fields.Valor)
+    if (!Number.isFinite(n)) continue
+    const fechaMs = new Date(r.fields.Fecha).getTime()
+    if (!Number.isFinite(fechaMs)) continue
+    if (!masReciente || fechaMs > masReciente.fechaMs) masReciente = { valor: n, fechaMs }
+  }
+  return masReciente?.valor ?? null
+}
+
+// Progreso de un objetivo 'valor_objetivo' (peso y similares): distancia recorrida desde
+// Valor_inicial hacia Meta, en la Direccion indicada, usando el último registro real
+// (obtenerUltimoValorNumerico). Sin registros nuevos todavía, el actual = Valor_inicial
+// (0% de avance, nunca se inventa un valor). El porcentaje puede superar 100 (meta
+// superada, "sobre-meta") y puede RETROCEDER de una lectura a otra si el valor se aleja
+// de la meta — es una foto del estado actual, no un acumulado histórico irreversible.
+export function calcularProgresoValorObjetivo(
+  registros: AirtableRecord<RegistroCheckinFields>[],
+  fieldId: string,
+  valorInicial: number,
+  meta: number,
+  direccion: DireccionObjetivo
+): ProgresoObjetivo {
+  const ultimo = obtenerUltimoValorNumerico(registros, fieldId)
+  const actual = ultimo ?? valorInicial
+  const totalNecesario = Math.abs(meta - valorInicial)
+  const avance = direccion === 'bajar' ? valorInicial - actual : actual - valorInicial
+  const porcentaje = totalNecesario > 0 ? Math.round((avance / totalNecesario) * 100) : avance >= 0 ? 100 : 0
+  const completado = direccion === 'bajar' ? actual <= meta : actual >= meta
+  return { valor: actual, meta, porcentaje: Math.max(0, porcentaje), completado, direccion, valorInicial }
+}
+
 export interface ObjetivoResuelto {
   id: string
   nombre: string
@@ -127,6 +184,9 @@ export interface ObjetivoResuelto {
   unidad: string
   fuenteFieldId: string | null
   fuenteNombre: string | null
+  modoProgreso: ModoProgresoObjetivo
+  direccion: DireccionObjetivo | null
+  valorInicial: number | null
   fechaInicio: string
   fechaFin: string | null
   activo: boolean
@@ -136,11 +196,12 @@ export interface ObjetivoResuelto {
   progreso: ProgresoObjetivo | null
 }
 
-// Resuelve un objetivo completo (metadatos + progreso del periodo actual) a partir de su
-// fila de Airtable, el catálogo de campos de check-in ya resuelto del entrenador y el
-// historial de Registros_checkin del cliente. `progreso` es null cuando el objetivo no
-// tiene fuente configurada, o cuando la fuente ya no existe / no es de un tipo compatible
-// (campo "huérfano" — se sigue mostrando el objetivo, pero sin inventar un cálculo).
+// Resuelve un objetivo completo (metadatos + progreso actual) a partir de su fila de
+// Airtable, el catálogo de campos de check-in ya resuelto del entrenador y el historial
+// de Registros_checkin del cliente. `progreso` es null cuando el objetivo no tiene
+// fuente configurada, cuando la fuente ya no existe / no es de un tipo compatible (campo
+// "huérfano"), o cuando falta configuración obligatoria de 'valor_objetivo'
+// (Direccion/Valor_inicial) — nunca se inventa un cálculo con datos incompletos.
 export function resolverObjetivo(
   record: AirtableRecord<ObjetivoFields>,
   camposPorId: Map<string, CampoCheckinResuelto>,
@@ -151,11 +212,22 @@ export function resolverObjetivo(
   const periodicidad = record.fields.Periodicidad
   const fuenteFieldId = record.fields.Fuente_field_id ?? null
   const campoFuente = fuenteFieldId ? camposPorId.get(fuenteFieldId) : undefined
+  const modoProgreso: ModoProgresoObjetivo = record.fields.Modo_progreso === 'valor_objetivo' ? 'valor_objetivo' : 'acumulado'
+  const direccion = record.fields.Direccion ?? null
+  const valorInicial = typeof record.fields.Valor_inicial === 'number' ? record.fields.Valor_inicial : null
 
   let progreso: ProgresoObjetivo | null = null
   if (campoFuente && campoFuente.activo && esFuenteCompatible(campoFuente.tipo)) {
-    const { inicioMs, finMs } = ventanaPeriodoActual(periodicidad, diaSemanaCheckin, ahoraMs)
-    progreso = calcularProgresoDesdeCheckins(registros, fuenteFieldId!, campoFuente.tipo, record.fields.Meta, inicioMs, finMs)
+    if (modoProgreso === 'valor_objetivo') {
+      // 'valor_objetivo' exige tipo numérico + Direccion + Valor_inicial explícitos —
+      // si falta cualquiera (dato incompleto/huérfano), no se calcula progreso.
+      if (campoFuente.tipo === 'numero' && direccion && valorInicial !== null) {
+        progreso = calcularProgresoValorObjetivo(registros, fuenteFieldId!, valorInicial, record.fields.Meta, direccion)
+      }
+    } else {
+      const { inicioMs, finMs } = ventanaPeriodoActual(periodicidad, diaSemanaCheckin, ahoraMs)
+      progreso = calcularProgresoDesdeCheckins(registros, fuenteFieldId!, campoFuente.tipo, record.fields.Meta, inicioMs, finMs)
+    }
   }
 
   return {
@@ -166,6 +238,9 @@ export function resolverObjetivo(
     unidad: record.fields.Unidad,
     fuenteFieldId,
     fuenteNombre: campoFuente?.nombre ?? null,
+    modoProgreso,
+    direccion,
+    valorInicial,
     fechaInicio: record.fields.Fecha_inicio,
     fechaFin: record.fields.Fecha_fin ?? null,
     activo: record.fields.Activo === true,
@@ -187,4 +262,43 @@ export function validarFuenteObjetivo(fuenteFieldId: string | null, camposPorId:
   if (!campo || !campo.activo) return 'La fuente seleccionada no existe o no está activa.'
   if (!esFuenteCompatible(campo.tipo)) return 'Ese campo no es numérico ni booleano — no puede usarse como fuente de progreso.'
   return null
+}
+
+// Validación server-side de la configuración de modo de progreso al crear/editar un
+// objetivo. 'acumulado' no tiene requisitos extra (comportamiento histórico). Rechaza
+// de forma explícita — nunca ignora en silencio — cualquier combinación incoherente:
+// 'valor_objetivo' sin fuente numérica, sin Direccion o sin Valor_inicial; o Direccion/
+// Valor_inicial presentes cuando el modo es 'acumulado' (evita estados ambiguos donde
+// el modo dice una cosa y los datos otra).
+export function validarConfiguracionProgreso(
+  modoProgreso: ModoProgresoObjetivo,
+  direccion: DireccionObjetivo | null,
+  valorInicial: number | null,
+  fuenteTipo: TipoCampoCheckin | null
+): string | null {
+  if (modoProgreso === 'acumulado') {
+    if (direccion !== null || valorInicial !== null) {
+      return 'Dirección y valor inicial solo se aplican al modo "valor objetivo".'
+    }
+    return null
+  }
+  // modoProgreso === 'valor_objetivo'
+  if (!fuenteTipo) return 'El modo "valor objetivo" necesita una fuente numérica (p. ej. Peso).'
+  if (fuenteTipo !== 'numero') return 'El modo "valor objetivo" solo es compatible con fuentes numéricas.'
+  if (direccion !== 'subir' && direccion !== 'bajar') return 'Indica si el objetivo es subir o bajar.'
+  if (valorInicial === null || !Number.isFinite(valorInicial)) return 'El valor inicial es obligatorio y debe ser un número.'
+  return null
+}
+
+// Texto de progreso reutilizado por las 3 vistas que lo muestran (ficha del entrenador,
+// dashboard del cliente, check-in) — evita triplicar el formateo. 'valor_objetivo' se
+// expresa como "valor → objetivo meta" (con flecha de dirección), nunca como
+// "valor/meta", que solo tiene sentido para conteos/sumas ('acumulado').
+export function formatearProgresoTexto(unidad: string, progreso: ProgresoObjetivo): string {
+  if (progreso.direccion) {
+    const flecha = progreso.direccion === 'bajar' ? '↓' : '↑'
+    const sufijo = progreso.completado ? (progreso.porcentaje > 100 ? ' — ¡meta superada!' : ' — ¡completado!') : ''
+    return `${progreso.valor} ${unidad} ${flecha} objetivo ${progreso.meta} ${unidad}${sufijo}`
+  }
+  return `${progreso.valor}/${progreso.meta} ${unidad} (${progreso.porcentaje}%)`
 }

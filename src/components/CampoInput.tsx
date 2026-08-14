@@ -80,6 +80,8 @@ export default function CampoInput({
         {label}
         <input
           type="number"
+          min={0}
+          step="any"
           disabled={disabled}
           value={typeof valor === 'number' ? valor : ''}
           onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}

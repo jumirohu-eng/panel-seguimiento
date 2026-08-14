@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClienteCheckinResponse } from '@/lib/types'
+import { formatearProgresoTexto } from '@/lib/objetivos'
 import { campoDisponible } from '@/lib/checkinFields'
 import { formatFechaLarga } from '@/lib/format'
 import CampoInput from '@/components/CampoInput'
@@ -174,9 +175,7 @@ export default function ClienteCheckinPage() {
                       <span className="text-card-foreground">{o.nombre}</span>
                       {o.progreso && (
                         <span className={o.progreso.completado ? 'font-medium text-success' : 'text-muted'}>
-                          {o.progreso.completado
-                            ? '✓ Completado'
-                            : `${o.progreso.valor}/${o.progreso.meta} ${o.unidad} — Pendiente`}
+                          {formatearProgresoTexto(o.unidad, o.progreso)}
                         </span>
                       )}
                     </div>

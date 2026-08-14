@@ -1,4 +1,4 @@
-import type { AirtableRecord, CampoCheckinFields } from './airtable'
+import type { AirtableRecord, CampoCheckinFields, RegistroCheckinFields } from './airtable'
 
 export type TipoCampoCheckin = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
 export type FrecuenciaCheckin = 'diario' | 'semanal' | 'periodico'
@@ -433,6 +433,70 @@ export function generarFieldIdPersonalizado(nombre: string): string {
     .slice(0, 40)
   const rand = Math.random().toString(36).slice(2, 8)
   return `${CUSTOM_FIELD_PREFIX}${slug || 'campo'}_${rand}`
+}
+
+// Valida tipo y rango de un valor ANTES de serializarlo — rechaza explícitamente en vez
+// de convertir/descartar en silencio (ver DECISIONS.md, integración Objetivos↔Check-ins).
+// `undefined`/`null`/`''` es válido (campo sin responder, se omite del envío) — solo se
+// rechaza un valor presente pero incompatible con el tipo del campo.
+export function validarValorCampo(campo: Pick<CampoCheckinResuelto, 'tipo' | 'nombre'>, valor: unknown): string | null {
+  if (valor === null || valor === undefined || valor === '') return null
+  switch (campo.tipo) {
+    case 'si_no':
+      if (typeof valor !== 'boolean') return `${campo.nombre}: se esperaba sí/no.`
+      return null
+    case 'numero':
+    case 'escala': {
+      if (typeof valor !== 'number' || !Number.isFinite(valor)) return `${campo.nombre}: se esperaba un número.`
+      if (valor < 0) return `${campo.nombre}: no puede ser negativo.`
+      if (campo.tipo === 'escala' && (valor < 1 || valor > 5)) return `${campo.nombre}: debe estar entre 1 y 5.`
+      return null
+    }
+    case 'seleccion':
+      if (typeof valor !== 'string') return `${campo.nombre}: valor de selección inválido.`
+      return null
+    case 'seleccion_multiple':
+      if (!Array.isArray(valor) || !valor.every((v) => typeof v === 'string')) {
+        return `${campo.nombre}: valor de selección múltiple inválido.`
+      }
+      return null
+    case 'dolor':
+      if (typeof valor !== 'object' || Array.isArray(valor)) return `${campo.nombre}: valor de dolor inválido.`
+      return null
+    default:
+      if (typeof valor !== 'string') return `${campo.nombre}: se esperaba texto.`
+      return null
+  }
+}
+
+// Resiliencia ante doble envío (doble clic, reintento de red, etc — ver DECISIONS.md,
+// integración Objetivos↔Check-ins): si el ÚLTIMO lote de registros de este tipo tiene
+// exactamente los mismos campos y valores que el envío entrante, y se escribió hace
+// menos de `ventanaMs`, se considera un duplicado — el POST debe tratarlo como
+// idempotente (no insertar filas nuevas) en vez de multiplicar el historial. Un envío
+// con valores DISTINTOS (corrección real) nunca se bloquea, aunque llegue en el mismo
+// segundo — Registros_checkin sigue siendo insert-only para cualquier dato nuevo real.
+export function esEnvioDuplicadoReciente(
+  registros: AirtableRecord<RegistroCheckinFields>[],
+  tipo: FrecuenciaCheckin,
+  nuevasFilas: { Field_id: string; Valor: string }[],
+  ahoraMs = Date.now(),
+  ventanaMs = 5000
+): boolean {
+  const delTipo = registros.filter((r) => r.fields.Tipo_registro === tipo)
+  if (delTipo.length === 0) return false
+
+  const ultimaFechaMs = delTipo.reduce((max, r) => {
+    const t = new Date(r.fields.Fecha).getTime()
+    return Number.isFinite(t) && t > max ? t : max
+  }, -Infinity)
+  if (!Number.isFinite(ultimaFechaMs) || ahoraMs - ultimaFechaMs > ventanaMs || ahoraMs < ultimaFechaMs) return false
+
+  const ultimoLote = delTipo.filter((r) => new Date(r.fields.Fecha).getTime() === ultimaFechaMs)
+  if (ultimoLote.length !== nuevasFilas.length) return false
+
+  const mapaUltimo = new Map(ultimoLote.map((r) => [r.fields.Field_id, r.fields.Valor]))
+  return nuevasFilas.every((f) => mapaUltimo.get(f.Field_id) === f.Valor)
 }
 
 // Serializa un valor de formulario a texto para Registros_checkin.Valor.

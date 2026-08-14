@@ -1,10 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedEmail } from '@/lib/auth-server'
-import { getClienteById, getObjetivoById, getCamposCheckinByEntrenador, actualizarObjetivo, ObjetivoFields } from '@/lib/airtable'
+import {
+  getClienteById,
+  getObjetivoById,
+  getCamposCheckinByEntrenador,
+  actualizarObjetivo,
+  resolverOCrearCampoCheckinParaObjetivo,
+  ObjetivoFields,
+} from '@/lib/airtable'
 import { resolverCamposEfectivos } from '@/lib/checkinFields'
-import { validarFuenteObjetivo, PeriodicidadObjetivo } from '@/lib/objetivos'
+import {
+  validarFuenteObjetivo,
+  validarConfiguracionProgreso,
+  PeriodicidadObjetivo,
+  ModoProgresoObjetivo,
+  DireccionObjetivo,
+} from '@/lib/objetivos'
 
 const PERIODICIDADES_VALIDAS: PeriodicidadObjetivo[] = ['diario', 'semanal', 'mensual']
+const MODOS_PROGRESO_VALIDOS: ModoProgresoObjetivo[] = ['acumulado', 'valor_objetivo']
 
 export async function PATCH(
   request: NextRequest,
@@ -55,7 +69,24 @@ export async function PATCH(
     if (!unidad) return NextResponse.json({ error: 'La unidad es obligatoria' }, { status: 400 })
     fields.Unidad = unidad
   }
-  if ('fuenteFieldId' in (body ?? {})) {
+  const fuenteNuevaRaw = body?.fuenteNueva
+  const fuenteNueva =
+    fuenteNuevaRaw && typeof fuenteNuevaRaw === 'object'
+      ? {
+          nombre: typeof fuenteNuevaRaw.nombre === 'string' ? fuenteNuevaRaw.nombre.trim() : '',
+          tipo: fuenteNuevaRaw.tipo as 'si_no' | 'numero',
+          unidad: typeof fuenteNuevaRaw.unidad === 'string' ? fuenteNuevaRaw.unidad.trim() : undefined,
+        }
+      : null
+  if ('fuenteFieldId' in (body ?? {}) && fuenteNueva) {
+    return NextResponse.json({ error: 'Indica una fuente existente o una métrica nueva, no ambas' }, { status: 400 })
+  }
+  if (fuenteNueva) {
+    if (!fuenteNueva.nombre) return NextResponse.json({ error: 'El nombre de la métrica nueva es obligatorio' }, { status: 400 })
+    if (fuenteNueva.tipo !== 'si_no' && fuenteNueva.tipo !== 'numero') {
+      return NextResponse.json({ error: 'El tipo de la métrica nueva debe ser sí/no o número' }, { status: 400 })
+    }
+  } else if ('fuenteFieldId' in (body ?? {})) {
     fields.Fuente_field_id = typeof body.fuenteFieldId === 'string' && body.fuenteFieldId ? body.fuenteFieldId : null
   }
   if (typeof body?.fechaInicio === 'string') {
@@ -70,27 +101,58 @@ export async function PATCH(
   if (typeof body?.activo === 'boolean') {
     fields.Activo = body.activo
   }
+  if ('modoProgreso' in (body ?? {})) {
+    if (!MODOS_PROGRESO_VALIDOS.includes(body.modoProgreso)) {
+      return NextResponse.json({ error: 'Modo de progreso no válido' }, { status: 400 })
+    }
+    fields.Modo_progreso = body.modoProgreso
+  }
+  if ('direccion' in (body ?? {})) {
+    fields.Direccion = body.direccion === 'subir' || body.direccion === 'bajar' ? body.direccion : null
+  }
+  if ('valorInicial' in (body ?? {})) {
+    const v = body.valorInicial === null ? null : Number(body.valorInicial)
+    if (v !== null && !Number.isFinite(v)) {
+      return NextResponse.json({ error: 'El valor inicial debe ser un número' }, { status: 400 })
+    }
+    fields.Valor_inicial = v
+  }
 
-  if (Object.keys(fields).length === 0) {
+  if (Object.keys(fields).length === 0 && !fuenteNueva) {
     return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 })
   }
 
-  const fuenteFinal = 'Fuente_field_id' in fields ? fields.Fuente_field_id || null : (objetivo.fields.Fuente_field_id ?? null)
-  if (fuenteFinal) {
-    try {
-      const filasConfig = await getCamposCheckinByEntrenador(email)
-      const camposPorId = new Map(resolverCamposEfectivos(filasConfig).map((c) => [c.id, c]))
-      const errorFuente = validarFuenteObjetivo(fuenteFinal, camposPorId)
-      if (errorFuente) return NextResponse.json({ error: errorFuente }, { status: 400 })
-    } catch (err) {
-      console.error('Error al validar fuente de objetivo', err)
-      return NextResponse.json({ error: 'Error al validar la fuente del objetivo' }, { status: 500 })
-    }
-  }
-
   try {
+    const filasConfig = await getCamposCheckinByEntrenador(email)
+    const camposPorId = new Map(resolverCamposEfectivos(filasConfig).map((c) => [c.id, c]))
+
+    if (fuenteNueva) {
+      fields.Fuente_field_id = await resolverOCrearCampoCheckinParaObjetivo(email, fuenteNueva.nombre, fuenteNueva.tipo, fuenteNueva.unidad)
+    } else if ('Fuente_field_id' in fields && fields.Fuente_field_id) {
+      const errorFuente = validarFuenteObjetivo(fields.Fuente_field_id, camposPorId)
+      if (errorFuente) return NextResponse.json({ error: errorFuente }, { status: 400 })
+    }
+
+    // Estado final tras aplicar los cambios sobre el objetivo existente — para validar
+    // la coherencia modo/dirección/valor-inicial/fuente en conjunto, no campo a campo.
+    const fuenteFinalId = 'Fuente_field_id' in fields ? (fields.Fuente_field_id ?? null) : (objetivo.fields.Fuente_field_id ?? null)
+    const fuenteFinalTipo = fuenteNueva
+      ? fuenteNueva.tipo
+      : (() => {
+          const c = fuenteFinalId ? camposPorId.get(fuenteFinalId) : undefined
+          return c?.tipo === 'si_no' || c?.tipo === 'numero' ? c.tipo : null
+        })()
+    const modoFinal: ModoProgresoObjetivo =
+      'Modo_progreso' in fields ? (fields.Modo_progreso as ModoProgresoObjetivo) : objetivo.fields.Modo_progreso === 'valor_objetivo' ? 'valor_objetivo' : 'acumulado'
+    const direccionFinal: DireccionObjetivo | null = 'Direccion' in fields ? (fields.Direccion ?? null) : (objetivo.fields.Direccion ?? null)
+    const valorInicialFinal: number | null =
+      'Valor_inicial' in fields ? (fields.Valor_inicial ?? null) : (typeof objetivo.fields.Valor_inicial === 'number' ? objetivo.fields.Valor_inicial : null)
+
+    const errorModo = validarConfiguracionProgreso(modoFinal, direccionFinal, valorInicialFinal, fuenteFinalTipo)
+    if (errorModo) return NextResponse.json({ error: errorModo }, { status: 400 })
+
     await actualizarObjetivo(objetivoId, fields)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, fuenteFieldId: fuenteFinalId })
   } catch (err) {
     console.error('Error al actualizar objetivo', err)
     return NextResponse.json({ error: 'Error al actualizar el objetivo' }, { status: 500 })

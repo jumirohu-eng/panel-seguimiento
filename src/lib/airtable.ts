@@ -1,4 +1,5 @@
 import 'server-only'
+import { resolverCamposEfectivos, generarFieldIdPersonalizado } from './checkinFields'
 
 const AIRTABLE_API_URL = 'https://api.airtable.com/v0'
 const TABLE_CLIENTES = 'tblcpRBZbtViJzQVQ'
@@ -190,6 +191,17 @@ export interface ObjetivoFields {
   // registro se conserva por integridad, pero deja de listarse en cualquier consulta
   // (ver getObjetivosByClienteEmail) y no puede reactivarse desde la UI.
   Eliminado?: boolean
+  // Modo de cálculo de progreso (integración Objetivos↔Check-ins, ver DECISIONS.md).
+  // Ausente = 'acumulado' (comportamiento histórico: sumar/contar dentro de la ventana,
+  // sin backfill necesario en objetivos ya existentes). 'valor_objetivo': el progreso es
+  // la distancia entre Valor_inicial y el último registro real hacia Meta, en la
+  // Direccion indicada (peso, medidas de composición corporal…) — nunca se suma/cuenta.
+  Modo_progreso?: 'acumulado' | 'valor_objetivo'
+  // Obligatorio si Modo_progreso='valor_objetivo'; sin valor por defecto — nunca se
+  // infiere silenciosamente (ver DECISIONS.md, sección "valor inicial"). Nullable para
+  // poder limpiarlos explícitamente al volver a modo 'acumulado' (PATCH).
+  Direccion?: 'subir' | 'bajar' | null
+  Valor_inicial?: number | null
   Orden?: number
   Last_modified?: string
 }
@@ -643,6 +655,52 @@ export async function actualizarCampoCheckin(recordId: string, fields: Partial<C
     'PATCH',
     fields
   )
+}
+
+// Check-in dinámico a partir de Objetivos: cuando el entrenador da de alta un objetivo
+// con una métrica nueva ("Pasos", "Movilidad"...), esa métrica debe quedar disponible
+// automáticamente en el check-in — sin que el entrenador tenga que ir primero a
+// /checkin-config a crearla a mano, y sin duplicar la pregunta si otro objetivo ya usa
+// el mismo nombre. Busca por nombre (normalizado: trim + minúsculas) entre los campos
+// YA activos y del mismo tipo de este entrenador; si no hay coincidencia, crea un campo
+// personalizado nuevo. Se asigna solo a `Tipos: ['diario']` por defecto — la
+// periodicidad más granular del check-in, capaz de alimentar objetivos diario/semanal/
+// mensual por agregación (ver DECISIONS.md, mismo principio que DEC-2026-026) — el
+// entrenador puede ampliarlo a otros tipos después desde /checkin-config si lo necesita.
+//
+// Limitación conocida y aceptada (no resuelta con una transacción, Airtable no las
+// ofrece vía API REST): lectura-y-creación no es atómica. Dos objetivos creados con el
+// mismo nombre de métrica nueva en un margen de milisegundos podrían, en el peor caso,
+// generar dos campos casi duplicados — mismo tipo de riesgo ya aceptado en
+// `upsertCheckinTipo` (Parte 1.5), documentado aquí explícitamente.
+export async function resolverOCrearCampoCheckinParaObjetivo(
+  email: string,
+  nombre: string,
+  tipo: 'si_no' | 'numero',
+  unidad?: string
+): Promise<string> {
+  const filas = await getCamposCheckinByEntrenador(email)
+  const nombreNormalizado = nombre.trim().toLowerCase()
+  const existente = resolverCamposEfectivos(filas).find(
+    (c) => c.activo && c.tipo === tipo && c.nombre.trim().toLowerCase() === nombreNormalizado
+  )
+  if (existente) return existente.id
+
+  const orden = filas.reduce((max, f) => Math.max(max, f.fields.Orden ?? 0), 9) + 1
+  const fieldId = generarFieldIdPersonalizado(nombre)
+  await crearCampoCheckin({
+    Nombre: nombre.trim(),
+    Field_id: fieldId,
+    Entrenador: email,
+    Tipo: tipo,
+    Categoria: 'objetivo',
+    Unidad: unidad,
+    Tipos: ['diario'],
+    Activo: true,
+    Orden: orden,
+    Es_estandar: false,
+  })
+  return fieldId
 }
 
 export async function crearRegistrosCheckin(filas: Partial<RegistroCheckinFields>[]) {

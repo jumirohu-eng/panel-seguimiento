@@ -44,13 +44,70 @@ Datos:
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
 - `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`) + `Checkin_tipos` (`tblsiRHYa7SFro2Th`, Parte 1.5): modelo de check-in in-app del cliente. Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 020.
 - `notas_privadas` (Supabase Postgres, no Airtable): "Mis notas" se **eliminó por completo** de la app en Parte 1.5.3 (UI, rutas, API) — ver `DECISIONS.md` DEC-2026-030. La tabla en sí y su única fila real (de `jumirohu@gmail.com`, rol cliente) **no se han borrado**, por decisión explícita del usuario al confirmar la retirada — quedan huérfanas en Supabase, sin ningún endpoint que las use. No reintroducir esta funcionalidad sin revisar antes esa decisión.
-- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. `Objetivos.Eliminado` (checkbox, Parte 1.5.3) es un soft-delete distinto de `Activo` — ver `DECISIONS.md` DEC-2026-032. Ver sección dedicada más abajo.
+- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. `Objetivos.Eliminado` (checkbox, Parte 1.5.3) es un soft-delete distinto de `Activo` — ver `DECISIONS.md` DEC-2026-032. `Objetivos.Modo_progreso` (`acumulado`/`valor_objetivo`), `Direccion` y `Valor_inicial` (sesión "Objetivos + Check-ins", 2026-08-14) permiten objetivos tipo peso (progreso por distancia a una meta, no por suma) — ver DEC-2026-035. Un objetivo puede crear su propia métrica de check-in automáticamente (check-in dinámico) — ver DEC-2026-034. Ver sección dedicada más abajo.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## RetainCoach — Objetivos + Check-ins: integración robusta (2026-08-14)
+
+Rama: `retaincoach-objetivos-checkins-integracion` (derivada de
+`retaincoach-parte-1.5.3`). Push pendiente hasta confirmar con el usuario.
+
+**Auditoría previa (regla de este archivo):** se releyeron `objetivos.ts`,
+`checkinFields.ts`, las rutas de check-in/objetivos y `ObjetivoModal`/`ObjetivosEntrenador`
+antes de tocar nada. Conclusión: la integración objetivo→check-in básica (DEC-2026-026,
+Parte 1.5.2) ya era sólida — no había ninguna decisión existente que contradijera este
+brief, solo capacidades nuevas por construir (métrica dinámica, modo "valor objetivo",
+validación estricta, resiliencia a doble envío). No hizo falta detenerse a señalar
+ninguna contradicción.
+
+### Check-in dinámico (DEC-2026-034)
+`ObjetivoModal` permite ahora elegir entre "Métrica existente", "Métrica nueva" (nombre +
+tipo, el backend crea o reutiliza el campo de check-in automáticamente vía nueva
+`resolverOCrearCampoCheckinParaObjetivo()`) o "Sin fuente". Dos objetivos con el mismo
+nombre de métrica (normalizado) nunca duplican la pregunta.
+
+### Peso como objetivo (DEC-2026-035)
+Nuevo `Modo_progreso` (`acumulado`/`valor_objetivo`) + `Direccion` (`subir`/`bajar`) +
+`Valor_inicial` en `Objetivos`. El peso ya no se calcula como "acumulado" (sumar no tiene
+sentido) — se calcula como distancia entre `Valor_inicial` y el último dato real hacia
+`Meta`: puede superar el 100% (meta superada) y puede retroceder si el peso vuelve a
+subir. Ausencia de `Modo_progreso` = `acumulado` (ningún objetivo existente cambia de
+comportamiento). **Hallazgo real, sin tocar:** existe 1 objetivo de producción llamado
+"peso" (cliente `jjoossee45678@gmail.com`) que hoy sigue en modo `acumulado` — casi
+seguro no es lo que se quiere para un objetivo de peso, pero no se ha modificado sin
+confirmación (dato real de un cliente real). **Pendiente: comunicarlo al entrenador
+dueño o, con su confirmación, editarlo desde la ficha a modo "Valor objetivo".**
+
+### Validación y resiliencia (DEC-2026-036, DEC-2026-037)
+`POST /api/cliente/checkin` ahora rechaza (400 explícito) cualquier valor de tipo o rango
+incompatible en vez de descartarlo en silencio. Nuevo guard de doble envío (no atómico,
+documentado con una prueba de concurrencia real que confirma su límite) — pero la
+integridad del progreso mostrado nunca dependió de ese guard: ya la garantiza la
+deduplicación de lectura existente desde Parte 1.5/1.5.2 (por día para "acumulado", por
+"último valor real" para "valor objetivo").
+
+### Validación
+`tsc --noEmit`, `eslint` y `next build` sin errores. Prueba E2E de fixtures aislados y
+desechables (patrón DEC-2026-009), 51 comprobaciones (ver `DECISIONS.md` para el detalle
+completo). Prueba adicional de concurrencia real (peticiones en paralelo, script fuera
+del commit) confirmando el límite documentado del guard de doble envío.
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta
+sesión) — verificado contra la API real, Airtable real y Supabase real.
+
+**Pendiente real:**
+- Prueba visual en navegador del nuevo modal de objetivos (métrica nueva, modo "valor
+  objetivo") y del check-in dinámico.
+- Decidir con el entrenador dueño si convertir el objetivo real "peso" a modo "valor
+  objetivo" (ver arriba).
+- Confirmar con el usuario el push de esta rama.
+
+---
 
 ## RetainCoach Parte 1.5.3 — Limpieza, programación clara y objetivos integrados (2026-08-14)
 

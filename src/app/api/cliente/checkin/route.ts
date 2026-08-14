@@ -13,6 +13,8 @@ import {
   agruparPorFrecuencia,
   deserializarValor,
   serializarValor,
+  validarValorCampo,
+  esEnvioDuplicadoReciente,
   calcularProximaFecha,
   resolverProgramacionTipo,
   inicioDeHoyUTC,
@@ -155,10 +157,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [entrenador, filasTipos, filasConfig] = await Promise.all([
+    const [entrenador, filasTipos, filasConfig, registros] = await Promise.all([
       getEntrenadorByEmail(cliente.fields.Entrenador),
       getCheckinTiposByEntrenador(cliente.fields.Entrenador),
       getCamposCheckinByEntrenador(cliente.fields.Entrenador),
+      getRegistrosCheckinByClienteEmail(cliente.fields.Email ?? ''),
     ])
 
     const filaTipo = filasTipos.find((f) => f.fields.Tipo === tipo)
@@ -169,15 +172,26 @@ export async function POST(request: NextRequest) {
 
     const camposResueltos = resolverCamposEfectivos(filasConfig)
     const grupos = agruparPorFrecuencia(camposResueltos)
-    const camposActivosDelTipo = grupos[tipo]
+    // Regla "No he entrenado": un campo dependiente no disponible se ignora del todo
+    // (ni se valida ni se guarda), aunque el cliente lo mande manipulando la petición
+    // directamente — rechazo real en backend, no solo cosmético.
+    const camposAEnviar = grupos[tipo].filter((campo) => campoDisponible(campo, valores))
+
+    // Validación estricta de tipo/rango ANTES de serializar (ver DECISIONS.md): un valor
+    // presente pero incompatible con el tipo del campo se rechaza con un 400 explícito —
+    // nunca se convierte ni se descarta en silencio. Un campo simplemente no incluido en
+    // `valores` es válido (no respondido) y se omite del envío sin error.
+    const erroresValidacion = camposAEnviar
+      .filter((campo) => campo.id in valores)
+      .map((campo) => validarValorCampo(campo, valores[campo.id]))
+      .filter((e): e is string => e !== null)
+    if (erroresValidacion.length > 0) {
+      return respuestaError(erroresValidacion.join(' '), 400)
+    }
 
     const fecha = new Date().toISOString()
-    const filas = camposActivosDelTipo
+    const filas = camposAEnviar
       .map((campo) => {
-        // Regla "No he entrenado": un campo dependiente se ignora silenciosamente si la
-        // condición de la que depende no se cumple, aunque el cliente lo mande manipulando
-        // la petición directamente — rechazo real en backend, no solo cosmético.
-        if (!campoDisponible(campo, valores)) return null
         const valorSerializado = serializarValor(campo.tipo, valores[campo.id])
         if (valorSerializado === null) return null
         return {
@@ -192,6 +206,13 @@ export async function POST(request: NextRequest) {
 
     if (filas.length === 0) {
       return respuestaError('No hay valores válidos para los campos activos de este tipo', 400)
+    }
+
+    // Doble envío (doble clic, reintento de red): si es idéntico al último lote de este
+    // tipo y llegó hace segundos, no se inserta de nuevo — responde 200 idempotente en
+    // vez de 201 y de multiplicar filas en Registros_checkin.
+    if (esEnvioDuplicadoReciente(registros, tipo, filas, Date.now())) {
+      return NextResponse.json({ ok: true, fecha, campos: filas.length, duplicado: true }, { status: 200 })
     }
 
     await crearRegistrosCheckin(filas)

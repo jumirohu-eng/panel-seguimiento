@@ -746,6 +746,116 @@ código no llegó a desplegarse.
 
 ---
 
+## DEC-2026-022 — "Pendiente de activación" es un estado derivado, no un valor nuevo de `Clientes.Estado`
+
+**Fecha:** 2026-08-14
+**Tipo:** Arquitectura / Autenticación
+**Estado:** Implementada
+
+### Contexto
+El brief de Parte 1.5.1 pide respetar cuatro estados: "pendiente de activación",
+"activo", "inactivo/perdido" y "reactivado", y explícitamente prohíbe "crear una segunda
+lógica de estados". `Clientes.Estado` (Airtable, singleSelect) solo tiene tres opciones
+reales: `Activo`/`Pausado`/`Perdido` (ver DEC-2026-019) — no existe ni existía un cuarto
+valor para "pendiente".
+
+### Decisión
+No se añade un valor `Pendiente` a `Clientes.Estado`. Un cliente creado por su entrenador
+recibe `Estado: 'Activo'` exactamente igual que hoy (sin cambios en `POST /api/clientes`).
+"Pendiente de activación" se calcula en el momento de pintar la ficha del entrenador
+(`GET /api/clientes/[id]/invitacion`) comprobando si existe un usuario de Supabase con el
+email del cliente y `email_confirmed_at` presente (`findSupabaseUserByEmail`, ya existía
+en `supabase-server.ts`) — no se guarda en Airtable. "Reactivado" tampoco es un estado
+nuevo: sigue siendo la transición `Perdido → Activo` ya implementada en DEC-2026-019.
+
+### Por qué
+El acceso real de un cliente nunca dependió de `Clientes.Estado` para la fase "no ha
+completado el registro todavía" — un cliente sin cuenta de Supabase confirmada
+simplemente no puede iniciar sesión, con independencia de lo que diga `Estado`. Guardar
+un segundo campo de "activación de cuenta" en Airtable duplicaría una verdad que ya vive
+en Supabase Auth (`email_confirmed_at`) y crearía la posibilidad de que ambos se
+desincronizasen. `getClienteActivoAutenticado()` (el gate real de activo/inactivo, ver
+DEC-2026-019) no se tocó.
+
+### Verificación
+Prueba E2E: un cliente recién creado por el entrenador aparece con `cuentaActiva: false`
+en `GET /api/clientes/[id]/invitacion` antes de completar el registro, `true` justo
+después de confirmar el email (simulado vía Admin API, ver DEC-2026-024), y el login con
+`signInWithPassword` falla mientras el email no está confirmado — sin que `Clientes.Estado`
+cambiara en ningún momento de esa secuencia.
+
+---
+
+## DEC-2026-023 — Eliminado `POST /api/clientes/[id]/crear-acceso` (generaba contraseñas temporales)
+
+**Fecha:** 2026-08-14
+**Tipo:** Seguridad / Producto
+**Estado:** Implementada (reemplazo, no solo eliminación)
+
+### Contexto
+Antes de Parte 1.5.1, la única forma de dar acceso web a un cliente era que el
+entrenador pulsara "Crear acceso" en `ClienteFicha.tsx`, que llamaba a
+`POST /api/clientes/[id]/crear-acceso`: generaba una contraseña aleatoria en el servidor
+y la mostraba una vez al entrenador para que se la pasara al cliente por su cuenta. El
+brief de esta parte prohíbe explícitamente ese patrón: "no generar ni enviar contraseñas
+iniciales" — el cliente debe crear su propia contraseña.
+
+### Decisión
+Se elimina el endpoint y el botón "Crear acceso" por completo (no se deja como código
+muerto: seguía permitiendo generar contraseñas server-side, lo cual contradice
+directamente la política nueva). Se sustituye por el flujo de invitación (token → el
+cliente crea su propia contraseña en `/cliente/signup`). No había ninguna decisión previa
+registrada en `DECISIONS.md` sobre `crear-acceso`, así que esto no reemplaza una entrada
+anterior de este archivo, pero sí un comportamiento que llevaba en producción desde antes
+de las decisiones documentadas aquí.
+
+### Verificación
+`grep` confirma que ningún otro archivo del repo referenciaba `crear-acceso` tras
+eliminarlo; `next build`/`tsc`/`eslint` sin errores tras el borrado.
+
+---
+
+## DEC-2026-024 — Bug de filtro de Airtable: un campo "link to record" en `filterByFormula` no se puede comparar contra el id del registro enlazado
+
+**Fecha:** 2026-08-14
+**Tipo:** Bug / Airtable API
+**Estado:** Corregido
+
+### Hallazgo
+Durante la prueba E2E de regeneración de invitación de cliente, regenerar no invalidaba
+el token anterior (`GET /api/signup/cliente/validate` sobre el token viejo seguía
+devolviendo `valid: true` en vez de `410`).
+
+### Causa
+`getInvitacionClienteActivaByClienteId()` filtraba con
+`FIND("<clienteId>", ARRAYJOIN({Cliente})) > 0`, donde `Cliente` es un campo "link to
+another record" hacia `Clientes`. Dentro de una fórmula de Airtable, `ARRAYJOIN()` sobre
+un campo enlazado se resuelve contra el **valor del campo primario del registro enlazado**
+(`Clientes.Nombre`), no contra su `record id`. La fórmula buscaba el id del cliente dentro
+de una lista de nombres de cliente, así que nunca encontraba coincidencia — la invitación
+activa anterior nunca se localizaba ni se cancelaba.
+
+### Fix
+Se filtra por `Entrenador` (campo de texto plano, sí es fiable en `filterByFormula` — el
+llamador ya comprobó ownership antes de llegar aquí) y se afina en JavaScript comparando
+`record.fields.Cliente` — que, a diferencia de una fórmula, sí es un array de record ids
+reales cuando se lee vía la API REST normal — contra el `clienteId` buscado.
+
+### Aprendizaje
+Un campo "link to another record" nunca debe usarse dentro de `FIND()`/`ARRAYJOIN()` en
+`filterByFormula` para comparar contra un record id — solo sirve para comparar contra el
+valor mostrado (campo primario) del registro enlazado. Para filtrar por record id de un
+campo enlazado, filtrar por otro campo fiable en la fórmula (texto/email) y afinar en
+código con el array de ids que sí devuelve la API. Revisar si este patrón aparece en
+cualquier `filterByFormula` futuro que toque un campo `multipleRecordLinks`.
+
+### Verificación
+Prueba E2E dedicada: generar invitación A (token1), regenerar (token2 ≠ token1),
+`validate(token1)` → `410` (Cancelado), `validate(token2)` → `200 valid:true`. Antes del
+fix, `validate(token1)` devolvía `200` incorrectamente.
+
+---
+
 ## Estado de la auditoría 2026-08-13
 
 ### Arquitectura
@@ -798,3 +908,10 @@ código no llegó a desplegarse.
 - Validado con prueba E2E de fixtures aislados (entrenador+cliente ficticios, creados y borrados en la sesión) cubriendo los 20 puntos de la sección 16 del brief de Parte 1.5, `tsc --noEmit`, `eslint` y `next build`, los tres sin errores.
 - Ajustes tras revisión del preview: botón "Programar" apilado debajo de la fecha, dashboard cliente reordenado (Entrenamientos → Mis notas → Tus check-ins), eliminada la tarjeta "Próximo check-in semanal (Tally)" del dashboard cliente, añadido botón "Cambiar contraseña" en `/cliente/dashboard`.
 - Añadida `DEC-2026-021`: fusión de `retaincoach-checkin-parte-1.5` a `main` (fast-forward, sin conflictos) tras confirmación explícita de Juanmi — producción ya servía un commit intermedio de la rama, promovido manualmente desde Vercel.
+
+### 2026-08-14 — RetainCoach Parte 1.5.1
+- Añadida `DEC-2026-022`: "pendiente de activación" es un estado derivado (Supabase Auth `email_confirmed_at`), no un valor nuevo de `Clientes.Estado` — evita una segunda lógica de estados.
+- Añadida `DEC-2026-023`: eliminado `POST /api/clientes/[id]/crear-acceso` (generaba contraseñas temporales), sustituido por el flujo de invitación con token.
+- Añadida `DEC-2026-024`: bug de Airtable corregido — un campo "link to record" en `filterByFormula` no se puede comparar contra el record id del registro enlazado (solo contra su campo primario); afectaba a la invalidación del token al regenerar una invitación de cliente.
+- Nueva tabla Airtable `Invitaciones_cliente` (mismo patrón que `Invitaciones` de entrenador) y campos nuevos `Clientes.Objetivos_adicionales`/`Clientes.Dias_disponibles` para el onboarding nativo — auditado antes de crear campos: el objetivo principal reutiliza `Objetivo` y el comentario reutiliza `Notas_iniciales`, ya existentes.
+- Validado con prueba E2E de fixtures aislados (patrón DEC-2026-009) cubriendo los 12 puntos de la sección 7 del brief, `tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Confirmado como bloqueante de infraestructura (no introducido por esta tarea): el SMTP de Supabase Auth no está configurado, `supabase.auth.signUp()` falla con 500 y no crea el usuario — afecta igual al signup de entrenador ya existente.

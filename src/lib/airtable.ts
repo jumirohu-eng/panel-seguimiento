@@ -12,6 +12,7 @@ const TABLE_ADMINS = 'tbl9rBIoivD65ojPx'
 const TABLE_CAMPOS_CHECKIN = 'tblY8lFGaO2iA29Zf'
 const TABLE_REGISTROS_CHECKIN = 'tbl7usdXJYJA83lsm'
 const TABLE_CHECKIN_TIPOS = 'tblsiRHYa7SFro2Th'
+const TABLE_INVITACIONES_CLIENTE = 'tblrWxTzzuPSFPzNP'
 
 export interface AirtableRecord<T> {
   id: string
@@ -24,6 +25,11 @@ export interface ClienteFields {
   Email?: string
   'Teléfono'?: string
   Objetivo: string
+  // Onboarding nativo (Parte 1.5.1, ver DECISIONS.md): objetivos secundarios y días
+  // habituales, elegidos por el propio cliente tras su primer login. `Objetivo`
+  // (principal) y `Notas_iniciales` (comentario) se reutilizan tal cual, sin duplicar.
+  Objetivos_adicionales?: string[]
+  Dias_disponibles?: DiaSemanaAirtable[]
   Estado?: string
   Entrenamientos_objetivo: number
   Entrenador: string
@@ -52,6 +58,19 @@ export type EstadoInvitacion = 'Activo' | 'Usado' | 'Expirado' | 'Cancelado'
 export interface InvitacionFields {
   Token: string
   Email_entrenador: string
+  Estado: EstadoInvitacion
+  Creado: string
+  Expira: string
+}
+
+// Invitación privada de un entrenador a un cliente concreto (Parte 1.5.1, ver
+// DECISIONS.md) — mismo patrón/estados que InvitacionFields, tabla separada porque
+// esta invitación está ligada a un Cliente+Entrenador, no solo a un email suelto.
+export interface InvitacionClienteFields {
+  Token: string
+  Cliente: string[]
+  Entrenador: string
+  Email_cliente: string
   Estado: EstadoInvitacion
   Creado: string
   Expira: string
@@ -374,6 +393,89 @@ export async function cancelarInvitacion(recordId: string) {
 export async function marcarInvitacionUsada(recordId: string) {
   return airtableWrite<AirtableRecord<InvitacionFields>>(
     `${TABLE_INVITACIONES}/${recordId}`,
+    'PATCH',
+    { Estado: 'Usado' }
+  )
+}
+
+// `Cliente` es un campo de tipo "link to another record" — en filterByFormula, Airtable
+// resuelve ARRAYJOIN()/FIND() sobre esos campos contra el valor del campo primario del
+// registro enlazado (Clientes.Nombre), no contra su record id. Filtrar por id de cliente
+// vía fórmula buscaría el id dentro de nombres de cliente y nunca encontraría nada. Por
+// eso se filtra por Entrenador (texto plano, sí es fiable en fórmula — el llamador ya
+// comprobó ownership) y se afina en JS comparando fields.Cliente (array de ids reales
+// cuando se lee vía API, a diferencia de una fórmula) contra clienteId.
+export async function getInvitacionClienteActivaByClienteId(
+  clienteId: string,
+  entrenadorEmail: string
+): Promise<AirtableRecord<InvitacionClienteFields> | null> {
+  const params = new URLSearchParams()
+  params.set(
+    'filterByFormula',
+    `AND({Entrenador} = "${escapeFormulaValue(entrenadorEmail)}", {Estado} = "Activo")`
+  )
+  params.set('sort[0][field]', 'Creado')
+  params.set('sort[0][direction]', 'desc')
+  const data = await airtableGet<{ records: AirtableRecord<InvitacionClienteFields>[] }>(
+    TABLE_INVITACIONES_CLIENTE,
+    params
+  )
+  return data.records.find((r) => r.fields.Cliente?.includes(clienteId)) ?? null
+}
+
+export async function getInvitacionClienteMasRecienteByClienteId(
+  clienteId: string,
+  entrenadorEmail: string
+): Promise<AirtableRecord<InvitacionClienteFields> | null> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Entrenador} = "${escapeFormulaValue(entrenadorEmail)}"`)
+  params.set('sort[0][field]', 'Creado')
+  params.set('sort[0][direction]', 'desc')
+  const data = await airtableGet<{ records: AirtableRecord<InvitacionClienteFields>[] }>(
+    TABLE_INVITACIONES_CLIENTE,
+    params
+  )
+  return data.records.find((r) => r.fields.Cliente?.includes(clienteId)) ?? null
+}
+
+export async function getInvitacionClienteByToken(
+  token: string
+): Promise<AirtableRecord<InvitacionClienteFields> | null> {
+  const params = new URLSearchParams()
+  params.set('filterByFormula', `{Token} = "${escapeFormulaValue(token)}"`)
+  params.set('maxRecords', '1')
+  const data = await airtableGet<{ records: AirtableRecord<InvitacionClienteFields>[] }>(
+    TABLE_INVITACIONES_CLIENTE,
+    params
+  )
+  return data.records[0] ?? null
+}
+
+export async function crearInvitacionCliente(clienteId: string, entrenadorEmail: string, clienteEmail: string, token: string) {
+  const creado = new Date()
+  const expira = new Date(creado.getTime() + 24 * 60 * 60 * 1000)
+  return airtableWrite<AirtableRecord<InvitacionClienteFields>>(TABLE_INVITACIONES_CLIENTE, 'POST', {
+    Token: token,
+    Cliente: [clienteId],
+    Entrenador: entrenadorEmail,
+    Email_cliente: clienteEmail,
+    Estado: 'Activo',
+    Creado: creado.toISOString(),
+    Expira: expira.toISOString(),
+  })
+}
+
+export async function cancelarInvitacionCliente(recordId: string) {
+  return airtableWrite<AirtableRecord<InvitacionClienteFields>>(
+    `${TABLE_INVITACIONES_CLIENTE}/${recordId}`,
+    'PATCH',
+    { Estado: 'Cancelado' }
+  )
+}
+
+export async function marcarInvitacionClienteUsada(recordId: string) {
+  return airtableWrite<AirtableRecord<InvitacionClienteFields>>(
+    `${TABLE_INVITACIONES_CLIENTE}/${recordId}`,
     'PATCH',
     { Estado: 'Usado' }
   )

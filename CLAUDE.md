@@ -48,6 +48,110 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## RetainCoach Parte 1.5.1 — onboarding y activación de clientes (2026-08-14)
+
+Rama: `retaincoach-onboarding-parte-1.5.1` (derivada de `main`). No mergeada a `main`.
+
+**Qué se construyó:** flujo definitivo de alta de cliente por invitación privada, sustituyendo
+la generación de contraseñas temporales por el entrenador. Entrenador crea cliente → genera
+invitación (token único, 24h, un solo uso) → cliente abre el link → email pre-rellenado y no
+editable → crea su propia contraseña → confirma email → login → onboarding nativo breve →
+dashboard. **No hay registro público de clientes** — el único punto de entrada es un token
+válido generado por su propio entrenador.
+
+### Modelo de datos (aditivo)
+- Tabla nueva `Invitaciones_cliente` (`tblrWxTzzuPSFPzNP`): mismo patrón/estados que
+  `Invitaciones` (entrenadores) — `Token`, `Estado` (Activo/Usado/Expirado/Cancelado),
+  `Creado`, `Expira` — pero añade `Cliente` (link a `Clientes`) y `Entrenador` (email,
+  texto plano) porque esta invitación está ligada a un cliente+entrenador concreto, no
+  solo a un email suelto. Tabla separada de `Invitaciones`, que no se toca.
+- `Clientes.Objetivos_adicionales` (multipleSelects, mismas 4 opciones que `Objetivo`) y
+  `Clientes.Dias_disponibles` (multipleSelects, días de la semana) — campos nuevos del
+  onboarding nativo. El objetivo principal reutiliza `Objetivo` (ya existente) y el
+  comentario reutiliza `Notas_iniciales` (ya existente, mostrado en `ClienteFicha` como
+  "Notas del cliente al registrarse") — auditado antes de crear campos, sin duplicar.
+- **`Clientes.Estado` no cambia** (sigue siendo `Activo`/`Pausado`/`Perdido`, ver
+  DEC-2026-019). "Pendiente de activación" NO es un valor de `Estado` nuevo — ver
+  DEC-2026-022.
+
+### Endpoints nuevos
+- `GET/POST /api/clientes/[id]/invitacion` (gate entrenador+ownership, mismo patrón que
+  el resto de `/api/clientes/[id]/*`): GET devuelve el estado actual sin generar nada
+  (para pintar la ficha); POST genera una invitación nueva y sirve tanto para "generar"
+  como para "regenerar" — si ya había una activa, la cancela primero (mismo
+  comportamiento que `admin/invite`).
+- `GET /api/signup/cliente/validate` y `POST /api/signup/cliente/complete` — calco
+  exacto de `/api/signup/validate` y `/api/signup/complete` (entrenadores), sobre
+  `Invitaciones_cliente` en vez de `Invitaciones`. El email y el cliente a activar se
+  resuelven siempre desde el token en el servidor, nunca desde el body.
+- `GET/PUT /api/cliente/onboarding` (gate `getClienteActivoAutenticado`, igual que
+  `/api/cliente/perfil` y `/api/cliente/notas`): guarda objetivo principal, objetivos
+  adicionales, días disponibles y comentario. `completado` se deriva de
+  `Boolean(Objetivo)` — sin campo booleano nuevo.
+- `GET /api/cliente/perfil` ahora expone `onboardingCompletado` (misma derivación). El
+  dashboard del cliente redirige a `/cliente/onboarding` cuando es `false`.
+- **Eliminado** `POST /api/clientes/[id]/crear-acceso` (generaba y mostraba una
+  contraseña temporal al entrenador) — contradice el brief de esta parte ("no generar
+  ni enviar contraseñas iniciales"). Sustituido por el flujo de invitación. Ver
+  DEC-2026-023.
+
+### UI nueva
+- `/cliente/signup` — calco de `/signup` (email disabled, contraseña+confirmación,
+  `supabase.auth.signUp` + `POST complete`), token de `Invitaciones_cliente`. Reutiliza
+  la misma página `/signup/confirm` para la confirmación de email (el contenido ya era
+  genérico, no mencionaba "entrenador").
+- `/cliente/onboarding` — formulario nativo breve (objetivo principal, objetivos
+  adicionales, días disponibles, comentario opcional). Se salta automáticamente si ya
+  está completado.
+- `ClienteFicha.tsx`: el bloque "Crear acceso" se sustituyó por un bloque de invitación
+  con badge de estado (Sin invitación / Pendiente de activación / Cuenta activa), link
+  copiable y botón generar/regenerar.
+- `RegistrarClienteModal.tsx`: tras crear el cliente, genera la invitación automáticamente
+  y la muestra como enlace principal a compartir; el enlace de alta por Tally se mantiene
+  debajo, sin tocar ese flujo.
+
+### Tally/n8n
+No se tocó nada del flujo Tally → n8n → `Reportes` semanal. El check-in in-app de Parte
+1.5 tampoco se tocó. `Link_tally_alta` se sigue generando igual en `POST /api/clientes`.
+
+### Bloqueante de infraestructura descubierto (no introducido por esta tarea)
+El SMTP de Supabase Auth no está configurado en este proyecto — `supabase.auth.signUp()`
+falla con `500 Error sending confirmation email` y **no llega a crear el usuario**. Esto
+ya estaba listado como pendiente en la sección "Bloqueantes técnicos/manuales" de este
+archivo, pero antes de esta sesión no estaba confirmado que rompiera el signup por
+completo (no solo el envío del email). Afecta igual al signup de entrenador (mismo
+mecanismo, no tocado en esta tarea). Hasta que se configure, ningún signup público
+(entrenador o cliente) funciona en producción tal cual — ver "Pendientes" más abajo.
+
+### Validación
+Prueba E2E con fixtures aislados y desechables (mismo patrón DEC-2026-009): creación de
+cliente, generación de invitación, ownership (entrenador ajeno rechazado con 403), token
+único de 24h, validación pública, regeneración invalida el token anterior (410) y crea
+uno nuevo con 24h propias, registro simulado (ver bloqueante SMTP arriba — se usó Admin
+API como equivalente de `signUp` para no depender de un proveedor SMTP real), invalidación
+tras un solo uso (410 en validate y en complete repetido), manipulación de token de otro
+cliente no filtra datos ajenos, cuenta pendiente de activación no puede hacer login hasta
+confirmar el email, onboarding no completado tras primer login y completado tras guardar
+(con objetivos adicionales/días inválidos filtrados server-side), no reaparece tras
+completarse, estados activo/inactivo/reactivado (403 en `perfil` y `onboarding` para
+`Perdido`, recuperado tras reactivar sin perder el onboarding ya guardado), e invitación
+de entrenador (`/api/admin/invite`) sigue funcionando sin cambios. Durante la prueba se
+encontró y corrigió un bug real (no del test): el filtro de Airtable por campo enlazado
+`Cliente` no funcionaba — ver DEC-2026-024. `tsc --noEmit`, `eslint` y `next build`, los
+tres sin errores. Limpieza confirmada (0 filas de prueba restantes en las 5 tablas
+tocadas, 0 usuarios Supabase de prueba restantes).
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta
+sesión) — verificado contra la API real, Airtable real y Supabase real.
+
+**Pendiente real:**
+- Configurar el SMTP de Supabase Auth (bloqueante confirmado esta sesión, ver arriba) —
+  sin esto, ningún cliente ni entrenador puede completar un signup público real.
+- Prueba visual en navegador del flujo completo (invitación → registro → confirmación →
+  onboarding → dashboard).
+
+---
+
 ## RetainCoach Parte 1.5 — rediseño del check-in: tres tipos independientes (2026-08-14)
 
 Rama: `retaincoach-checkin-parte-1.5` (derivada de `main`). **Fusionada a `main` y en
@@ -372,7 +476,9 @@ Este archivo contiene el estado actual que Claude Code debe conocer al iniciar u
 ### Bloqueantes técnicos/manuales
 - Configurar Supabase Auth `Site URL` = `https://retaincoach.com`.
 - Configurar Redirect URLs para `/signup/confirm` y `/reset-password`.
-- Configurar SMTP de Supabase con Resend si se quiere usar Resend para Auth.
+- **Configurar el SMTP de Supabase Auth — bloqueante confirmado (Parte 1.5.1, 2026-08-14):
+  sin esto, `supabase.auth.signUp()` falla con 500 y no crea el usuario. Ningún signup
+  público (entrenador ni cliente) funciona en producción hasta configurarlo.**
 - Completar validación real del flujo de reset/signup desde producción.
 - Rellenar `NEXT_PUBLIC_JUANMI_WHATSAPP` en Vercel si Marketplace debe funcionar.
 - Añadir manualmente `Metricas` como opción del multi-select `Entrenadores.Soluciones` si se quiere poder asignar ese producto.

@@ -41,6 +41,19 @@ export interface Invitacion {
   expira: string
 }
 
+// Invitación privada de un entrenador a un cliente (Parte 1.5.1). `cuentaActiva` es un
+// estado derivado (no guardado en Airtable, ver DECISIONS.md): true si ya existe un
+// usuario de Supabase con este email y el email está confirmado.
+export interface InvitacionClienteEstado {
+  invitacion: {
+    estado: 'Activo' | 'Usado' | 'Expirado' | 'Cancelado'
+    creado: string
+    expira: string
+    inviteLink: string | null
+  } | null
+  cuentaActiva: boolean
+}
+
 export interface Entrenador {
   id: string
   email: string
@@ -123,6 +136,19 @@ export interface ClientePerfil {
   // X/Y de entrenamientos de la semana en curso. Y reutiliza Entrenamientos_objetivo (no
   // hay una fuente de asignación semanal variable — ver DECISIONS.md).
   entrenamientosSemana: { realizados: number; asignados: number }
+  // Onboarding nativo (Parte 1.5.1): true si el cliente ya tiene Objetivo guardado.
+  // El dashboard redirige a /cliente/onboarding cuando es false.
+  onboardingCompletado: boolean
+}
+
+// Onboarding nativo del cliente tras su primer login (Parte 1.5.1, ver DECISIONS.md).
+// No confundir con "Mis notas" (notas_privadas, Supabase, privadas del cliente).
+export interface OnboardingCliente {
+  objetivo: string
+  objetivosAdicionales: string[]
+  diasDisponibles: DiaSemana[]
+  comentario: string
+  completado: boolean
 }
 
 export type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'

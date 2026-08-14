@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Cliente, Reporte, ReportesResponse, CheckinEnvio, ChecklinsResponse } from '@/lib/types'
+import { Cliente, Reporte, ReportesResponse, CheckinEnvio, ChecklinsResponse, InvitacionClienteEstado } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
 import { calcularEstadoReporte } from '@/lib/estadoReporte'
 import AIAnalysis from './AIAnalysis'
@@ -46,9 +46,11 @@ export default function ClienteFicha({
   const [errorReactivar, setErrorReactivar] = useState<string | null>(null)
   const [copiadoLinkTally, setCopiadoLinkTally] = useState(false)
   const [conflictoError, setConflictoError] = useState<string | null>(null)
-  const [creandoAcceso, setCreandoAcceso] = useState(false)
-  const [accesoCreado, setAccesoCreado] = useState<string | null>(null)
-  const [errorAcceso, setErrorAcceso] = useState<string | null>(null)
+  const [invitacionEstado, setInvitacionEstado] = useState<InvitacionClienteEstado | null>(null)
+  const [loadingInvitacion, setLoadingInvitacion] = useState(true)
+  const [generandoInvitacion, setGenerandoInvitacion] = useState(false)
+  const [errorInvitacion, setErrorInvitacion] = useState<string | null>(null)
+  const [copiadoInvitacion, setCopiadoInvitacion] = useState(false)
   const [checkins, setCheckins] = useState<CheckinEnvio[]>([])
   const [checkinsPage, setCheckinsPage] = useState(0)
   const [checkinsHasMore, setCheckinsHasMore] = useState(false)
@@ -159,25 +161,59 @@ export default function ClienteFicha({
     setTimeout(() => setCopiadoLinkTally(false), 2000)
   }, [cliente.linkTallyAlta])
 
-  const handleCrearAcceso = useCallback(async () => {
-    setCreandoAcceso(true)
-    setErrorAcceso(null)
-    setAccesoCreado(null)
+  const cargarInvitacion = useCallback(async () => {
+    setLoadingInvitacion(true)
     const token = await getToken()
     try {
-      const res = await fetch(`/api/clientes/${cliente.id}/crear-acceso`, {
+      const res = await fetch(`/api/clientes/${cliente.id}/invitacion`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data: InvitacionClienteEstado = await res.json()
+        setInvitacionEstado(data)
+      }
+    } catch {
+      // Si falla, simplemente no se muestra el estado de invitación
+    } finally {
+      setLoadingInvitacion(false)
+    }
+  }, [cliente.id, getToken])
+
+  useEffect(() => {
+    async function load() {
+      await cargarInvitacion()
+    }
+    load()
+    // Solo al cambiar de cliente: cargarInvitacion cambia de identidad en cada render de cliente.id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cliente.id])
+
+  const handleGenerarInvitacion = useCallback(async () => {
+    setGenerandoInvitacion(true)
+    setErrorInvitacion(null)
+    const token = await getToken()
+    try {
+      const res = await fetch(`/api/clientes/${cliente.id}/invitacion`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error ?? 'No se pudo crear el acceso')
-      setAccesoCreado(data.password)
+      if (!res.ok) throw new Error(data?.error ?? 'No se pudo generar la invitación')
+      await cargarInvitacion()
     } catch (err) {
-      setErrorAcceso(err instanceof Error ? err.message : 'Error al crear el acceso')
+      setErrorInvitacion(err instanceof Error ? err.message : 'Error al generar la invitación')
     } finally {
-      setCreandoAcceso(false)
+      setGenerandoInvitacion(false)
     }
-  }, [cliente.id, getToken])
+  }, [cliente.id, getToken, cargarInvitacion])
+
+  const handleCopyInvitacion = useCallback(async () => {
+    const link = invitacionEstado?.invitacion?.inviteLink
+    if (!link) return
+    await navigator.clipboard.writeText(link)
+    setCopiadoInvitacion(true)
+    setTimeout(() => setCopiadoInvitacion(false), 2000)
+  }, [invitacionEstado])
 
   useEffect(() => {
     async function cargarPerfil() {
@@ -413,28 +449,65 @@ export default function ClienteFicha({
             </button>
           </div>
         )}
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background p-3">
-          <div className="min-w-0">
-            <p className="mb-1 text-xs font-medium text-muted">Acceso al panel del cliente</p>
-            {accesoCreado ? (
-              <p className="text-xs text-card-foreground">
-                Contraseña temporal: <span className="font-mono font-semibold">{accesoCreado}</span> — compártela
-                con el cliente, no queda guardada aquí
-              </p>
-            ) : errorAcceso ? (
-              <p className="text-xs text-danger">{errorAcceso}</p>
-            ) : (
-              <p className="text-xs text-muted">Crea una cuenta para que {cliente.nombre} vea su progreso</p>
+        <div className="mt-1 flex flex-col gap-2 rounded-lg bg-background p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted">Acceso al panel del cliente</p>
+            {!loadingInvitacion && invitacionEstado && (
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  invitacionEstado.cuentaActiva
+                    ? 'bg-success/10 text-success'
+                    : invitacionEstado.invitacion?.estado === 'Activo'
+                      ? 'bg-warning/10 text-warning'
+                      : 'bg-muted/10 text-muted'
+                }`}
+              >
+                {invitacionEstado.cuentaActiva
+                  ? 'Cuenta activa'
+                  : invitacionEstado.invitacion?.estado === 'Activo'
+                    ? 'Pendiente de activación'
+                    : 'Sin invitación'}
+              </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={handleCrearAcceso}
-            disabled={creandoAcceso}
-            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
-          >
-            {creandoAcceso ? 'Creando…' : 'Crear acceso'}
-          </button>
+
+          {loadingInvitacion ? (
+            <p className="text-xs text-muted">Cargando…</p>
+          ) : invitacionEstado?.cuentaActiva ? (
+            <p className="text-xs text-muted">{cliente.nombre} ya confirmó su cuenta y puede acceder.</p>
+          ) : (
+            <>
+              {invitacionEstado?.invitacion?.inviteLink ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="truncate text-xs text-muted">{invitacionEstado.invitacion.inviteLink}</p>
+                  <button
+                    type="button"
+                    onClick={handleCopyInvitacion}
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card"
+                  >
+                    {copiadoInvitacion ? '¡Copiado!' : 'Copiar'}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted">
+                  Genera una invitación para que {cliente.nombre} cree su propia contraseña de acceso.
+                </p>
+              )}
+              {errorInvitacion && <p className="text-xs text-danger">{errorInvitacion}</p>}
+              <button
+                type="button"
+                onClick={handleGenerarInvitacion}
+                disabled={generandoInvitacion}
+                className="w-fit rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
+              >
+                {generandoInvitacion
+                  ? 'Generando…'
+                  : invitacionEstado?.invitacion?.inviteLink
+                    ? 'Regenerar invitación (24h)'
+                    : 'Generar invitación'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 

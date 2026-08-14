@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
       entrenadorNombre: entrenador?.fields.Nombre || cliente.fields.Entrenador,
       entrenamientosObjetivo: cliente.fields.Entrenamientos_objetivo,
       entrenamientosSemana: { realizados, asignados: cliente.fields.Entrenamientos_objetivo },
+      onboardingCompletado: Boolean(cliente.fields.Objetivo),
     }
 
     return NextResponse.json(perfil)

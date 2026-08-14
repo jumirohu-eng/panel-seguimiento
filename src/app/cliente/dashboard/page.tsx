@@ -79,6 +79,10 @@ export default function ClienteDashboardPage() {
         }
         if (!res.ok) throw new Error('No se pudo cargar el perfil')
         const data: ClientePerfil = await res.json()
+        if (!data.onboardingCompletado) {
+          router.push('/cliente/onboarding')
+          return
+        }
         setPerfil(data)
       } catch {
         setError('Error al cargar tus datos.')

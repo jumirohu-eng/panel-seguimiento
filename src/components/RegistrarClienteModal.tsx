@@ -19,6 +19,9 @@ export default function RegistrarClienteModal({
   const [link, setLink] = useState<string | null>(null)
   const [linkGenerado, setLinkGenerado] = useState(false)
   const [copiado, setCopiado] = useState(false)
+  const [linkInvitacion, setLinkInvitacion] = useState<string | null>(null)
+  const [errorInvitacion, setErrorInvitacion] = useState<string | null>(null)
+  const [copiadoInvitacion, setCopiadoInvitacion] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -37,6 +40,21 @@ export default function RegistrarClienteModal({
         throw new Error(body?.error ?? 'No se pudo crear el cliente')
       }
       const creado = await res.json()
+
+      try {
+        const invRes = await fetch(`/api/clientes/${creado.id}/invitacion`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const invData = await invRes.json().catch(() => null)
+        if (invRes.ok) {
+          setLinkInvitacion(invData.inviteLink)
+        } else {
+          setErrorInvitacion(invData?.error ?? 'No se pudo generar la invitación')
+        }
+      } catch {
+        setErrorInvitacion('No se pudo generar la invitación')
+      }
 
       onCreated({
         id: creado.id,
@@ -71,6 +89,13 @@ export default function RegistrarClienteModal({
     setTimeout(() => setCopiado(false), 2000)
   }
 
+  async function handleCopyInvitacion() {
+    if (!linkInvitacion) return
+    await navigator.clipboard.writeText(linkInvitacion)
+    setCopiadoInvitacion(true)
+    setTimeout(() => setCopiadoInvitacion(false), 2000)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
       <div
@@ -92,10 +117,33 @@ export default function RegistrarClienteModal({
         {linkGenerado ? (
           <div className="flex flex-col gap-4">
             <p className="text-sm text-success">Cliente creado ✅</p>
-            {link ? (
+
+            {linkInvitacion ? (
               <div className="flex flex-col gap-2">
                 <p className="text-sm text-card-foreground">
-                  Envíale este enlace para que complete su alta:
+                  Envíale este enlace para que cree su cuenta (válido 24h):
+                </p>
+                <p className="break-all rounded-lg border border-border bg-background p-2 text-xs text-muted">
+                  {linkInvitacion}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCopyInvitacion}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  {copiadoInvitacion ? '¡Copiado!' : 'Copiar al portapapeles'}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-danger">
+                {errorInvitacion ?? 'No se pudo generar la invitación'} — puedes generarla más tarde desde su ficha.
+              </p>
+            )}
+
+            {link && (
+              <div className="flex flex-col gap-2 border-t border-border pt-3">
+                <p className="text-xs text-muted">
+                  Enlace de alta (Tally) — datos adicionales, opcional:
                 </p>
                 <p className="break-all rounded-lg border border-border bg-background p-2 text-xs text-muted">
                   {link}
@@ -103,17 +151,11 @@ export default function RegistrarClienteModal({
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                  className="w-fit rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
                 >
-                  {copiado ? '¡Copiado!' : 'Copiar al portapapeles'}
+                  {copiado ? '¡Copiado!' : 'Copiar'}
                 </button>
               </div>
-            ) : (
-              <p className="text-sm text-warning">
-                El cliente se creó, pero el formulario de alta todavía no está configurado
-                (falta NEXT_PUBLIC_TALLY_ALTA_CLIENTE_URL). Pídele el resto de datos manualmente
-                por ahora.
-              </p>
             )}
             <button
               type="button"

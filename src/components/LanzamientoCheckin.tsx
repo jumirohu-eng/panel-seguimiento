@@ -86,12 +86,12 @@ export default function LanzamientoCheckin({
 
         <div>
           <label className="mb-1 block text-xs font-medium text-muted">Programar apertura</label>
-          <div className="flex gap-2">
+          <div className="flex flex-col items-start gap-2">
             <input
               type="datetime-local"
               value={fechaProgramada}
               onChange={(e) => setFechaProgramada(e.target.value)}
-              className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-card-foreground"
+              className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-card-foreground"
             />
             <button
               type="button"

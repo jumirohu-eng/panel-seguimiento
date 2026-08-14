@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getClienteActivoAutenticado } from '@/lib/auth-server'
-import { getEntrenadorByEmail, getReportesByClienteEmail, getRegistrosCheckinByClienteEmail } from '@/lib/airtable'
+import { getEntrenadorByEmail, getRegistrosCheckinByClienteEmail } from '@/lib/airtable'
 import { contarEntrenamientosSemana, inicioDePeriodoSemanalUTC } from '@/lib/checkinFields'
 import { ClientePerfil } from '@/lib/types'
 
@@ -19,17 +19,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const entrenador = await getEntrenadorByEmail(cliente.fields.Entrenador)
-
-    // pageSize amplio para cubrir varios meses de reportes Tally con margen, sin paginar.
-    const { records: reportes } = await getReportesByClienteEmail(cliente.fields.Email ?? '', 60)
-    const reportesOrdenados = [...reportes].sort(
-      (a, b) => new Date(b.fields.Fecha).getTime() - new Date(a.fields.Fecha).getTime()
-    )
-    const ultimo = reportesOrdenados[0]
     const ahora = Date.now()
-    const proximoCheckinDias = ultimo
-      ? 7 - Math.floor((ahora - new Date(ultimo.fields.Fecha).getTime()) / (1000 * 60 * 60 * 24))
-      : null
 
     const registrosCheckin = await getRegistrosCheckinByClienteEmail(cliente.fields.Email ?? '')
     const realizados = contarEntrenamientosSemana(registrosCheckin, inicioDePeriodoSemanalUTC('lunes', ahora))
@@ -40,7 +30,6 @@ export async function GET(request: NextRequest) {
       entrenadorNombre: entrenador?.fields.Nombre || cliente.fields.Entrenador,
       entrenamientosObjetivo: cliente.fields.Entrenamientos_objetivo,
       entrenamientosSemana: { realizados, asignados: cliente.fields.Entrenamientos_objetivo },
-      proximoCheckinDias,
     }
 
     return NextResponse.json(perfil)

@@ -123,7 +123,6 @@ export interface ClientePerfil {
   // X/Y de entrenamientos de la semana en curso. Y reutiliza Entrenamientos_objetivo (no
   // hay una fuente de asignación semanal variable — ver DECISIONS.md).
   entrenamientosSemana: { realizados: number; asignados: number }
-  proximoCheckinDias: number | null
 }
 
 export type DiaSemana = 'lunes' | 'martes' | 'miercoles' | 'jueves' | 'viernes' | 'sabado' | 'domingo'

@@ -195,6 +195,37 @@ export default function ClienteDashboardPage() {
           </p>
         </section>
 
+        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-card-foreground">Entrenamientos esta semana</h2>
+          {asignados > 0 ? (
+            <>
+              <p className="mb-2 text-sm text-card-foreground">
+                {realizados} / {asignados} entrenamientos
+              </p>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-background">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${pctObjetivo}%` }} />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted">Tu entrenador todavía no ha configurado un objetivo semanal.</p>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-card-foreground">Mis notas</h2>
+              <p className="text-xs text-muted">Tu libreta personal — solo tú puedes verla.</p>
+            </div>
+            <button
+              onClick={() => router.push('/cliente/notas')}
+              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
+            >
+              Abrir
+            </button>
+          </div>
+        </section>
+
         {checkin && (
           <section className="rounded-xl border border-primary bg-card p-6 shadow-sm">
             <h2 className="mb-3 text-sm font-semibold text-card-foreground">Tus check-ins</h2>
@@ -246,51 +277,6 @@ export default function ClienteDashboardPage() {
             </div>
           </section>
         )}
-
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-card-foreground">Entrenamientos esta semana</h2>
-          {asignados > 0 ? (
-            <>
-              <p className="mb-2 text-sm text-card-foreground">
-                {realizados} / {asignados} entrenamientos
-              </p>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-background">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${pctObjetivo}%` }} />
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted">Tu entrenador todavía no ha configurado un objetivo semanal.</p>
-          )}
-        </section>
-
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-card-foreground">Mis notas</h2>
-              <p className="text-xs text-muted">Tu libreta personal — solo tú puedes verla.</p>
-            </div>
-            <button
-              onClick={() => router.push('/cliente/notas')}
-              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
-            >
-              Abrir
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="mb-2 text-lg font-semibold text-card-foreground">Próximo check-in semanal (Tally)</h2>
-          <p className="mb-2 text-xs text-muted">
-            Basado en el formulario semanal externo, independiente de los check-ins de arriba.
-          </p>
-          {perfil.proximoCheckinDias === null ? (
-            <p className="text-sm text-muted">Todavía no has hecho tu primer check-in.</p>
-          ) : perfil.proximoCheckinDias > 0 ? (
-            <p className="text-sm text-card-foreground">En {perfil.proximoCheckinDias} día(s)</p>
-          ) : (
-            <p className="text-sm text-warning">Ya te toca — no hemos recibido tu check-in de esta semana</p>
-          )}
-        </section>
       </main>
     </div>
   )

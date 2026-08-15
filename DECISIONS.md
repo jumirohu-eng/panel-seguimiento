@@ -1717,6 +1717,20 @@ dato real.
   nunca ve ni puede registrar ese campo, cliente inactivo bloqueado, aislamiento entre
   clientes, tipo incompatible rechazado con 400. `tsc --noEmit`, `eslint` y `next build` sin
   errores. No probado visualmente en navegador.
+- Añadida `DEC-2026-041`: serie de ajustes de UX pedidos tras probar `DEC-2026-040` en el
+  preview — registro enfocado en un único campo por objetivo (`?campo=&tipo=`); catálogo de
+  revisiones estándar (Energía/Fatiga/Ánimo/Dolor/Comentario/Adherencia/Medidas) a
+  `tiposDefault: ['semanal']` por defecto; Peso/Entrenamiento realizado/campos "Pasos" ocultos
+  de `/checkin-config`; nuevo `DELETE /api/entrenador/checkin-config/campos/[fieldId]` con
+  botón "Eliminar" (borra de verdad un campo personalizado, desactiva de forma duradera uno
+  estándar); corregido que las filas "eliminadas" seguían visibles (ahora las listas solo
+  muestran `activo === true`, con un desplegable "eliminadas" + Reactivar); bloque "Revisiones"
+  quitado de la ficha del cliente (queda solo en config avanzada,
+  `RevisionesEntrenador.tsx`/`RevisionModal.tsx` borrados por código muerto) y botón ⚙️ movido
+  del `Header` al toolbar de `ClientesLista.tsx`. `tsc --noEmit`, `eslint` y `next build` sin
+  errores en cada commit; E2E con fixtures desechables para los puntos de backend/catálogo. No
+  probado visualmente en navegador por Claude — la validación visual la hizo el usuario en el
+  preview de Vercel.
 
 ---
 
@@ -1973,3 +1987,89 @@ después de que su campo ya estuviera disponible como revisión (tipo lanzado), 
 siendo registrable por el cliente como revisión normal — comportamiento correcto y ya
 existente, no una regresión de este fix, mencionado aquí para que quede explícito el modelo
 mental correcto en sesiones futuras.
+
+---
+
+## DEC-2026-041 — Objetivos independientes de Revisiones: ajustes de UX y catálogo
+
+**Fecha:** 2026-08-15
+**Tipo:** UX / Frontend / Backend menor
+**Estado:** Implementada
+
+### Contexto
+Tras probar `DEC-2026-040` en el preview de Vercel de la rama
+`fix-objetivos-independientes-revisiones`, surgieron cinco ajustes puntuales sobre el mismo
+tema (Objetivos independientes de Revisiones). Se agrupan en una sola decisión por ser
+iteraciones de la misma sesión, no decisiones arquitectónicas nuevas.
+
+### 1. Registro enfocado en un único campo
+"Registrar" en un objetivo llevaba a `/cliente/checkin` y mostraba **todos** los campos de
+objetivo de esa sección (p. ej. peso junto a pasos), aunque el cliente solo quisiera registrar
+uno. `MisObjetivos.tsx` construye ahora el link con `?campo={fuenteFieldId}&tipo={tipo}` (tipo
+calculado vía `PERIODICIDAD_A_TIPO_CHECKIN[objetivo.periodicidad]`, ya existente en
+`src/lib/objetivos.ts`). `src/app/cliente/checkin/page.tsx` detecta esos dos parámetros y
+renderiza un formulario enfocado en ese único campo (con su barra de progreso si el objetivo es
+`valor_objetivo`), en vez de la sección completa. `enviarCampoUnico()` manda solo el valor de
+ese campo al `POST`, no el resto de valores prellenados de la sección. El flujo de Revisión (sin
+esos parámetros en la URL) no cambia.
+
+### 2. Revisiones semanales por defecto; Peso/Entrenamiento realizado/Pasos fuera de config avanzada
+Decisión explícita del usuario (confirmada con `AskUserQuestion` antes de tocar el catálogo,
+dado que afecta a cuentas reales sin config propia): `CAMPOS_ESTANDAR`
+(`src/lib/checkinFields.ts`) — Energía, Fatiga, Ánimo, Dolor, Comentario, Adherencia y Medidas
+pasan de `tiposDefault` repartidos entre diario/semanal/periódico a `['semanal']` únicamente,
+consistente con "Revisión semanal" como el flujo por defecto ahora que los objetivos llevan el
+registro diario/frecuente. Peso y Entrenamiento realizado (`tiposDefault` sin tocar, siguen
+funcionando igual como fuente de objetivo) y cualquier campo personalizado llamado "Pasos" dejan
+de listarse en `/checkin-config` — nueva `esCampoOcultoEnConfigAvanzada()`, usada solo para
+filtrar el render de `CheckinConfigView.tsx`, sin tocar el catálogo, `Registros_checkin` ni el
+endpoint `GET /api/entrenador/checkin-config` (que otros consumidores como `ObjetivoModal`
+siguen necesitando sin filtrar).
+
+### 3. Botón "Eliminar" en revisiones
+Nuevo `borrarCampoCheckin()` (`src/lib/airtable.ts`) y `DELETE
+/api/entrenador/checkin-config/campos/[fieldId]` (nueva ruta). Campo **personalizado**: se borra
+la fila de Airtable de verdad (no existe en código, no hay a qué revertir). Campo **estándar**:
+no se puede borrar del catálogo (vive en `CAMPOS_ESTANDAR`) — se desactiva de forma duradera
+(`Activo=false`, creando la fila de override si todavía no existía) para que quede fuera de las
+pantallas de revisión igual que si se hubiera borrado. Botón "Eliminar" con confirmación inline
+(mismo patrón que `ObjetivosEntrenador.tsx`) añadido en `CheckinConfigView.tsx` y en la ficha
+del cliente.
+
+### 4. Bug real corregido: "Eliminar" no hacía desaparecer la fila
+**Hallazgo:** para campos estándar, "Eliminar" solo desactivaba (`Activo=false`), pero ambas
+listas (config avanzada y ficha del cliente) seguían mostrando las filas inactivas junto a las
+activas — solo cambiaba el badge a "Inactivo"/"Inactiva". Desde la perspectiva del usuario,
+parecía que el botón no hacía nada. **Fix:** ambas listas filtran ahora por `campo.activo`
+(solo se muestran activos); las filas eliminadas/desactivadas quedan en un desplegable "Campos
+eliminados (N)" / "Revisiones eliminadas (N)" al final, con botón "Reactivar" (reutiliza el
+`PUT /api/entrenador/checkin-config` ya existente) — para no perder la reversibilidad. El
+toggle "Activo/Inactivo" suelto dentro de la fila (redundante con Eliminar, mismo efecto visual
+una vez filtrada la lista) se quitó.
+
+### 5. Revisiones solo en config avanzada; botón ⚙️ junto a "+ Registrar cliente"
+El bloque "Revisiones" se quitó de la ficha del cliente por completo — decisión explícita del
+usuario, con la config avanzada (`/checkin-config`) como único lugar de gestión.
+`RevisionesEntrenador.tsx` y `RevisionModal.tsx` (introducidos en `DEC-2026-039`) quedaron sin
+ningún consumidor y se borraron como código muerto. El botón ⚙️ "Check-ins avanzados" (que
+`DEC-2026-039` había movido al `Header`, gateado por el branch de render correcto para evitar
+`DEC-2026-011`) se mueve ahora al toolbar de `ClientesLista.tsx`, a la izquierda de "+
+Registrar cliente" — mismo componente que ya se renderiza igual para un entrenador real y para
+un admin en "Ver como entrenador" (sin condicionar por `isAdmin`), así que sigue sin repetir
+`DEC-2026-011`. Tooltip nativo (`title`) con el nombre y un resumen breve de para qué sirve.
+
+### Verificación
+`tsc --noEmit`, `eslint` y `next build` sin errores en cada uno de los 5 commits. Prueba E2E
+con fixtures desechables para los puntos 2-4: catálogo por defecto confirmado en `['semanal']`
+para un entrenador sin overrides; Peso/Entrenamiento realizado confirmados intactos en el
+catálogo (no borrados) tras ocultarse de la config avanzada; `DELETE` de un campo personalizado
+borra la fila de verdad; `DELETE` de un campo estándar sin override crea uno con
+`Activo=false`, y repetir el `DELETE` sobre un override ya existente sigue funcionando; un
+entrenador no puede borrar un campo personalizado de otro (`404`, aislado por email del JWT);
+tras `DELETE`, el campo queda fuera de la lista que filtra por `activo` (lo que realmente ve la
+UI). Los puntos 1 y 5 son cambios de frontend/navegación puros, validados por build + inspección
+de código.
+
+**No probado visualmente en navegador por Claude** (sin Chrome/Playwright disponibles en esta
+sesión) — la validación visual de los 5 puntos la hizo el usuario directamente en el preview de
+Vercel de esta rama, y de ahí surgieron los puntos 1, 4 y 5 de esta misma decisión.

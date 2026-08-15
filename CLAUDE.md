@@ -52,6 +52,64 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Ajustes de UX — Objetivos independientes de Revisiones (2026-08-15)
+
+Serie de ajustes pedidos tras probar en el preview de Vercel el fix de `DEC-2026-040`
+(objetivos independientes del lanzamiento de check-ins). Documentados juntos como
+`DECISIONS.md` `DEC-2026-041` porque son iteraciones de la misma sesión sobre el mismo tema,
+no decisiones independientes.
+
+**1. Registro enfocado en un único campo.** "Registrar" en un objetivo llevaba a
+`/cliente/checkin` y mostraba **todos** los campos de objetivo de esa sección (p. ej. peso junto
+a pasos), aunque el cliente solo quisiera registrar uno. El link ahora incluye `?campo=&tipo=`
+(calculado en `MisObjetivos.tsx` desde `PERIODICIDAD_A_TIPO_CHECKIN`); `/cliente/checkin/page.tsx`
+detecta esos parámetros y muestra un formulario enfocado en ese único campo (con su barra de
+progreso si aplica), en vez de la sección completa. El envío (`enviarCampoUnico`) manda solo el
+valor de ese campo. El flujo de Revisión (sin esos parámetros) no cambia.
+
+**2. Revisiones semanales por defecto; Peso/Entrenamiento realizado/Pasos fuera de la config
+avanzada.** `CAMPOS_ESTANDAR` (`src/lib/checkinFields.ts`): Energía, Fatiga, Ánimo, Dolor,
+Comentario, Adherencia y Medidas pasan a `tiposDefault: ['semanal']` (antes repartidos entre
+diario/semanal/periódico) — una única "revisión semanal" por defecto para cualquier cuenta sin
+config propia todavía. Peso y Entrenamiento realizado (más cualquier campo personalizado llamado
+"Pasos") dejan de listarse en `/checkin-config` (`esCampoOcultoEnConfigAvanzada()`) porque su uso
+previsto es como fuente de un objetivo, no como revisión manual — el catálogo y
+`Registros_checkin` no cambian, solo se ocultan de esa pantalla.
+
+**3. Botón "Eliminar" en revisiones.** Nuevo `DELETE
+/api/entrenador/checkin-config/campos/[fieldId]`: un campo **personalizado** se borra de verdad
+(no existe en código, no hay a qué volver); un campo **estándar** no se puede borrar del catálogo
+(vive en `CAMPOS_ESTANDAR`) — se desactiva de forma duradera (`Activo=false`, creando el override
+si no existía). Añadido en `CheckinConfigView.tsx` y en la ficha del cliente.
+
+**4. Bug real corregido: "Eliminar" no hacía desaparecer la fila.** Para campos estándar,
+"Eliminar" solo desactivaba (`Activo=false`), pero ambas listas seguían mostrando las filas
+inactivas junto a las activas (solo cambiaba el badge) — parecía que el botón no hacía nada.
+Fix: ambas listas ahora solo muestran campos `activo === true`; las eliminadas/desactivadas
+quedan en un desplegable "Campos/Revisiones eliminadas (N)" con botón "Reactivar", para no perder
+la reversibilidad. El toggle "Activo/Inactivo" suelto (redundante con Eliminar) se quitó de la
+fila.
+
+**5. Revisiones solo en config avanzada; botón ⚙️ junto a "+ Registrar cliente".** El bloque
+"Revisiones" se quitó de la ficha del cliente por completo (`RevisionesEntrenador.tsx` y
+`RevisionModal.tsx`, código muerto, eliminados) — la gestión de revisiones vive únicamente en
+`/checkin-config`. El botón ⚙️ "Check-ins avanzados" se movió del `Header` (donde había ido en
+`DEC-2026-039`) al toolbar de `ClientesLista.tsx`, a la izquierda de "+ Registrar cliente" —
+mismo componente que ya se renderiza igual para un entrenador real y para un admin en "Ver como
+entrenador" (sin gate por `isAdmin`), así que sigue sin repetir el bug de `DEC-2026-011`. Tooltip
+nativo (`title`) con el nombre y un resumen breve de para qué sirve.
+
+**Validación:** `tsc --noEmit`, `eslint` y `next build` sin errores en cada commit. Prueba E2E
+con fixtures desechables para los puntos 1-4 (registro sin check-in lanzado ya cubierto por
+`DEC-2026-040`; borrado real de campo personalizado vs. desactivación duradera de campo estándar,
+con y sin override previo; aislamiento entre entrenadores; confirmado que tras `DELETE` el campo
+ya no aparece en la lista filtrada que usa la UI). El punto 5 es reorganización de navegación,
+validado por build + inspección de código. **No probado visualmente en navegador por Claude** —
+la validación visual la hizo el usuario en el preview de Vercel de esta rama, y de ahí salieron
+los puntos 1, 4 y 5.
+
+---
+
 ## Adaptación técnica — Objetivos independientes de Revisiones (2026-08-15)
 
 **Hallazgo:** tras el rediseño de UX (sección siguiente), el botón "Registrar" de un objetivo

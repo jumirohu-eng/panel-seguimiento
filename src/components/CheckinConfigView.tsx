@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { CampoCheckinResuelto, CheckinConfigResponse } from '@/lib/types'
+import { esCampoOcultoEnConfigAvanzada } from '@/lib/checkinFields'
 import CampoPersonalizadoModal from './CampoPersonalizadoModal'
 import LanzamientoCheckin from './LanzamientoCheckin'
 import ProgramacionTipo from './ProgramacionTipo'
@@ -26,10 +27,14 @@ export default function CheckinConfigView({
   const [error, setError] = useState<string | null>(null)
   const [mostrarModal, setMostrarModal] = useState(false)
 
-  function moverCampo(index: number, direccion: -1 | 1) {
+  // Opera sobre el array completo (por id, no por índice de la lista filtrada) — los campos
+  // ocultos en esta pantalla (peso, entrenamiento_realizado, pasos) siguen en `campos` para no
+  // perder su Activo/Tipos al guardar, solo no se muestran ni se reordenan aquí.
+  function moverCampo(campoId: string, direccion: -1 | 1) {
     setCampos((prev) => {
+      const index = prev.findIndex((c) => c.id === campoId)
       const destino = index + direccion
-      if (destino < 0 || destino >= prev.length) return prev
+      if (index < 0 || destino < 0 || destino >= prev.length) return prev
       const copia = [...prev]
       ;[copia[index], copia[destino]] = [copia[destino], copia[index]]
       return copia.map((c, i) => ({ ...c, orden: i }))
@@ -116,12 +121,14 @@ export default function CheckinConfigView({
         </div>
 
         <div className="flex flex-col divide-y divide-border">
-          {campos.map((campo, index) => (
+          {campos
+            .filter((campo) => !esCampoOcultoEnConfigAvanzada(campo))
+            .map((campo, index, visibles) => (
             <div key={campo.id} className="flex flex-wrap items-center gap-3 py-3">
               <div className="flex flex-col">
                 <button
                   type="button"
-                  onClick={() => moverCampo(index, -1)}
+                  onClick={() => moverCampo(campo.id, -1)}
                   disabled={index === 0}
                   className="text-xs text-muted hover:text-card-foreground disabled:opacity-30"
                   aria-label="Subir"
@@ -130,8 +137,8 @@ export default function CheckinConfigView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => moverCampo(index, 1)}
-                  disabled={index === campos.length - 1}
+                  onClick={() => moverCampo(campo.id, 1)}
+                  disabled={index === visibles.length - 1}
                   className="text-xs text-muted hover:text-card-foreground disabled:opacity-30"
                   aria-label="Bajar"
                 >

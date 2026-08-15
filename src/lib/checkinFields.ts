@@ -43,14 +43,19 @@ export const CAMPOS_ESTANDAR: CampoCheckinDef[] = [
     tiposDefault: ['diario'],
     ordenDefault: 1,
   },
-  { id: 'energia', nombre: 'Energía', tipo: 'escala', categoria: 'bienestar', tiposDefault: ['diario', 'semanal'], ordenDefault: 2 },
-  { id: 'fatiga', nombre: 'Fatiga', tipo: 'escala', categoria: 'bienestar', tiposDefault: ['diario'], ordenDefault: 3 },
+  // Revisiones: por defecto, todas semanales (una única "revisión semanal" con varias
+  // preguntas, ver DECISIONS.md "Objetivos independientes de Revisiones") — antes repartidas
+  // entre diario/semanal/periódico. Peso y Entrenamiento realizado se dejan con su tiposDefault
+  // histórico (siguen funcionando igual como fuente de objetivo) pero ya no se ofrecen en la
+  // pantalla de configuración avanzada, ver CheckinConfigView.tsx.
+  { id: 'energia', nombre: 'Energía', tipo: 'escala', categoria: 'bienestar', tiposDefault: ['semanal'], ordenDefault: 2 },
+  { id: 'fatiga', nombre: 'Fatiga', tipo: 'escala', categoria: 'bienestar', tiposDefault: ['semanal'], ordenDefault: 3 },
   {
     id: 'animo',
     nombre: 'Estado de ánimo',
     tipo: 'escala',
     categoria: 'bienestar',
-    tiposDefault: ['diario'],
+    tiposDefault: ['semanal'],
     ordenDefault: 4,
   },
   {
@@ -58,11 +63,11 @@ export const CAMPOS_ESTANDAR: CampoCheckinDef[] = [
     nombre: 'Dolor/molestias',
     tipo: 'dolor',
     categoria: 'dolor',
-    tiposDefault: ['diario'],
+    tiposDefault: ['semanal'],
     opciones: ['Ninguno', 'Leve', 'Moderado', 'Alto'],
     ordenDefault: 5,
   },
-  { id: 'comentario', nombre: 'Comentario', tipo: 'texto', categoria: 'comentario', tiposDefault: ['semanal', 'periodico'], ordenDefault: 6 },
+  { id: 'comentario', nombre: 'Comentario', tipo: 'texto', categoria: 'comentario', tiposDefault: ['semanal'], ordenDefault: 6 },
   {
     id: 'adherencia',
     nombre: 'Adherencia',
@@ -72,8 +77,19 @@ export const CAMPOS_ESTANDAR: CampoCheckinDef[] = [
     ordenDefault: 7,
   },
   { id: 'peso', nombre: 'Peso', tipo: 'numero', categoria: 'medida', tiposDefault: ['semanal', 'periodico'], unidad: 'kg', ordenDefault: 8 },
-  { id: 'medidas', nombre: 'Medidas', tipo: 'texto', categoria: 'medida', tiposDefault: ['periodico'], ordenDefault: 9 },
+  { id: 'medidas', nombre: 'Medidas', tipo: 'texto', categoria: 'medida', tiposDefault: ['semanal'], ordenDefault: 9 },
 ]
+
+// Campos que dejan de ofrecerse en la pantalla de configuración avanzada
+// (CheckinConfigView.tsx) porque su uso previsto es como fuente de un objetivo, no como
+// revisión manual — el entrenador ya no los activa/programa a mano ahí, los "activa" creando
+// un objetivo que los use. Siguen existiendo en el catálogo y en Registros_checkin sin
+// cambios: un objetivo que ya los use como fuente sigue funcionando exactamente igual.
+export const CAMPOS_OCULTOS_EN_CONFIG_AVANZADA = new Set(['peso', 'entrenamiento_realizado'])
+
+export function esCampoOcultoEnConfigAvanzada(campo: Pick<CampoCheckinResuelto, 'id' | 'nombre'>): boolean {
+  return CAMPOS_OCULTOS_EN_CONFIG_AVANZADA.has(campo.id) || campo.nombre.trim().toLowerCase() === 'pasos'
+}
 
 export const CAMPOS_ESTANDAR_POR_ID = new Map(CAMPOS_ESTANDAR.map((c) => [c.id, c]))
 

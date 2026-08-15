@@ -2470,3 +2470,54 @@ tras el fix: `custom_pasos_c5rmjf` aparece en `diario.campos` y `semanal.objetiv
 `fuenteTipos:['diario']`. `tsc --noEmit`, `eslint` y `next build` sin errores.
 
 **No probado visualmente en navegador.**
+
+---
+
+## DEC-2026-048 — Registrar revisión debe mostrar únicamente la periodicidad seleccionada
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / Frontend + Backend
+**Estado:** Corregido (en preview, pendiente de merge a `main`)
+
+### Causa exacta
+El botón "Registrar"/"Ver-actualizar" de cada fila de la tarjeta "Revisión" del dashboard del
+cliente (`src/app/cliente/dashboard/page.tsx`), uno por tipo (Diario/Semanal/Periódico),
+navegaba los tres a la misma URL sin ningún parámetro: `router.push('/cliente/checkin')`. El
+tipo pulsado nunca llegaba a la página de destino, así que `/cliente/checkin` siempre caía en
+el modo general (las tres secciones a la vez), sin importar cuál se pulsó. El backend (`GET
+/api/cliente/checkin`) ya separaba los campos correctamente por tipo internamente — la pérdida
+del tipo era exclusivamente ese `router.push` sin parámetros.
+
+### Decisión
+- **`src/app/cliente/dashboard/page.tsx`:** el botón pasa a `router.push(\`/cliente/checkin?tipo=${tipo}\`)`.
+- **`src/app/api/cliente/checkin/route.ts` (`GET`):** nuevo parámetro opcional
+  `?tipo=diario|semanal|periodico`. Si se indica, el servidor responde **solo** con los datos
+  de ese tipo (`ClienteCheckinTipoResponse`, nuevo en `src/lib/types.ts`) — no calcula ni envía
+  los otros dos. Valor inválido → `400`. Sin el parámetro, comportamiento sin cambios (usado por
+  el dashboard para el resumen de los tres tipos y por el modo enfocado de objetivos, que
+  necesita poder buscar el objetivo en cualquiera de los tres, ver `DEC-2026-047`).
+- **`src/app/cliente/checkin/page.tsx`:** nuevo modo "solo esta revisión" (`?tipo=X` sin
+  `campo`) — pide al servidor únicamente ese tipo y renderiza una única tarjeta. Extraído
+  `TarjetaRevision` como componente compartido entre este modo y el modo general de respaldo
+  (sin parámetros, ya no enlazado desde ningún sitio pero mantenido por robustez) para no
+  duplicar el marcado. El modo de objetivos (`?campo=X&tipo=Y`) no se tocó.
+
+### Por qué un query param opcional y no tres endpoints/páginas
+Pedido explícito: no duplicar páginas, no crear APIs independientes, no cambiar el modelo de
+datos. Un parámetro opcional y compatible hacia atrás resuelve el requisito de que "el servidor
+no debe devolver todas las revisiones si se pide una" sin tocar el contrato existente que usan
+el dashboard y el modo de objetivos.
+
+### Verificación
+Prueba E2E con fixtures desechables (28 comprobaciones), reproduciendo el ejemplo exacto del
+brief (Diario: Energía+Fatiga · Semanal: Adherencia+Comentario · Periódico: Dolor+Medidas):
+`?tipo=diario/semanal/periodico` devuelve exclusivamente sus propios campos, sin las claves de
+los otros dos tipos en la respuesta; tipo inválido → `400`; guardar cada revisión se registra
+correctamente; un objetivo se registra con éxito aunque su tipo esté sin lanzar, mientras una
+revisión normal en el mismo tipo sin lanzar se rechaza con `400` (confirma que el fix no mezcló
+objetivos con revisiones); aislamiento confirmado entre dos clientes de distintos entrenadores;
+sin token → `401`. Confirmado además, con una llamada real de solo lectura, que `GET
+/api/cliente/checkin` sin `?tipo=` sigue devolviendo la respuesta completa de siempre (dashboard
+y modo objetivo intactos). `tsc --noEmit`, `eslint` (todo `src/`) y `next build` sin errores.
+
+**No probado visualmente en navegador.**

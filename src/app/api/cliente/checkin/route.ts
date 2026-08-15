@@ -25,7 +25,9 @@ import {
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
 import { resolverObjetivo, esVigenteHoy, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto } from '@/lib/objetivos'
-import { ClienteCheckinResponse, CheckinFrecuenciaEstado } from '@/lib/types'
+import { ClienteCheckinResponse, ClienteCheckinTipoResponse, CheckinFrecuenciaEstado } from '@/lib/types'
+
+const TIPOS_VALIDOS: FrecuenciaCheckin[] = ['diario', 'semanal', 'periodico']
 
 function respuestaError(mensaje: string, status: number) {
   return NextResponse.json({ error: mensaje }, { status })
@@ -44,6 +46,19 @@ export async function GET(request: NextRequest) {
     )
   }
   const cliente = gate.cliente
+
+  // `?tipo=diario|semanal|periodico` (opcional): pantalla de "Registrar" de un tipo concreto
+  // de revisión (ver DECISIONS.md, "Registrar revisión debe mostrar únicamente la periodicidad
+  // seleccionada") — el servidor responde solo con los datos de ese tipo, no con los tres, para
+  // que el scope de qué se está registrando no dependa de que el frontend filtre después de
+  // recibir todo. Sin `tipo`, se mantiene la respuesta completa de siempre (usada por el
+  // dashboard para el resumen de los tres tipos, y por el modo enfocado de objetivos, que
+  // necesita poder buscar el objetivo en cualquiera de los tres — ver DEC-2026-047).
+  const tipoParam = request.nextUrl.searchParams.get('tipo')
+  if (tipoParam !== null && !TIPOS_VALIDOS.includes(tipoParam as FrecuenciaCheckin)) {
+    return respuestaError('Tipo no válido', 400)
+  }
+  const tipoSolicitado = tipoParam as FrecuenciaCheckin | null
 
   try {
     const [entrenador, filasTipos, filasConfig, registros, filasObjetivos] = await Promise.all([
@@ -147,6 +162,21 @@ export async function GET(request: NextRequest) {
         proximaFecha,
         objetivos: objetivosPorTipo.get(tipo) ?? [],
       }
+    }
+
+    if (tipoSolicitado) {
+      const inicioPeriodoActualMs =
+        tipoSolicitado === 'diario'
+          ? inicioDeHoyUTC()
+          : tipoSolicitado === 'semanal'
+            ? inicioDePeriodoSemanalUTC(diaSemanaCheckin)
+            : null
+      const respuestaTipo: ClienteCheckinTipoResponse = {
+        ...estadoPara(tipoSolicitado, grupos[tipoSolicitado], inicioPeriodoActualMs),
+        tipo: tipoSolicitado,
+        idsFuenteObjetivoGlobal: [...idsFuenteObjetivo],
+      }
+      return NextResponse.json(respuestaTipo)
     }
 
     const response: ClienteCheckinResponse = {

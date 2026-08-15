@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ClienteCheckinResponse } from '@/lib/types'
+import { ClienteCheckinResponse, ClienteCheckinTipoResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 import type { ObjetivoResuelto } from '@/lib/objetivos'
 import { formatearProgresoTexto } from '@/lib/objetivos'
 import { campoDisponible } from '@/lib/checkinFields'
@@ -22,11 +22,11 @@ const TITULO_SECCION: Record<Seccion, string> = {
   periodico: 'Revisión periódica',
 }
 
-// Un campo es "de objetivo" si al menos un objetivo vigente de esta sección lo usa como fuente
-// de progreso — se registra dentro del bloque de objetivos, no como revisión. El resto de
-// campos activos (Energía, Fatiga, Dolor, Comentario…) son "Revisión": preguntas sobre cómo
-// está el cliente, no metas con progreso. Cálculo puramente derivado de datos ya cargados, sin
-// tocar la API (ver DECISIONS.md, "Objetivos primero, Revisiones aparte").
+// Un campo es "de objetivo" si al menos un objetivo vigente lo usa como fuente de progreso —
+// se registra desde el modo enfocado de "Mis objetivos", no como revisión. El resto de campos
+// activos (Energía, Fatiga, Dolor, Comentario…) son "Revisión": preguntas sobre cómo está el
+// cliente, no metas con progreso. Cálculo puramente derivado de datos ya cargados, sin tocar
+// la API (ver DECISIONS.md, "Objetivos primero, Revisiones aparte").
 function idsFuenteDeObjetivos(objetivos: ObjetivoResuelto[]): Set<string> {
   return new Set(objetivos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
 }
@@ -55,6 +55,87 @@ function ObjetivoPeso({ objetivo }: { objetivo: ObjetivoResuelto }) {
   )
 }
 
+// Tarjeta de una única sección de revisión — reutilizada tanto por el modo "solo esta
+// revisión" (?tipo=X, un único tipo cargado del servidor) como por el modo general de
+// respaldo (sin parámetros, las tres secciones a la vez) para no duplicar el marcado entre
+// ambos (ver DECISIONS.md, "Registrar revisión debe mostrar únicamente la periodicidad
+// seleccionada").
+function TarjetaRevision({
+  seccion,
+  estado,
+  idsObjetivo,
+  valores,
+  onChange,
+  onGuardar,
+  guardando,
+  guardadoOk,
+}: {
+  seccion: Seccion
+  estado: CheckinFrecuenciaEstado
+  idsObjetivo: Set<string>
+  valores: Record<string, unknown>
+  onChange: (campoId: string, valor: unknown) => void
+  onGuardar: (campoIds: string[]) => void
+  guardando: boolean
+  guardadoOk: boolean
+}) {
+  // Los campos que son fuente de un objetivo nunca se muestran aquí, aunque estén en
+  // `estado.campos` — registrar un objetivo siempre pasa por el modo enfocado (MisObjetivos.tsx).
+  const camposRevision = estado.campos.filter((c) => !idsObjetivo.has(c.id))
+
+  if (camposRevision.length === 0) {
+    return (
+      <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULO_SECCION[seccion]}</h2>
+        <p className="text-sm text-muted">
+          {!estado.lanzado
+            ? estado.disponibleDesde
+              ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
+              : 'Tu entrenador todavía no ha activado ninguna revisión de este tipo.'
+            : 'Tu entrenador no ha configurado ninguna pregunta de revisión para este tipo.'}
+        </p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-card-foreground">{TITULO_SECCION[seccion]}</h2>
+        {estado.yaEnviado && (
+          <span className="text-xs text-muted">
+            {estado.proximaFecha
+              ? `Ya registrado — próximo turno el ${formatFechaLarga(estado.proximaFecha)}, pero puedes corregirlo ahora`
+              : 'Ya registrado — puedes actualizarlo cuando quieras'}
+          </span>
+        )}
+      </div>
+      <p className="mb-4 text-xs text-muted">Esto es una revisión de tu estado, no un objetivo.</p>
+
+      <div className="flex flex-col gap-4">
+        {camposRevision.map((campo) => (
+          <CampoInput
+            key={campo.id}
+            campo={campo}
+            valor={valores[campo.id]}
+            disabled={!campoDisponible(campo, valores)}
+            onChange={(v) => onChange(campo.id, v)}
+          />
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onGuardar(camposRevision.map((c) => c.id))}
+        disabled={guardando}
+        className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+      >
+        {guardando ? 'Guardando…' : guardadoOk ? '✓ Guardado' : 'Guardar'}
+      </button>
+    </section>
+  )
+}
+
 export default function ClienteCheckinPage() {
   return (
     <Suspense fallback={null}>
@@ -68,10 +149,26 @@ function ClienteCheckinPageContent() {
   const searchParams = useSearchParams()
   const campoDestacado = searchParams.get('campo')
   const tipoParam = searchParams.get('tipo')
-  const tipoDestacado: Seccion | null =
+  const tipoValido: Seccion | null =
     tipoParam === 'diario' || tipoParam === 'semanal' || tipoParam === 'periodico' ? tipoParam : null
+  // Dos usos distintos de `?tipo=`, mutuamente excluyentes:
+  // - `campo` + `tipo`: modo enfocado de un objetivo concreto (llega desde "Registrar" en
+  //   MisObjetivos.tsx) — sin cambios respecto a antes.
+  // - solo `tipo` (sin `campo`): modo "solo esta revisión" (llega desde "Registrar"/"Ver-
+  //   actualizar" en el dashboard, por tipo) — nuevo, ver DECISIONS.md.
+  const tipoDestacado: Seccion | null = campoDestacado ? tipoValido : null
+  const tipoRevision: Seccion | null = !campoDestacado ? tipoValido : null
+
   const [token, setToken] = useState<string | null>(null)
+  // `data`: respuesta completa de los tres tipos — usada por el modo enfocado de objetivos
+  // (necesita poder buscar el objetivo en cualquiera de los tres, ver DEC-2026-047) y por el
+  // modo general de respaldo (sin ningún parámetro en la URL, hoy no enlazado desde ningún
+  // sitio pero mantenido por robustez).
   const [data, setData] = useState<ClienteCheckinResponse | null>(null)
+  // `dataTipo`: respuesta de un único tipo (?tipo=X sin campo) — el servidor NO envía los
+  // otros dos tipos en absoluto (ver GET /api/cliente/checkin), así que el scope de qué se
+  // está registrando no depende de que el frontend filtre después de recibir todo.
+  const [dataTipo, setDataTipo] = useState<ClienteCheckinTipoResponse | null>(null)
   const [valoresPorSeccion, setValoresPorSeccion] = useState<Record<Seccion, Record<string, unknown>>>({
     diario: {},
     semanal: {},
@@ -99,6 +196,18 @@ function ClienteCheckinPageContent() {
     })
   }
 
+  async function cargarCheckinTipo(tipo: Seccion, accessToken: string) {
+    const res = await fetch(`/api/cliente/checkin?tipo=${tipo}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (res.status === 403) {
+      setInactivo(true)
+      return
+    }
+    if (!res.ok) throw new Error('No se pudo cargar el check-in')
+    const json: ClienteCheckinTipoResponse = await res.json()
+    setDataTipo(json)
+    setValoresPorSeccion((prev) => ({ ...prev, [tipo]: { ...json.ultimosValores } }))
+  }
+
   useEffect(() => {
     async function init() {
       const { data: userData } = await supabase.auth.getUser()
@@ -115,7 +224,11 @@ function ClienteCheckinPageContent() {
       setToken(accessToken)
 
       try {
-        await cargarCheckin(accessToken)
+        if (tipoRevision) {
+          await cargarCheckinTipo(tipoRevision, accessToken)
+        } else {
+          await cargarCheckin(accessToken)
+        }
       } catch {
         setError('Error al cargar tu check-in.')
       } finally {
@@ -123,6 +236,11 @@ function ClienteCheckinPageContent() {
       }
     }
     init()
+    // tipoRevision se deriva de la URL en el montaje y no cambia durante la vida de esta
+    // página (cada "Registrar" del dashboard navega a una URL nueva, remontando el
+    // componente) — se omite del array de dependencias a propósito, mismo patrón ya usado en
+    // el resto de la app para efectos de carga inicial.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
   // Envía solo los campos indicados (nunca todo `valoresPorSeccion[seccion]` sin filtrar) —
@@ -141,7 +259,10 @@ function ClienteCheckinPageContent() {
       })
       if (!res.ok) throw new Error('No se pudo guardar')
       setGuardadoOk(seccion)
-      if (recargar) await cargarCheckin(token)
+      if (recargar) {
+        if (tipoRevision) await cargarCheckinTipo(tipoRevision, token)
+        else await cargarCheckin(token)
+      }
     } catch {
       setError('Error al guardar. Inténtalo de nuevo.')
     } finally {
@@ -163,6 +284,48 @@ function ClienteCheckinPageContent() {
         <p className="max-w-sm text-center text-sm text-danger">
           Tu acceso está desactivado. Contacta con tu entrenador si crees que es un error.
         </p>
+      </div>
+    )
+  }
+
+  // Modo "solo esta revisión": llegada desde "Registrar"/"Ver-actualizar" de un tipo concreto
+  // en el dashboard (?tipo=X, sin campo) — el servidor ya devolvió únicamente los datos de
+  // ese tipo (ver `cargarCheckinTipo`), así que no hay nada más que filtrar aquí.
+  if (tipoRevision) {
+    if (error || !dataTipo) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background">
+          <p className="text-sm text-danger">{error ?? 'No se encontraron datos.'}</p>
+        </div>
+      )
+    }
+    const seccion = tipoRevision
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
+          <h1 className="text-sm font-medium text-card-foreground">{TITULO_SECCION[seccion]}</h1>
+          <button
+            onClick={() => router.push('/cliente/dashboard')}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+          >
+            Volver
+          </button>
+        </header>
+
+        <main className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 sm:px-6">
+          <TarjetaRevision
+            seccion={seccion}
+            estado={dataTipo}
+            idsObjetivo={new Set(dataTipo.idsFuenteObjetivoGlobal)}
+            valores={valoresPorSeccion[seccion]}
+            onChange={(campoId, v) =>
+              setValoresPorSeccion((prev) => ({ ...prev, [seccion]: { ...prev[seccion], [campoId]: v } }))
+            }
+            onGuardar={(campoIds) => enviarCampos(seccion, campoIds)}
+            guardando={guardando === seccion}
+            guardadoOk={guardadoOk === seccion}
+          />
+        </main>
       </div>
     )
   }
@@ -242,6 +405,9 @@ function ClienteCheckinPageContent() {
     )
   }
 
+  // Modo general de respaldo: sin `campo` ni `tipo` en la URL. No enlazado desde ningún sitio
+  // hoy (el dashboard siempre pasa `?tipo=`, ver DECISIONS.md), mantenido por robustez ante
+  // una visita directa a /cliente/checkin sin parámetros.
   const secciones: Seccion[] = ['diario', 'semanal', 'periodico']
 
   // Global (unión de las tres secciones), no por sección — el backend también decide esto de
@@ -266,82 +432,21 @@ function ClienteCheckinPageContent() {
       </header>
 
       <main className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 sm:px-6">
-        {secciones.map((seccion) => {
-          const estado = data[seccion]
-
-          // El registro de objetivos es independiente de que el entrenador haya lanzado el
-          // check-in de este tipo — la API ya solo devuelve aquí los campos "de objetivo"
-          // cuando no está lanzado (ver DECISIONS.md, "Objetivos independientes de
-          // Revisiones"). Solo mostramos el aviso de "no disponible" cuando de verdad no hay
-          // nada que registrar en este tipo.
-          // Esta vista general es solo Revisión — registrar un objetivo siempre pasa por el
-          // modo enfocado (arriba, "Registrar" desde Mis objetivos). Los campos que son
-          // fuente de un objetivo nunca se muestran aquí, aunque estén en `estado.campos`
-          // (exclusión global, ver `idsObjetivoGlobal` arriba).
-          const camposRevision = estado.campos.filter((c) => !idsObjetivoGlobal.has(c.id))
-
-          // Las tres secciones se muestran siempre, cada una con su propio tipo en el
-          // título — antes "periódico" desaparecía sin más cuando no tenía campos, lo que
-          // sumaba a la confusión de no poder distinguir qué campos pertenecían a cada tipo.
-          if (camposRevision.length === 0) {
-            return (
-              <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULO_SECCION[seccion]}</h2>
-                <p className="text-sm text-muted">
-                  {!estado.lanzado
-                    ? estado.disponibleDesde
-                      ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
-                      : 'Tu entrenador todavía no ha activado ninguna revisión de este tipo.'
-                    : 'Tu entrenador no ha configurado ninguna pregunta de revisión para este tipo.'}
-                </p>
-              </section>
-            )
-          }
-
-          const valores = valoresPorSeccion[seccion]
-
-          return (
-            <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
-              <div className="mb-1 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-card-foreground">{TITULO_SECCION[seccion]}</h2>
-                {estado.yaEnviado && (
-                  <span className="text-xs text-muted">
-                    {estado.proximaFecha
-                      ? `Ya registrado — próximo turno el ${formatFechaLarga(estado.proximaFecha)}, pero puedes corregirlo ahora`
-                      : 'Ya registrado — puedes actualizarlo cuando quieras'}
-                  </span>
-                )}
-              </div>
-              <p className="mb-4 text-xs text-muted">Esto es una revisión de tu estado, no un objetivo.</p>
-
-              <div className="flex flex-col gap-4">
-                {camposRevision.map((campo) => (
-                  <CampoInput
-                    key={campo.id}
-                    campo={campo}
-                    valor={valores[campo.id]}
-                    disabled={!campoDisponible(campo, valores)}
-                    onChange={(v) =>
-                      setValoresPorSeccion((prev) => ({
-                        ...prev,
-                        [seccion]: { ...prev[seccion], [campo.id]: v },
-                      }))
-                    }
-                  />
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => enviarCampos(seccion, camposRevision.map((c) => c.id))}
-                disabled={guardando === seccion}
-                className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-              >
-                {guardando === seccion ? 'Guardando…' : guardadoOk === seccion ? '✓ Guardado' : 'Guardar'}
-              </button>
-            </section>
-          )
-        })}
+        {secciones.map((seccion) => (
+          <TarjetaRevision
+            key={seccion}
+            seccion={seccion}
+            estado={data[seccion]}
+            idsObjetivo={idsObjetivoGlobal}
+            valores={valoresPorSeccion[seccion]}
+            onChange={(campoId, v) =>
+              setValoresPorSeccion((prev) => ({ ...prev, [seccion]: { ...prev[seccion], [campoId]: v } }))
+            }
+            onGuardar={(campoIds) => enviarCampos(seccion, campoIds)}
+            guardando={guardando === seccion}
+            guardadoOk={guardadoOk === seccion}
+          />
+        ))}
       </main>
     </div>
   )

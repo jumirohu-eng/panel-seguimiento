@@ -205,6 +205,17 @@ export interface ClienteCheckinResponse {
   periodico: CheckinFrecuenciaEstado
 }
 
+// Respuesta de GET /api/cliente/checkin?tipo=X (ver DECISIONS.md, "Registrar revisión debe
+// mostrar únicamente la periodicidad seleccionada") — el servidor devuelve solo los datos de
+// ESE tipo, no los tres. `idsFuenteObjetivoGlobal` (fuente de cualquier objetivo activo del
+// cliente, de cualquier periodicidad — mismo criterio global que `ClienteCheckinResponse`, ver
+// DEC-2026-047) viaja aparte para que el cliente pueda excluir campos de objetivo de la
+// revisión sin necesitar los `campos`/preguntas de los otros dos tipos.
+export interface ClienteCheckinTipoResponse extends CheckinFrecuenciaEstado {
+  tipo: 'diario' | 'semanal' | 'periodico'
+  idsFuenteObjetivoGlobal: string[]
+}
+
 export interface CheckinEnvio {
   fecha: string
   tipo: 'diario' | 'semanal' | 'periodico'

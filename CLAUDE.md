@@ -52,6 +52,38 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — el botón "Registrar" del dashboard no pasaba el tipo, mostraba las tres revisiones a la vez (2026-08-15)
+
+**Brief detallado de Juanmi:** el dashboard del cliente muestra tres acciones "Registrar"
+(Diario/Semanal/Periódico); pulsar cualquiera debía mostrar únicamente los campos de esa
+periodicidad, "el tipo seleccionado no debe perderse durante la navegación", y el servidor
+tampoco debe devolver todas las revisiones indiscriminadamente cuando se pide una concreta.
+Pidió auditar primero dónde se perdía el tipo antes de implementar.
+
+**Causa exacta:** `src/app/cliente/dashboard/page.tsx`, el botón de cada fila (uno por tipo)
+navegaba siempre a `router.push('/cliente/checkin')` — **sin ningún parámetro**. Los tres tipos
+aterrizaban en la misma URL, así que la página siempre mostraba el modo general (las tres
+secciones apiladas), sin importar cuál se pulsó. El backend ya separaba los campos
+correctamente por tipo; el problema era 100% ese `router.push` sin parámetros.
+
+**Fix:**
+- Dashboard: `router.push(\`/cliente/checkin?tipo=${tipo}\`)`.
+- `GET /api/cliente/checkin` acepta `?tipo=diario|semanal|periodico` opcional — con él, responde
+  **solo** ese tipo (`ClienteCheckinTipoResponse`), sin calcular/enviar los otros dos. Sin el
+  parámetro, sin cambios (dashboard + modo objetivo siguen usando la respuesta completa).
+- `page.tsx`: nuevo modo "solo esta revisión" (`?tipo=X` sin `campo`), con `TarjetaRevision`
+  extraído como componente compartido con el modo general de respaldo. El modo de objetivos
+  (`?campo=X&tipo=Y`) no se tocó.
+
+**Validación:** E2E con fixtures desechables (28 checks) reproduciendo el ejemplo exacto del
+brief — cada `?tipo=` devuelve exclusivamente sus propios campos; objetivo se registra aunque su
+tipo esté sin lanzar, mientras una revisión normal en el mismo tipo se rechaza (confirma que no
+se mezcló con objetivos); aislamiento entre clientes de distintos entrenadores confirmado; sin
+`?tipo=` la respuesta completa sigue intacta (verificado con llamada real de solo lectura). `tsc
+--noEmit`, `eslint` y `next build` sin errores. Ver `DEC-2026-048`.
+
+---
+
 ## Bugfix — `DEC-2026-044` era demasiado estricta: objetivo "Pasos" invisible en las tres secciones (2026-08-15)
 
 **Reporte de Juanmi (insistiendo tras el fix anterior):** "cuando le doy a registrar diario los

@@ -12,6 +12,16 @@ import CampoInput from '@/components/CampoInput'
 
 type Seccion = 'diario' | 'semanal' | 'periodico'
 
+// Título de cada sección de revisión — antes las tres decían solo "Revisión" sin distinguir
+// el tipo, así que aunque los campos ya estuvieran bien separados por tipo (backend), el
+// cliente no podía saber a simple vista cuál sección era diaria y cuál semanal (ver
+// DECISIONS.md, reporte de confusión pese a que los datos ya estaban correctos).
+const TITULO_SECCION: Record<Seccion, string> = {
+  diario: 'Revisión diaria',
+  semanal: 'Revisión semanal',
+  periodico: 'Revisión periódica',
+}
+
 // Un campo es "de objetivo" si al menos un objetivo vigente de esta sección lo usa como fuente
 // de progreso — se registra dentro del bloque de objetivos, no como revisión. El resto de
 // campos activos (Energía, Fatiga, Dolor, Comentario…) son "Revisión": preguntas sobre cómo
@@ -255,20 +265,22 @@ function ClienteCheckinPageContent() {
           const idsObjetivo = idsFuenteDeObjetivos(estado.objetivos)
           const camposRevision = estado.campos.filter((c) => !idsObjetivo.has(c.id))
 
+          // Las tres secciones se muestran siempre, cada una con su propio tipo en el
+          // título — antes "periódico" desaparecía sin más cuando no tenía campos, lo que
+          // sumaba a la confusión de no poder distinguir qué campos pertenecían a cada tipo.
           if (camposRevision.length === 0) {
-            if (!estado.lanzado) {
-              return (
-                <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                  <h2 className="mb-2 text-lg font-semibold text-card-foreground">Revisión</h2>
-                  <p className="text-sm text-muted">
-                    {estado.disponibleDesde
+            return (
+              <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
+                <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULO_SECCION[seccion]}</h2>
+                <p className="text-sm text-muted">
+                  {!estado.lanzado
+                    ? estado.disponibleDesde
                       ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
-                      : 'Tu entrenador todavía no ha activado ninguna revisión.'}
-                  </p>
-                </section>
-              )
-            }
-            return null
+                      : 'Tu entrenador todavía no ha activado ninguna revisión de este tipo.'
+                    : 'Tu entrenador no ha configurado ninguna pregunta de revisión para este tipo.'}
+                </p>
+              </section>
+            )
           }
 
           const valores = valoresPorSeccion[seccion]
@@ -276,7 +288,7 @@ function ClienteCheckinPageContent() {
           return (
             <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
               <div className="mb-1 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-card-foreground">Revisión</h2>
+                <h2 className="text-lg font-semibold text-card-foreground">{TITULO_SECCION[seccion]}</h2>
                 {estado.yaEnviado && (
                   <span className="text-xs text-muted">
                     {estado.proximaFecha

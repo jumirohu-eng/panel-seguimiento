@@ -1767,6 +1767,16 @@ dato real.
   `POST /api/entrenador/checkin-config/campos` recortan `tipos` a un elemento). Verificado que
   ningún dato real tenía más de un tipo asignado — sin migración necesaria. Validado con
   fixture E2E. `tsc --noEmit`, `eslint` y `next build` sin errores.
+- Añadida `DEC-2026-046`: reporte de "en diario sigue saliendo lo del semanal" resultó ser un
+  problema de presentación, no de datos — recalculado a mano con datos reales frescos, la
+  separación por tipo ya era correcta tras `DEC-2026-044`/`045`. Causa real: las tres secciones
+  de `/cliente/checkin` compartían el mismo título fijo "Revisión" sin indicar el tipo, y
+  "periódico" desaparecía por completo cuando no tenía campos. Nuevo `TITULO_SECCION`
+  ("Revisión diaria"/"semanal"/"periódica") y las tres secciones se muestran siempre (con
+  mensaje de estado si no hay campos). Hallazgo aparte sin tocar: el cliente real
+  `retaincoachsolution@gmail.com` tiene `Estado: 'Perdido'` ahora mismo, lo que bloquearía su
+  acceso con 403 si es la cuenta con la que se está probando. Validado con fixture E2E. `tsc
+  --noEmit`, `eslint` y `next build` sin errores.
 
 ---
 
@@ -2318,5 +2328,61 @@ estándar se normaliza a `['diario']` (el primero); `POST` de un campo personali
 `tipos: ['semanal', 'periodico']` se normaliza a `['semanal']`; `GET /api/cliente/checkin`
 confirma que cada campo aparece únicamente en su tipo, nunca en los otros dos. `tsc --noEmit`,
 `eslint` y `next build` sin errores.
+
+**No probado visualmente en navegador.**
+
+---
+
+## DEC-2026-046 — Secciones de `/cliente/checkin` sin etiqueta de tipo: confusión, no bug de datos
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / UX
+**Estado:** Corregido
+
+### Hallazgo
+Juanmi reportó, probando con una cuenta real en producción: "en diario me sigue saliendo lo del
+semanal y al revés". Se recalculó a mano, con datos reales frescos (`Campos_checkin`,
+`Objetivos`, `Registros_checkin`, `Checkin_tipos` de `espartakofake@gmail.com` /
+`retaincoachsolution@gmail.com`), exactamente la misma lógica que ejecuta `GET
+/api/cliente/checkin` tras `DEC-2026-044`/`DEC-2026-045` — **la separación por tipo ya era
+correcta**: diario mostraba solo Energía/Fatiga/Ánimo/Dolor (todos con `Tipos:['diario']`),
+semanal solo Adherencia/Comentario/Peso-objetivo (todos `semanal`), sin ningún cruce. Aclarado
+explícitamente con Juanmi (pregunta de aclaración): el problema no está en `/checkin-config`
+sino en `/cliente/checkin`. Causa real encontrada por inspección de `page.tsx`: las tres
+secciones (diario/semanal/periódico) tenían el mismo título fijo, literalmente "Revisión", sin
+ningún indicador de a qué tipo pertenecía cada una (herencia de `DEC-2026-043`) — así que aunque
+los datos ya estaban bien separados, el cliente no podía saber a simple vista cuál sección era
+cuál. Además, la sección "periódico" desaparecía por completo (`return null`) cuando no tenía
+ningún campo configurado, sumando a la sensación de que algo no cuadraba.
+
+### Decisión
+`src/app/cliente/checkin/page.tsx`: nuevo `TITULO_SECCION` (`'Revisión diaria'`, `'Revisión
+semanal'`, `'Revisión periódica'`), usado en el `<h2>` de cada sección en vez del `'Revisión'`
+genérico. Las tres secciones se muestran siempre (antes "periódico" con 0 campos y ya lanzado
+desaparecía sin más) — cuando no hay campos de revisión configurados, la sección se sigue
+mostrando con su título y un mensaje de estado ("no ha activado ninguna revisión de este tipo" /
+"no ha configurado ninguna pregunta de revisión para este tipo" / fecha de disponibilidad).
+
+### Aprendizaje
+Un reporte de "los datos se mezclan entre tipos" puede tener causa raíz en la presentación (no
+poder distinguir visualmente las secciones) en vez de en el cálculo — verificar primero con
+datos reales recalculados a mano antes de asumir dónde está el bug, y preguntar explícitamente
+dónde lo ve el usuario (`/checkin-config` vs `/cliente/checkin`) cuando la ambigüedad podría
+llevar a arreglar la pantalla equivocada.
+
+### Hallazgo aparte, no resuelto — cuenta de prueba con `Estado: 'Perdido'`
+Al investigar se encontró que el cliente real `retaincoachsolution@gmail.com` (email de nombre
+"retaincoach", el más probable candidato a "la cuenta de retaincoach" mencionada) tiene
+`Clientes.Estado = 'Perdido'` en este momento — con ese estado, `getClienteActivoAutenticado()`
+bloquea con `403` cualquier acceso a `/cliente/checkin` (ver `DEC-2026-019`). No se tocó (dato
+real, cambia el acceso de una cuenta real) — si Juanmi confirma que está probando con esa cuenta
+y no consigue entrar en absoluto, el problema sería este estado, no la separación por tipo.
+
+### Verificación
+Prueba E2E con fixture desechable: "energia" (config explícita a diario) no aparece en
+semanal/periódico; "fatiga"/"medidas" (default de catálogo a semanal) no aparecen en
+diario/periódico; periódico sin nada configurado devuelve 0 campos en los tres tipos, consistente
+con lo recalculado a mano sobre los datos reales. `tsc --noEmit`, `eslint` y `next build` sin
+errores.
 
 **No probado visualmente en navegador.**

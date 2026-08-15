@@ -52,6 +52,41 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — secciones de `/cliente/checkin` sin etiqueta de tipo (confusión, no bug de datos) (2026-08-15)
+
+**Reporte de Juanmi:** probando con una cuenta real en producción, "en diario me sigue saliendo
+lo del semanal y al revés". Aclarado con pregunta: el problema lo ve en `/cliente/checkin`
+(pantalla del cliente), no en `/checkin-config` (pantalla del entrenador).
+
+**Investigación:** recalculado a mano, con datos reales frescos de
+`espartakofake@gmail.com`/`retaincoachsolution@gmail.com` (`Campos_checkin`, `Objetivos`,
+`Registros_checkin`, `Checkin_tipos`), exactamente la misma lógica que ejecuta el backend tras
+`DEC-2026-044`/`045` — **la separación por tipo ya era correcta**: diario mostraba solo
+Energía/Fatiga/Ánimo/Dolor, semanal solo Adherencia/Comentario/Peso-objetivo, sin ningún cruce.
+La causa real: las tres secciones de `page.tsx` compartían el mismo título fijo "Revisión" sin
+decir de qué tipo era cada una (herencia de `DEC-2026-043`) — el cliente no podía distinguir a
+simple vista cuál sección era diaria y cuál semanal, aunque los datos ya estuvieran bien
+separados. Además "periódico" desaparecía sin más cuando no tenía campos configurados.
+
+**Fix:** nuevo `TITULO_SECCION` — "Revisión diaria"/"Revisión semanal"/"Revisión periódica" en
+vez del genérico "Revisión". Las tres secciones se muestran siempre, con un mensaje de estado
+cuando no hay campos configurados en vez de desaparecer.
+
+**Hallazgo aparte, sin tocar:** el cliente real `retaincoachsolution@gmail.com` (nombre
+"retaincoach") tiene `Estado: 'Perdido'` ahora mismo — con ese estado, `/cliente/checkin` devuelve
+403 y bloquea el acceso por completo. Si Juanmi prueba con esa cuenta exacta y no consigue entrar
+en absoluto, el problema sería ese estado, no la separación por tipo.
+
+**Aprendizaje:** un reporte de "los datos se mezclan entre tipos" puede tener causa raíz en la
+presentación, no en el cálculo — recalcular con datos reales antes de asumir dónde está el bug, y
+preguntar explícitamente en qué pantalla lo ve el usuario cuando hay ambigüedad.
+
+**Validación:** E2E con fixture desechable confirma que campos configurados explícitamente o por
+defecto del catálogo no cruzan de tipo. `tsc --noEmit`, `eslint` y `next build` sin errores. Ver
+`DEC-2026-046`.
+
+---
+
 ## Cambio de producto — un campo de revisión pertenece a un único tipo de check-in (2026-08-15)
 
 **Pedido de Juanmi:** "que lo del checkin diario no aparezca en el checkin semanal ni periódico

@@ -69,6 +69,9 @@ function ClienteCheckinPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const campoDestacado = searchParams.get('campo')
+  const tipoParam = searchParams.get('tipo')
+  const tipoDestacado: Seccion | null =
+    tipoParam === 'diario' || tipoParam === 'semanal' || tipoParam === 'periodico' ? tipoParam : null
   const [token, setToken] = useState<string | null>(null)
   const [data, setData] = useState<ClienteCheckinResponse | null>(null)
   const [valoresPorSeccion, setValoresPorSeccion] = useState<Record<Seccion, Record<string, unknown>>>({
@@ -81,6 +84,22 @@ function ClienteCheckinPageContent() {
   const [inactivo, setInactivo] = useState(false)
   const [guardando, setGuardando] = useState<Seccion | null>(null)
   const [guardadoOk, setGuardadoOk] = useState<Seccion | null>(null)
+
+  async function cargarCheckin(accessToken: string) {
+    const res = await fetch('/api/cliente/checkin', { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (res.status === 403) {
+      setInactivo(true)
+      return
+    }
+    if (!res.ok) throw new Error('No se pudo cargar el check-in')
+    const json: ClienteCheckinResponse = await res.json()
+    setData(json)
+    setValoresPorSeccion({
+      diario: { ...json.diario.ultimosValores },
+      semanal: { ...json.semanal.ultimosValores },
+      periodico: { ...json.periodico.ultimosValores },
+    })
+  }
 
   useEffect(() => {
     async function init() {
@@ -98,19 +117,7 @@ function ClienteCheckinPageContent() {
       setToken(accessToken)
 
       try {
-        const res = await fetch('/api/cliente/checkin', { headers: { Authorization: `Bearer ${accessToken}` } })
-        if (res.status === 403) {
-          setInactivo(true)
-          return
-        }
-        if (!res.ok) throw new Error('No se pudo cargar el check-in')
-        const json: ClienteCheckinResponse = await res.json()
-        setData(json)
-        setValoresPorSeccion({
-          diario: { ...json.diario.ultimosValores },
-          semanal: { ...json.semanal.ultimosValores },
-          periodico: { ...json.periodico.ultimosValores },
-        })
+        await cargarCheckin(accessToken)
       } catch {
         setError('Error al cargar tu check-in.')
       } finally {
@@ -145,6 +152,29 @@ function ClienteCheckinPageContent() {
     }
   }
 
+  // Registro enfocado en un único campo (llegada desde "Registrar" en un objetivo concreto,
+  // ver MisObjetivos.tsx) — envía solo ese campo, no el resto de valores de la sección, para
+  // no reenviar sin querer datos de otras métricas que compartan el mismo tipo.
+  async function enviarCampoUnico(seccion: Seccion, campoId: string) {
+    if (!token) return
+    setGuardando(seccion)
+    setGuardadoOk(null)
+    try {
+      const res = await fetch('/api/cliente/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tipo: seccion, valores: { [campoId]: valoresPorSeccion[seccion][campoId] } }),
+      })
+      if (!res.ok) throw new Error('No se pudo guardar')
+      setGuardadoOk(seccion)
+      await cargarCheckin(token)
+    } catch {
+      setError('Error al guardar. Inténtalo de nuevo.')
+    } finally {
+      setGuardando(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -167,6 +197,67 @@ function ClienteCheckinPageContent() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <p className="text-sm text-danger">{error ?? 'No se encontraron datos.'}</p>
+      </div>
+    )
+  }
+
+  // Registro enfocado: llegada desde "Registrar" en un objetivo concreto (MisObjetivos.tsx)
+  // con ?campo=&tipo= — se muestra solo ese campo, no el resto de objetivos/revisión de la
+  // sección. Si el campo ya no está disponible (objetivo desactivado entre el click y la
+  // carga, por ejemplo), se avisa en vez de mostrar un formulario roto.
+  if (campoDestacado && tipoDestacado) {
+    const estado = data[tipoDestacado]
+    const campo = estado.campos.find((c) => c.id === campoDestacado)
+    const objetivo = estado.objetivos.find((o) => o.fuenteFieldId === campoDestacado)
+    const esPeso = campo?.id === 'peso' && objetivo?.modoProgreso === 'valor_objetivo'
+    const guardandoEste = guardando === tipoDestacado
+    const guardadoEste = guardadoOk === tipoDestacado
+
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
+          <h1 className="text-sm font-medium text-card-foreground">{objetivo?.nombre ?? campo?.nombre ?? 'Registrar'}</h1>
+          <button
+            onClick={() => router.push('/cliente/dashboard')}
+            className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
+          >
+            Volver
+          </button>
+        </header>
+
+        <main className="mx-auto flex max-w-md flex-col gap-6 px-4 py-6 sm:px-6">
+          <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            {!campo ? (
+              <p className="text-sm text-muted">Este objetivo ya no está disponible.</p>
+            ) : (
+              <>
+                {objetivo?.modoProgreso === 'valor_objetivo' && <ObjetivoPeso objetivo={objetivo} />}
+                {objetivo?.modoProgreso === 'acumulado' && objetivo.progreso && (
+                  <p className="mb-4 text-sm text-muted">{formatearProgresoTexto(objetivo.unidad, objetivo.progreso)}</p>
+                )}
+                <CampoInput
+                  campo={esPeso ? { ...campo, nombre: '¿Cuánto pesas?' } : campo}
+                  valor={valoresPorSeccion[tipoDestacado][campo.id]}
+                  disabled={!campoDisponible(campo, valoresPorSeccion[tipoDestacado])}
+                  onChange={(v) =>
+                    setValoresPorSeccion((prev) => ({
+                      ...prev,
+                      [tipoDestacado]: { ...prev[tipoDestacado], [campo.id]: v },
+                    }))
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => enviarCampoUnico(tipoDestacado, campo.id)}
+                  disabled={guardandoEste}
+                  className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {guardandoEste ? 'Guardando…' : guardadoEste ? '✓ Guardado' : 'Guardar'}
+                </button>
+              </>
+            )}
+          </section>
+        </main>
       </div>
     )
   }

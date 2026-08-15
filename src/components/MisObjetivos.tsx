@@ -1,6 +1,10 @@
 import Link from 'next/link'
 import type { ObjetivoResuelto, PeriodicidadObjetivo } from '@/lib/objetivos'
-import { formatearProgresoTexto } from '@/lib/objetivos'
+import { formatearProgresoTexto, PERIODICIDAD_A_TIPO_CHECKIN } from '@/lib/objetivos'
+
+function linkRegistrar(o: ObjetivoResuelto) {
+  return `/cliente/checkin?campo=${o.fuenteFieldId}&tipo=${PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad]}`
+}
 
 const GRUPOS: { periodicidad: PeriodicidadObjetivo; titulo: string }[] = [
   { periodicidad: 'diario', titulo: 'Hoy' },
@@ -40,9 +44,16 @@ function ObjetivoValorLineal({ objetivo }: { objetivo: ObjetivoResuelto }) {
   const p = objetivo.progreso
   return (
     <div className="rounded-lg bg-background p-3">
-      <p className="mb-1 text-sm font-medium text-card-foreground">
-        {objetivo.nombre} objetivo: {objetivo.meta} {objetivo.unidad}
-      </p>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-card-foreground">
+          {objetivo.nombre} objetivo: {objetivo.meta} {objetivo.unidad}
+        </p>
+        {objetivo.fuenteFieldId && (
+          <Link href={linkRegistrar(objetivo)} className="shrink-0 text-xs font-medium text-primary hover:underline">
+            Registrar
+          </Link>
+        )}
+      </div>
       {p ? (
         <>
           <p className="mb-1 text-xs text-muted">Actual: {p.valor} {objetivo.unidad}</p>
@@ -91,10 +102,7 @@ export default function MisObjetivos({ objetivos }: { objetivos: ObjetivoResuelt
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-card-foreground">{o.nombre}</p>
                       {o.fuenteFieldId && !(o.progreso?.completado ?? false) && (
-                        <Link
-                          href={`/cliente/checkin?campo=${o.fuenteFieldId}`}
-                          className="shrink-0 text-xs font-medium text-primary hover:underline"
-                        >
+                        <Link href={linkRegistrar(o)} className="shrink-0 text-xs font-medium text-primary hover:underline">
                           Registrar
                         </Link>
                       )}

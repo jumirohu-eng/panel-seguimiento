@@ -52,6 +52,41 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — `DEC-2026-044` era demasiado estricta: objetivo "Pasos" invisible en las tres secciones (2026-08-15)
+
+**Reporte de Juanmi (insistiendo tras el fix anterior):** "cuando le doy a registrar diario los
+campos de semanal, y cuando le doy a semanal salen los campos de diario también".
+
+**Investigación:** llamada real de solo lectura (`generateLink`/`verifyOtp`, sin escribir nada) a
+`GET /api/cliente/checkin` para `retaincoachsolution@gmail.com` — la separación por tipo seguía
+siendo correcta, pero se encontró un objetivo real "Pasos" (periodicidad `semanal`) cuyo campo
+fuente tiene `Campos_checkin.Tipos: ['diario']` — así lo crea siempre
+`resolverOCrearCampoCheckinParaObjetivo()` para una métrica nueva, sin importar la periodicidad
+del objetivo (deliberado: permite registrar a diario y agregar en ventana semanal/mensual, ver
+`resolverObjetivo()`, que agrega registros sin filtrar por `Tipo_registro`). Con la restricción
+por tipo que introduje en el fix anterior (`DEC-2026-044`), este campo dejó de reconocerse como
+objetivo en "diario" (el objetivo es "semanal") y nunca vivió en "semanal" (su `Tipos` es solo
+diario) — quedó invisible en las tres secciones, y el enlace "Registrar" apuntaba además al tipo
+equivocado (derivado de la periodicidad, no del `Tipos` real del campo).
+
+**Causa raíz de fondo:** `DEC-2026-044` solucionó el síntoma equivocado. El bug original (Peso
+colándose como revisión en "periódico") pasaba porque el backend calculaba
+`idsFuenteObjetivo` de forma GLOBAL pero el frontend lo comparaba de forma LOCAL (por sección) —
+el fix correcto era igualar el frontend al backend (global), no al revés.
+
+**Fix:** revertido `GET/POST /api/cliente/checkin` a exclusión global (como `DEC-2026-042`).
+Nuevo `ObjetivoResuelto.fuenteTipos` expone el `Tipos` real del campo; `MisObjetivos.tsx` usa
+`fuenteTipos[0]` para el enlace "Registrar" en vez de la periodicidad. `page.tsx` calcula ahora la
+exclusión de campos-de-objetivo (vista general y modo enfocado) como unión de las tres secciones,
+no local.
+
+**Validación:** E2E reproduciendo el caso "Pasos" real (antes invisible, ahora en `diario.campos`
+y `POST` aceptado) + repetido el caso original de `DEC-2026-044` (Peso, sigue sin colarse como
+revisión). Confirmado con llamada real de solo lectura tras el fix. `tsc --noEmit`, `eslint` y
+`next build` sin errores. Ver `DEC-2026-047`.
+
+---
+
 ## Bugfix — secciones de `/cliente/checkin` sin etiqueta de tipo (confusión, no bug de datos) (2026-08-15)
 
 **Reporte de Juanmi:** probando con una cuenta real en producción, "en diario me sigue saliendo

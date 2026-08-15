@@ -75,26 +75,25 @@ export async function GET(request: NextRequest) {
       objetivosPorTipo.get(PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad])!.push(o)
     }
 
-    // Campos que son la fuente de progreso de un objetivo activo y vigente — el registro de
-    // un objetivo es independiente de que el entrenador haya "lanzado" el check-in de ese
-    // tipo (ver DECISIONS.md, "Objetivos independientes de Revisiones"). Solo las revisiones
-    // (campos que no alimentan ningún objetivo) siguen dependiendo del lanzamiento.
-    // Calculado POR TIPO (según la periodicidad del objetivo, no según el `Tipos` legado del
-    // campo en Campos_checkin): un campo "exclusivo de objetivo" (peso, entrenamiento_
-    // realizado, "Pasos") con `Tipos` heredado de antes de ocultarse (p.ej. `['semanal',
-    // 'periodico']`) solo debe considerarse "de objetivo" en el tipo que corresponde a la
-    // periodicidad real del objetivo — si no, se colaba como revisión suelta en el otro tipo
-    // en el que el campo seguía técnicamente asignado (ver DECISIONS.md, bug real detectado
-    // en `Peso` con objetivo semanal apareciendo también en "periódico").
-    const idsFuenteObjetivoPorTipo = new Map<FrecuenciaCheckin, Set<string>>([
-      ['diario', new Set()],
-      ['semanal', new Set()],
-      ['periodico', new Set()],
-    ])
-    for (const o of objetivosResueltos) {
-      if (!o.fuenteFieldId) continue
-      idsFuenteObjetivoPorTipo.get(PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad])!.add(o.fuenteFieldId)
-    }
+    // Campos que son la fuente de progreso de un objetivo activo y vigente (de cualquier
+    // periodicidad) — el registro de un objetivo es independiente de que el entrenador haya
+    // "lanzado" el check-in de ese tipo (ver DECISIONS.md, "Objetivos independientes de
+    // Revisiones"). Solo las revisiones (campos que no alimentan ningún objetivo) siguen
+    // dependiendo del lanzamiento.
+    // Deliberadamente GLOBAL (no por tipo): un campo puede vivir en un tipo distinto al de la
+    // periodicidad del objetivo que lo usa — p.ej. un objetivo semanal alimentado por un
+    // campo que solo se pregunta a diario, agregado en la ventana semanal (ver comentario en
+    // resolverObjetivo, src/lib/objetivos.ts) — el progreso siempre se calcula sobre TODOS
+    // los registros de ese Field_id sin filtrar por Tipo_registro (ver
+    // calcularProgresoDesdeCheckins/calcularProgresoValorObjetivo), así que restringir esta
+    // exclusión por tipo dejaba el campo sin ningún sitio donde registrarse (ver DECISIONS.md:
+    // se probó una versión por tipo y rompió el caso "Pasos semanal" con campo diario). Qué
+    // sección concreta lo muestra ya lo decide `agruparPorFrecuencia` (el campo solo aparece
+    // en los tipos de su propio `Tipos`); esto solo decide si, estando ahí, cuenta como
+    // objetivo o como revisión suelta — y esa decisión no depende del tipo.
+    const idsFuenteObjetivo = new Set(
+      objetivosResueltos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!)
+    )
 
     function estadoPara(
       tipo: FrecuenciaCheckin,
@@ -102,14 +101,13 @@ export async function GET(request: NextRequest) {
       inicioPeriodoActualMs: number | null
     ): CheckinFrecuenciaEstado {
       const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
-      const idsFuenteObjetivo = idsFuenteObjetivoPorTipo.get(tipo)!
       // Campos "exclusivos de objetivo" (peso, entrenamiento_realizado, cualquier "Pasos"
       // personalizado — ver esCampoOcultoEnConfigAvanzada) nunca se muestran como revisión
       // suelta, aunque tengan Activo=true de una configuración anterior: solo aparecen si de
-      // verdad son la fuente de un objetivo de ESTE cliente EN ESTE TIPO (según la
-      // periodicidad del objetivo). "El objetivo activa la métrica" (ver DECISIONS.md) — si
-      // no existe objetivo de peso semanal para este cliente, "periódico" no debe ver Peso
-      // aunque exista un objetivo de peso semanal.
+      // verdad son la fuente de un objetivo vigente de ESTE cliente (cualquier periodicidad,
+      // ver comentario de `idsFuenteObjetivo` arriba). "El objetivo activa la métrica" (ver
+      // DECISIONS.md) — si no existe ningún objetivo de peso para este cliente, no debe ver
+      // un campo de peso en ningún tipo.
       const camposSinExclusivosSueltos = campos.filter(
         (c) => idsFuenteObjetivo.has(c.id) || !esCampoOcultoEnConfigAvanzada(c)
       )
@@ -201,18 +199,15 @@ export async function POST(request: NextRequest) {
     // (derivado siempre de su propia ficha, nunca de un ID que mande el frontend — ver
     // DECISIONS.md, "Objetivos independientes de Revisiones"). Estos campos se pueden
     // registrar exista o no un check-in lanzado; el resto (revisiones) sigue exigiendo
-    // `lanzado`, igual que antes. Filtrado también por periodicidad del objetivo → este
-    // `tipo`: un objetivo semanal no habilita su campo fuente para un POST a "periodico",
-    // aunque el campo tenga ese tipo en su `Tipos` legado de Campos_checkin (mismo criterio
-    // que el GET, ver DECISIONS.md).
+    // `lanzado`, igual que antes. Deliberadamente GLOBAL, no filtrado por periodicidad del
+    // objetivo → este `tipo`: el progreso se calcula sobre todos los registros del Field_id
+    // sin filtrar por Tipo_registro (mismo motivo que en el GET, ver comentario ahí) — un
+    // objetivo semanal puede alimentarse legítimamente de un campo que solo se pregunta a
+    // diario, y el POST real llega tageado con el tipo donde el campo vive, no con el de la
+    // periodicidad del objetivo.
     const idsFuenteObjetivo = new Set(
       filasObjetivos
-        .filter(
-          (r) =>
-            r.fields.Activo === true &&
-            esVigenteHoy(r.fields.Fecha_inicio, r.fields.Fecha_fin) &&
-            PERIODICIDAD_A_TIPO_CHECKIN[r.fields.Periodicidad] === tipo
-        )
+        .filter((r) => r.fields.Activo === true && esVigenteHoy(r.fields.Fecha_inicio, r.fields.Fecha_fin))
         .map((r) => r.fields.Fuente_field_id)
         .filter((id): id is string => Boolean(id))
     )

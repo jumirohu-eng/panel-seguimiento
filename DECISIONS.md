@@ -1777,6 +1777,19 @@ dato real.
   `retaincoachsolution@gmail.com` tiene `Estado: 'Perdido'` ahora mismo, lo que bloquearía su
   acceso con 403 si es la cuenta con la que se está probando. Validado con fixture E2E. `tsc
   --noEmit`, `eslint` y `next build` sin errores.
+- Añadida `DEC-2026-047`, corrige `DEC-2026-044`: esa decisión (restringir `idsFuenteObjetivo`
+  por tipo, según la periodicidad del objetivo) era demasiado estricta — dejaba invisible en
+  las tres secciones cualquier objetivo cuya periodicidad no coincidiera con el `Tipos` real de
+  su campo fuente (caso real encontrado: objetivo "Pasos" semanal con campo `Tipos:['diario']`,
+  patrón soportado y documentado, no un caso raro). Revertido `GET/POST
+  /api/cliente/checkin` a exclusión GLOBAL (como en `DEC-2026-042`); el fix real del bug
+  original de `DEC-2026-044` (Peso colándose como revisión en "periódico") era hacer el
+  FRONTEND global también, no el backend local — `page.tsx` ahora calcula la exclusión de
+  campos-de-objetivo como unión de las tres secciones. Nuevo `ObjetivoResuelto.fuenteTipos` +
+  `MisObjetivos.tsx` usa el tipo real del campo (no la periodicidad) para el enlace
+  "Registrar". Validado con fixture E2E (caso "Pasos" nuevo + caso "Peso" original, ambos
+  correctos) y confirmado con una llamada real de solo lectura a la cuenta afectada. `tsc
+  --noEmit`, `eslint` y `next build` sin errores.
 
 ---
 
@@ -2384,5 +2397,76 @@ semanal/periódico; "fatiga"/"medidas" (default de catálogo a semanal) no apare
 diario/periódico; periódico sin nada configurado devuelve 0 campos en los tres tipos, consistente
 con lo recalculado a mano sobre los datos reales. `tsc --noEmit`, `eslint` y `next build` sin
 errores.
+
+**No probado visualmente en navegador.**
+
+---
+
+## DEC-2026-047 — `DEC-2026-044` era demasiado estricta: revertida a exclusión global, corregido el deep-link "Registrar"
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / Backend — corrige `DEC-2026-044`
+**Estado:** Corregido
+
+### Hallazgo (dato real, cuenta `retaincoachsolution@gmail.com`)
+Tras confirmar con Juanmi que `DEC-2026-046` no era el problema, se hizo una llamada real de
+solo lectura (`generateLink`/`verifyOtp`, sin escribir nada) a `GET /api/cliente/checkin` para
+esa cuenta y se comparó con los datos crudos de Airtable. La separación por tipo era correcta,
+pero se encontró un objetivo real, "Pasos" (`periodicidad: 'semanal'`, fuente
+`custom_pasos_c5rmjf`), cuyo campo en `Campos_checkin` tiene `Tipos: ['diario']` — creado así por
+`resolverOCrearCampoCheckinParaObjetivo()`, que siempre asigna `['diario']` a una métrica nueva
+sin importar la periodicidad del objetivo (comportamiento documentado y deliberado: permite
+registrar a diario y agregar en ventana semanal/mensual, ver `resolverObjetivo()` en
+`objetivos.ts`, que agrega `Registros_checkin` **sin filtrar por `Tipo_registro`**). Con la
+restricción por tipo introducida en `DEC-2026-044` (`idsFuenteObjetivoPorTipo`, que solo
+reconocía un campo como "de objetivo" en el tipo que coincide con la periodicidad del objetivo),
+este campo dejó de reconocerse como objetivo en "diario" (porque el objetivo es "semanal") y a
+la vez nunca vivió en "semanal" (su `Tipos` es solo `diario`) — quedó **invisible en las tres
+secciones**, ni como objetivo ni como revisión. El enlace "Registrar" de `MisObjetivos.tsx`
+(`?campo=X&tipo=semanal`, derivado de la periodicidad) apuntaba además al tipo equivocado, así
+que aunque el campo hubiera sido visible en otro sitio, el enlace nunca habría llegado a él.
+
+### Decisión
+1. **`src/app/api/cliente/checkin/route.ts` (GET y POST):** revertida la restricción por tipo de
+   `DEC-2026-044` — `idsFuenteObjetivo` vuelve a calcularse de forma GLOBAL (cualquier objetivo
+   activo y vigente con esa fuente, de cualquier periodicidad), igual que en `DEC-2026-042`. Es
+   correcto porque el progreso de un objetivo se calcula sobre TODOS los registros de ese
+   `Field_id` sin filtrar por `Tipo_registro` — no hay ninguna razón funcional para exigir que el
+   tipo de la sección coincida con la periodicidad del objetivo.
+2. **`src/lib/objetivos.ts`:** nuevo campo `ObjetivoResuelto.fuenteTipos` (los `Tipos` reales del
+   campo fuente, `campoFuente?.tipos ?? []`) — expone al frontend dónde vive de verdad el campo,
+   independientemente de la periodicidad del objetivo.
+3. **`src/components/MisObjetivos.tsx`:** `linkRegistrar()` usa ahora `objetivo.fuenteTipos[0] ??
+   PERIODICIDAD_A_TIPO_CHECKIN[periodicidad]` (fallback solo para un campo huérfano sin `Tipos`
+   resuelto) en vez de derivar el tipo de la periodicidad — el enlace "Registrar" siempre apunta
+   al tipo donde el campo realmente vive.
+4. **`src/app/cliente/checkin/page.tsx`:** la exclusión de campos-de-objetivo en la vista general
+   (`camposRevision`) y la búsqueda del objetivo en el modo enfocado pasan de ser locales a
+   `estado[seccion].objetivos` a ser GLOBALES (unión de `diario`/`semanal`/`periodico`) — porque
+   un objetivo puede estar filed bajo un tipo (según su periodicidad) mientras su campo fuente
+   vive y se muestra en otro tipo distinto (según su propio `Tipos`), y ambos lados deben
+   coincidir con el criterio global del backend.
+
+### Por qué `DEC-2026-044` estaba mal enfocada
+Esa decisión resolvía el caso real de `Peso` (Tipos legado `['semanal','periodico']`, objetivo
+solo semanal) colándose como revisión en "periódico" — pero la causa real de ESE bug era que el
+FRONTEND comparaba contra `estado[seccion].objetivos` (local), mientras el BACKEND ya calculaba
+`idsFuenteObjetivo` de forma global — un frontend local + backend global es lo que producía el
+desajuste. `DEC-2026-044` "arregló" el síntoma haciendo el backend también local, pero eso rompe
+cualquier objetivo cuya periodicidad no coincide con el tipo real del campo (el caso "Pasos"
+semanal con campo diario, que es un patrón soportado y documentado, no un caso raro). El fix
+correcto era hacer el FRONTEND global para igualar al backend, no al revés.
+
+### Verificación
+Prueba E2E con fixture desechable reproduciendo el caso "Pasos" real (objetivo con métrica nueva,
+periodicidad semanal, campo creado con `Tipos:['diario']`): el objetivo expone
+`fuenteTipos:['diario']`; el campo SÍ existe en `diario.campos` (antes ausente de las tres
+secciones); `POST` contra `diario` (el tipo real) se acepta con `201`. Repetida también la prueba
+original de `DEC-2026-044` (Peso con `Tipos` legado `['semanal','periodico']`, objetivo solo
+semanal): simulando la lógica exacta del frontend (exclusión global), `peso` sigue sin aparecer
+como revisión suelta ni en "semanal" ni en "periódico" — el caso original sigue arreglado.
+Confirmado además con una llamada real de solo lectura a la cuenta `retaincoachsolution@gmail.com`
+tras el fix: `custom_pasos_c5rmjf` aparece en `diario.campos` y `semanal.objetivos` expone
+`fuenteTipos:['diario']`. `tsc --noEmit`, `eslint` y `next build` sin errores.
 
 **No probado visualmente en navegador.**

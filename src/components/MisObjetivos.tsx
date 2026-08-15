@@ -2,8 +2,16 @@ import Link from 'next/link'
 import type { ObjetivoResuelto, PeriodicidadObjetivo } from '@/lib/objetivos'
 import { formatearProgresoTexto, PERIODICIDAD_A_TIPO_CHECKIN } from '@/lib/objetivos'
 
+// El deep-link debe apuntar al tipo donde el campo REALMENTE recibe datos
+// (`fuenteTipos`), no al tipo derivado de la periodicidad del objetivo — un objetivo
+// semanal puede alimentarse de un campo que solo se pregunta a diario (agregado en ventana
+// semanal, ver DECISIONS.md), y en ese caso el campo no existe en absoluto en la sección
+// "semanal" del check-in. `fuenteTipos[0]` es el único tipo posible desde DEC-2026-045 (un
+// campo pertenece a un único tipo); el fallback a la periodicidad solo cubre un campo
+// huérfano sin `Tipos` resuelto.
 function linkRegistrar(o: ObjetivoResuelto) {
-  return `/cliente/checkin?campo=${o.fuenteFieldId}&tipo=${PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad]}`
+  const tipo = o.fuenteTipos[0] ?? PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad]
+  return `/cliente/checkin?campo=${o.fuenteFieldId}&tipo=${tipo}`
 }
 
 const GRUPOS: { periodicidad: PeriodicidadObjetivo; titulo: string }[] = [

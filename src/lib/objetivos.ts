@@ -184,6 +184,13 @@ export interface ObjetivoResuelto {
   unidad: string
   fuenteFieldId: string | null
   fuenteNombre: string | null
+  // Tipo(s) de check-in donde el campo fuente realmente recibe datos (Campos_checkin.Tipos),
+  // NO necesariamente el mismo tipo que la periodicidad del objetivo — un objetivo semanal
+  // puede alimentarse de un campo que solo se pregunta a diario (ver comentario en
+  // resolverObjetivo). El deep-link "Registrar" debe apuntar aquí, no a
+  // PERIODICIDAD_A_TIPO_CHECKIN[periodicidad], o el campo no aparecerá en la sección a la que
+  // se le manda al cliente (ver DECISIONS.md).
+  fuenteTipos: FrecuenciaCheckin[]
   modoProgreso: ModoProgresoObjetivo
   direccion: DireccionObjetivo | null
   valorInicial: number | null
@@ -238,6 +245,7 @@ export function resolverObjetivo(
     unidad: record.fields.Unidad,
     fuenteFieldId,
     fuenteNombre: campoFuente?.nombre ?? null,
+    fuenteTipos: campoFuente?.tipos ?? [],
     modoProgreso,
     direccion,
     valorInicial,

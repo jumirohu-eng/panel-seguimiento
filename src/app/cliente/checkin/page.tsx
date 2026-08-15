@@ -182,7 +182,13 @@ function ClienteCheckinPageContent() {
   if (campoDestacado && tipoDestacado) {
     const estado = data[tipoDestacado]
     const campo = estado.campos.find((c) => c.id === campoDestacado)
-    const objetivo = estado.objetivos.find((o) => o.fuenteFieldId === campoDestacado)
+    // Busca el objetivo en las TRES secciones, no solo en `estado.objetivos` — el campo
+    // fuente puede vivir en un tipo distinto al de la periodicidad del objetivo (ver
+    // `idsObjetivoGlobal` más abajo), así que el link "Registrar" puede aterrizar en un tipo
+    // donde el campo existe pero el objetivo está filed bajo otro tipo.
+    const objetivo = [...data.diario.objetivos, ...data.semanal.objetivos, ...data.periodico.objetivos].find(
+      (o) => o.fuenteFieldId === campoDestacado
+    )
     const esPeso = campo?.id === 'peso' && objetivo?.modoProgreso === 'valor_objetivo'
     const guardandoEste = guardando === tipoDestacado
     const guardadoEste = guardadoOk === tipoDestacado
@@ -238,6 +244,15 @@ function ClienteCheckinPageContent() {
 
   const secciones: Seccion[] = ['diario', 'semanal', 'periodico']
 
+  // Global (unión de las tres secciones), no por sección — el backend también decide esto de
+  // forma global (ver DECISIONS.md, GET /api/cliente/checkin): un campo puede vivir en un tipo
+  // distinto al de la periodicidad del objetivo que lo usa (p.ej. objetivo semanal alimentado
+  // por un campo que solo se pregunta a diario), así que el objetivo puede caer en
+  // `estado.semanal.objetivos` mientras el campo fuente aparece en `estado.diario.campos`. Si
+  // esta exclusión se calculara solo con `estado[seccion].objetivos` (local a cada sección), un
+  // campo así se mostraría como pregunta de revisión suelta en la sección donde realmente vive.
+  const idsObjetivoGlobal = idsFuenteDeObjetivos([...data.diario.objetivos, ...data.semanal.objetivos, ...data.periodico.objetivos])
+
   return (
     <div className="min-h-screen bg-background">
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
@@ -261,9 +276,9 @@ function ClienteCheckinPageContent() {
           // nada que registrar en este tipo.
           // Esta vista general es solo Revisión — registrar un objetivo siempre pasa por el
           // modo enfocado (arriba, "Registrar" desde Mis objetivos). Los campos que son
-          // fuente de un objetivo nunca se muestran aquí, aunque estén en `estado.campos`.
-          const idsObjetivo = idsFuenteDeObjetivos(estado.objetivos)
-          const camposRevision = estado.campos.filter((c) => !idsObjetivo.has(c.id))
+          // fuente de un objetivo nunca se muestran aquí, aunque estén en `estado.campos`
+          // (exclusión global, ver `idsObjetivoGlobal` arriba).
+          const camposRevision = estado.campos.filter((c) => !idsObjetivoGlobal.has(c.id))
 
           // Las tres secciones se muestran siempre, cada una con su propio tipo en el
           // título — antes "periódico" desaparecía sin más cuando no tenía campos, lo que

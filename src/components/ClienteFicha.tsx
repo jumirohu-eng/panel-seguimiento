@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Cliente, Reporte, ReportesResponse, CheckinEnvio, ChecklinsResponse, InvitacionClienteEstado } from '@/lib/types'
+import {
+  Cliente,
+  Reporte,
+  ReportesResponse,
+  CheckinEnvio,
+  ChecklinsResponse,
+  InvitacionClienteEstado,
+  PendientesCheckin,
+} from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
 import AIAnalysis from './AIAnalysis'
 import SuggestedMessage from './SuggestedMessage'
@@ -56,6 +64,14 @@ export default function ClienteFicha({
   const [loadingCheckins, setLoadingCheckins] = useState(true)
   const [loadingMoreCheckins, setLoadingMoreCheckins] = useState(false)
   const [errorCheckins, setErrorCheckins] = useState<string | null>(null)
+  const [pendientesCheckin, setPendientesCheckin] = useState<PendientesCheckin | null>(null)
+  const [confirmandoEliminarCheckin, setConfirmandoEliminarCheckin] = useState<string | null>(null)
+  const [eliminandoCheckin, setEliminandoCheckin] = useState<string | null>(null)
+  const [errorEliminarCheckin, setErrorEliminarCheckin] = useState<string | null>(null)
+  // Incrementado tras eliminar un check-in — pasado a ObjetivosEntrenador para que recargue
+  // el progreso (recalculado en caliente en el backend, ver DECISIONS.md) sin necesitar un
+  // refresco manual de página.
+  const [objetivosRefreshToken, setObjetivosRefreshToken] = useState(0)
   const notasTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getToken = useCallback(async () => {
@@ -277,6 +293,7 @@ export default function ClienteFicha({
         setCheckins((prev) => (esMas ? [...prev, ...data.checkins] : data.checkins))
         setCheckinsHasMore(data.hasMore)
         setCheckinsPage(pagina)
+        setPendientesCheckin(data.pendientes)
       } catch {
         setErrorCheckins('Error al cargar los check-ins.')
       } finally {
@@ -295,6 +312,33 @@ export default function ClienteFicha({
     // Solo al cambiar de cliente: cargarCheckins cambia de identidad en cada render de cliente.id
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente.id])
+
+  const handleEliminarCheckin = useCallback(
+    async (c: CheckinEnvio) => {
+      setEliminandoCheckin(c.fecha)
+      setErrorEliminarCheckin(null)
+      const token = await getToken()
+      try {
+        const res = await fetch('/api/checkins', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ clienteId: cliente.id, fecha: c.fecha, tipo: c.tipo }),
+        })
+        if (!res.ok) throw new Error()
+        setConfirmandoEliminarCheckin(null)
+        // Recarga desde la primera página: refresca historial + pendientes en un mismo golpe
+        // (el objetivo lanzado puede volver a aparecer como pendiente si este era su único
+        // registro de la ventana actual).
+        await cargarCheckins(0)
+        setObjetivosRefreshToken((v) => v + 1)
+      } catch {
+        setErrorEliminarCheckin('No se pudo eliminar el check-in. Inténtalo de nuevo.')
+      } finally {
+        setEliminandoCheckin(null)
+      }
+    },
+    [cliente.id, getToken, cargarCheckins]
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -485,7 +529,37 @@ export default function ClienteFicha({
 
       <div className="flex flex-col gap-4">
         <h3 className="text-sm font-semibold text-muted">Seguimiento del cliente</h3>
-        <ObjetivosEntrenador clienteId={cliente.id} />
+        <ObjetivosEntrenador clienteId={cliente.id} refreshToken={objetivosRefreshToken} />
+
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-card-foreground">Check-ins pendientes</h3>
+          {loadingCheckins ? (
+            <p className="text-sm text-muted">Cargando…</p>
+          ) : !pendientesCheckin || (!pendientesCheckin.diario && !pendientesCheckin.semanal && !pendientesCheckin.periodico) ? (
+            <p className="text-sm text-muted">No hay check-ins pendientes.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {pendientesCheckin.diario && (
+                <div className="flex items-center justify-between rounded-lg bg-background p-3">
+                  <span className="text-sm font-medium text-card-foreground">Diario</span>
+                  <span className="rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">Pendiente</span>
+                </div>
+              )}
+              {pendientesCheckin.semanal && (
+                <div className="flex items-center justify-between rounded-lg bg-background p-3">
+                  <span className="text-sm font-medium text-card-foreground">Semanal</span>
+                  <span className="rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">Pendiente</span>
+                </div>
+              )}
+              {pendientesCheckin.periodico && (
+                <div className="flex items-center justify-between rounded-lg bg-background p-3">
+                  <span className="text-sm font-medium text-card-foreground">Periódico</span>
+                  <span className="rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">Pendiente</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {reportes.length > 0 && (
@@ -544,14 +618,15 @@ export default function ClienteFicha({
         </div>
       )}
 
-      <h3 className="mt-2 text-sm font-semibold text-muted">Check-ins recientes (app)</h3>
+      <h3 className="mt-2 text-sm font-semibold text-muted">Historial de check-ins</h3>
 
       {errorCheckins && <p className="text-sm text-danger">{errorCheckins}</p>}
+      {errorEliminarCheckin && <p className="text-sm text-danger">{errorEliminarCheckin}</p>}
 
       {loadingCheckins ? (
         <p className="text-sm text-muted">Cargando check-ins…</p>
       ) : checkins.length === 0 ? (
-        <p className="text-sm text-muted">Este cliente todavía no ha registrado ningún check-in desde la app.</p>
+        <p className="text-sm text-muted">Todavía no hay check-ins registrados.</p>
       ) : (
         <div className="flex flex-col gap-4">
           {checkins.map((c) => (
@@ -578,6 +653,38 @@ export default function ClienteFicha({
                   </p>
                 ))}
               </div>
+
+              {confirmandoEliminarCheckin === c.fecha ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-danger/10 p-3">
+                  <span className="text-xs text-card-foreground">
+                    ¿Eliminar este check-in? Los datos registrados dejarán de contar para los objetivos que dependan de ellos.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmandoEliminarCheckin(null)}
+                    disabled={eliminandoCheckin === c.fecha}
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-background disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEliminarCheckin(c)}
+                    disabled={eliminandoCheckin === c.fecha}
+                    className="rounded-lg bg-danger px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {eliminandoCheckin === c.fecha ? 'Eliminando…' : 'Eliminar'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmandoEliminarCheckin(c.fecha)}
+                  className="mt-3 text-xs font-medium text-danger hover:underline"
+                >
+                  Eliminar
+                </button>
+              )}
             </div>
           ))}
 

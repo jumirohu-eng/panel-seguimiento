@@ -11,11 +11,9 @@ import {
 import {
   resolverCamposEfectivos,
   agruparPorFrecuencia,
-  deserializarValor,
   serializarValor,
   validarValorCampo,
   esEnvioDuplicadoReciente,
-  calcularProximaFecha,
   resolverProgramacionTipo,
   inicioDeHoyUTC,
   inicioDePeriodoSemanalUTC,
@@ -24,7 +22,7 @@ import {
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
-import { resolverObjetivo, esVigenteHoy, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto } from '@/lib/objetivos'
+import { resolverObjetivo, esVigenteHoy, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto, resolverEstadoCheckinTipo } from '@/lib/objetivos'
 import { ClienteCheckinResponse, ClienteCheckinTipoResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 
 const TIPOS_VALIDOS: FrecuenciaCheckin[] = ['diario', 'semanal', 'periodico']
@@ -110,58 +108,25 @@ export async function GET(request: NextRequest) {
       objetivosResueltos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!)
     )
 
+    // Cálculo real movido a resolverEstadoCheckinTipo (src/lib/objetivos.ts) — compartido con
+    // el endpoint de check-ins pendientes de la ficha del entrenador, para no tener dos
+    // implementaciones del mismo cálculo (ver DECISIONS.md, resiliencia).
     function estadoPara(
       tipo: FrecuenciaCheckin,
       campos: CampoCheckinResuelto[],
       inicioPeriodoActualMs: number | null
     ): CheckinFrecuenciaEstado {
       const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
-      // Campos "exclusivos de objetivo" (peso, entrenamiento_realizado, cualquier "Pasos"
-      // personalizado — ver esCampoOcultoEnConfigAvanzada) nunca se muestran como revisión
-      // suelta, aunque tengan Activo=true de una configuración anterior: solo aparecen si de
-      // verdad son la fuente de un objetivo vigente de ESTE cliente (cualquier periodicidad,
-      // ver comentario de `idsFuenteObjetivo` arriba). "El objetivo activa la métrica" (ver
-      // DECISIONS.md) — si no existe ningún objetivo de peso para este cliente, no debe ver
-      // un campo de peso en ningún tipo.
-      const camposSinExclusivosSueltos = campos.filter(
-        (c) => idsFuenteObjetivo.has(c.id) || !esCampoOcultoEnConfigAvanzada(c)
-      )
-      // Sin lanzar: solo se exponen los campos que alimentan un objetivo (el cliente siempre
-      // puede registrar sus objetivos); los campos de revisión quedan ocultos hasta que el
-      // entrenador lance ese tipo, igual que antes.
-      const camposVisibles = programacion.lanzado
-        ? camposSinExclusivosSueltos
-        : camposSinExclusivosSueltos.filter((c) => idsFuenteObjetivo.has(c.id))
-
-      const idsVisibles = new Set(camposVisibles.map((c) => c.id))
-      const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo && idsVisibles.has(r.fields.Field_id))
-      const registrosVigentes =
-        inicioPeriodoActualMs === null
-          ? registrosDelTipo
-          : registrosDelTipo.filter((r) => new Date(r.fields.Fecha).getTime() >= inicioPeriodoActualMs)
-
-      const ultimosValores: Record<string, unknown> = {}
-      let yaEnviado = false
-      // registros ya vienen ordenados desc por Fecha (ver getRegistrosCheckinByClienteEmail)
-      for (const r of registrosVigentes) {
-        yaEnviado = true
-        const campo = camposPorId.get(r.fields.Field_id)
-        if (campo && !(r.fields.Field_id in ultimosValores)) {
-          ultimosValores[r.fields.Field_id] = deserializarValor(campo.tipo, r.fields.Valor)
-        }
-      }
-
-      const proximaFecha = calcularProximaFecha(tipo, yaEnviado, inicioPeriodoActualMs, programacion)
-
-      return {
-        lanzado: programacion.lanzado,
-        disponibleDesde: programacion.disponibleDesde,
-        campos: camposVisibles,
-        yaEnviado,
-        ultimosValores,
-        proximaFecha,
-        objetivos: objetivosPorTipo.get(tipo) ?? [],
-      }
+      return resolverEstadoCheckinTipo({
+        tipo,
+        campos,
+        programacion,
+        registros,
+        camposPorId,
+        idsFuenteObjetivoGlobal: idsFuenteObjetivo,
+        objetivosDelTipo: objetivosPorTipo.get(tipo) ?? [],
+        inicioPeriodoActualMs,
+      })
     }
 
     if (tipoSolicitado) {

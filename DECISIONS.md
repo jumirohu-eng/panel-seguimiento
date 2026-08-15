@@ -2521,3 +2521,215 @@ sin token → `401`. Confirmado además, con una llamada real de solo lectura, q
 y modo objetivo intactos). `tsc --noEmit`, `eslint` (todo `src/`) y `next build` sin errores.
 
 **No probado visualmente en navegador.**
+
+---
+
+## DEC-2026-049 — Check-ins pendientes, historial con eliminación y garantía de recálculo de progreso en la ficha del cliente
+
+**Fecha:** 2026-08-15
+**Tipo:** Feature / Backend + Frontend
+**Estado:** Implementado, pendiente de revisión del usuario (sin commit)
+
+### Contexto y auditoría previa
+Brief de Juanmi: en la ficha del cliente (entrenador), añadir "Check-ins pendientes" (diario/
+semanal/periódico), renombrar el historial existente a "Historial de check-ins" con botón
+Eliminar por envío (con confirmación), y garantizar que el progreso de cualquier objetivo que
+use ese registro como fuente se recalcula correctamente tras el borrado. Auditado `CLAUDE.md`
+completo y las decisiones relacionadas con check-ins/objetivos/progreso (`DEC-2026-007/026/032/
+034/035/036/037/040` a `048`) antes de tocar código. **Ninguna decisión existente contradice
+esta tarea** — al contrario: el diseño ya vigente (progreso de `Objetivos` siempre agregado en
+caliente desde `Registros_checkin`, nunca cacheado ni duplicado — `DEC-2026-026`/`DEC-2026-032`)
+significa que borrar filas de `Registros_checkin` y volver a leer es, por construcción,
+suficiente para que el progreso se recalcule sin ninguna lógica de recálculo adicional. No hizo
+falta ninguna decisión de "romper" nada existente.
+
+### Arquitectura reutilizada
+- **Historial:** ya existía casi completo en `GET /api/checkins` + la sección "Check-ins
+  recientes (app)" de `ClienteFicha.tsx` (agrupación por `Fecha` exacta en "envíos", sin
+  exponer `Field_id`/ids de Airtable) — solo le faltaba pendientes + Eliminar. Renombrada a
+  "Historial de check-ins" (copy del brief).
+- **Patrón DELETE con ownership:** mismo patrón que `DELETE
+  /api/clientes/[id]/objetivos/[objetivoId]` y `DELETE
+  /api/entrenador/checkin-config/campos/[fieldId]` (`getClienteById` → 404 → `cliente.fields.
+  Entrenador !== email` → 403 → acción), y mismo patrón de borrado real vía Airtable REST que
+  `borrarCampoCheckin`.
+- **Confirmación antes de eliminar:** mismo patrón visual que `ObjetivosEntrenador.tsx`
+  (`confirmandoEliminar`/`eliminando` por id, sin modal).
+
+### Cálculo de pendientes y de la ventana correspondiente
+Extraída a `resolverEstadoCheckinTipo()` (nuevo, `src/lib/objetivos.ts`) la lógica que antes
+vivía inline como `estadoPara()` dentro de `GET /api/cliente/checkin` — movida tal cual (mismo
+comportamiento), parametrizada para reutilizarse también desde el nuevo cálculo de pendientes
+de la ficha del entrenador. Un tipo cuenta como "pendiente" cuando: `programacion.lanzado`
+(corresponde actualmente, misma función `resolverProgramacionTipo` ya existente) **y** existe
+al menos un campo de **revisión** activo para ese tipo (excluyendo campos que son fuente de un
+objetivo vigente — Objetivos y Revisiones siguen siendo independientes, no se tocó esa
+separación) **y** `!estado.yaEnviado` para la ventana actual (`ventanaPeriodoActual`/
+`inicioDeHoyUTC`/`inicioDePeriodoSemanalUTC`, sin ventana para periódico, ya existentes). Un
+cliente con `Estado !== 'Activo'` nunca tiene pendientes (cortocircuito explícito en
+`GET /api/checkins`, antes de calcular nada). No se crea ningún registro artificial — el
+cálculo es 100% derivado de `Checkin_tipos` + `Campos_checkin` + `Objetivos` +
+`Registros_checkin` existentes, igual que ya hacía `GET /api/cliente/checkin` para el propio
+cliente. Misma lógica exacta usada por ambas pantallas (ficha del entrenador y check-in/
+dashboard del cliente) — ninguna de las dos tiene ahora su propia copia del cálculo.
+
+### DELETE de Registros_checkin (real, no soft-delete)
+Nuevo `borrarRegistrosCheckin()` (`src/lib/airtable.ts`), mismo patrón `fetchWithRetry(...,
+{method:'DELETE'})` que `borrarCampoCheckin`. `DELETE /api/checkins` (mismo route ya existente
+para el histórico, método nuevo) recibe `{clienteId, fecha, tipo}` — **nunca un id de Airtable
+del frontend**: la ficha del cliente nunca ha expuesto ids de `Registros_checkin` (ver brief,
+punto "no mostrar IDs de Airtable"), así que no había ningún id que aceptar. Las filas a borrar
+se derivan siempre de `getRegistrosCheckinByClienteEmail(cliente.fields.Email)` — una consulta
+ya scoped por ownership real (cliente pertenece al entrenador autenticado) — filtradas por
+`Fecha === fecha exacta`, `Tipo_registro === tipo` y, como defensa en profundidad adicional,
+`Cliente` (link real) incluye el id del cliente del path. Borrado real de fila (no
+`Eliminado=true`): a diferencia de `Objetivos` (que sí necesita soft-delete para conservar la
+fila de configuración auditable), `Registros_checkin` no tiene ningún consumidor que necesite
+"recordar" un registro borrado — el progreso se recalcula íntegramente desde lo que queda.
+0 filas encontradas → `404` (cubre tanto un id/fecha manipulados como una segunda petición
+DELETE idéntica — idempotente sin duplicar ni fallar de forma confusa).
+
+### Recálculo de progreso tras el DELETE
+No se implementó ninguna lógica de "recálculo" explícita — no hacía falta. `resolverObjetivo()`
+y sus funciones (`calcularProgresoDesdeCheckins`, `calcularProgresoValorObjetivo`,
+`obtenerUltimoValorNumerico`) ya escaneaban `Registros_checkin` completo en cada llamada, sin
+caché ni estado derivado persistido (confirmado leyendo el código antes de tocar nada). Borrar
+la fila y esperar a la siguiente lectura es suficiente. En la UI, `ObjetivosEntrenador.tsx`
+gana una prop opcional `refreshToken` (número, añadido a su dependencia de `useEffect`) — sin
+esto, el componente no se habría refrescado solo hasta una recarga manual de página, aunque el
+backend ya tuviera el dato correcto. `ClienteFicha.tsx` la incrementa tras cada DELETE exitoso.
+
+### Verificación
+Fixture desechable (`@example.com`, patrón `DEC-2026-009`: 2 entrenadores + 3 clientes —
+incluido uno `Estado: 'Perdido'` —, borrados al terminar), 34 comprobaciones contra el servidor
+real (`next dev`) y Airtable/Supabase reales:
+- Caso obligatorio del brief: diario 10.000 + semanal 60.000 pasos, misma fuente; 8.000
+  registrados → `8000/10000` y `8000/60000`; eliminado → `0/10000` y `0/60000` (sin fantasma).
+- Acumulación semanal (lunes 8.000/martes 7.000/miércoles 5.000 → `20000/60000`); eliminar
+  martes → `13000/60000`; eliminar lunes → `5000/60000`.
+- Un mismo registro alimentando diario+semanal+mensual a la vez, sin duplicar; tras eliminarlo
+  los tres recalculan a `0`.
+- Peso (`valor_objetivo`, bajar): `70→68→66` → último `66`; eliminar el registro intermedio de
+  `66` → vuelve a `68` (no se queda "atascado" en el valor borrado); registrar `69` (retroceso)
+  → `69`; eliminar `69` (último de la lista) → vuelve a `68`.
+- Booleano (`entrenamiento_realizado`): visible en el historial, desaparece tras eliminar.
+- Pendientes: diario/semanal/periódico `true` con revisión lanzada sin registrar; registrar la
+  revisión diaria → deja de estar pendiente (semanal sigue pendiente, independiente); eliminar
+  ese registro → vuelve a estar pendiente. Cliente inactivo → los tres siempre `false`.
+- Seguridad: entrenador A elimina registro de su cliente A → `200`; entrenador B intenta
+  eliminar registro de cliente de entrenador A → `403`; un cliente autenticado llamando al
+  mismo endpoint → rechazado; fecha manipulada/inexistente → `404` sin borrar nada; sin token →
+  `401`.
+- Doble DELETE idéntico consecutivo: primero `200`, segundo `404` (idempotente, sin doble
+  borrado ni crash).
+- Historial: orden cronológico correcto (más reciente primero); la respuesta completa no
+  contiene ningún `Field_id` ni id de Airtable (`rec...`).
+
+`tsc --noEmit`, `eslint` (todo `src/`) y `next build` sin errores.
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión) —
+verificado el comportamiento real de las APIs (pendientes, historial, DELETE, recálculo de
+progreso) contra Supabase/Airtable reales, no el renderizado de "Check-ins pendientes" ni del
+botón Eliminar en el navegador.
+
+### Riesgos y límites conocidos, no resueltos a propósito
+- La confirmación de dos pasos y el badge visual de "Pendiente" no se han visto en un
+  navegador real — solo se verificó por lectura de código + comportamiento de la API.
+- `dashboard/page.tsx` (tarjeta "Revisión" del propio cliente) sigue calculando su exclusión
+  objetivo/revisión de forma LOCAL por tipo (`estado.objetivos`), no global — el mismo patrón
+  que `DEC-2026-047` corrigió en `checkin/page.tsx`. No se ha tocado (fuera de alcance de esta
+  tarea, y no hay caso real reportado que lo dispare todavía), pero el nuevo cálculo de
+  pendientes de la ficha del entrenador usa deliberadamente la exclusión GLOBAL (la correcta,
+  según `DEC-2026-047`) — si algún día se corrige `dashboard/page.tsx` del mismo modo, ambas
+  pantallas quedarán consistentes; hasta entonces, es teóricamente posible un caso límite muy
+  raro (objetivo cuya fuente vive en un tipo distinto al de su periodicidad) donde la ficha del
+  entrenador y el dashboard del cliente discreparan sobre si ese tipo concreto está "pendiente".
+- Recarga tras eliminar un check-in siempre vuelve a la página 0 del historial (no conserva la
+  página en la que estaba el entrenador) — aceptable dado que la paginación de check-ins es
+  poco profunda (7 por página) y evita bugs de desplazamiento de páginas tras un borrado.
+
+---
+
+## DEC-2026-050 — Bug real confirmado y corregido: exclusión objetivo/revisión LOCAL en dashboard/page.tsx (riesgo señalado en DEC-2026-049)
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / Frontend
+**Estado:** Corregido, pendiente de revisión del usuario (sin commit)
+
+### Pedido de Juanmi
+Verificar, con fixtures reales, si el riesgo documentado en `DEC-2026-049` (dashboard del
+cliente usando exclusión objetivo/revisión LOCAL por tipo, distinta de la GLOBAL que ya usan
+`checkin/page.tsx` desde `DEC-2026-047` y la ficha del entrenador desde `DEC-2026-049`) causaba
+de verdad una discrepancia observable, probando explícitamente: objetivo sin revisión, revisión
+sin objetivo, misma métrica como fuente y como revisión, objetivo+revisión mismo tipo (diario y
+semanal) y objetivo+revisión con periodicidad distinta.
+
+### Comparación exacta de lógica
+- `checkin/page.tsx` (general y `?tipo=X`) y la ficha del entrenador (`GET /api/checkins`,
+  `resolverEstadoCheckinTipo`): excluyen de "revisión" cualquier campo que sea `Fuente_field_id`
+  de **cualquier objetivo activo/vigente del cliente**, sin importar su periodicidad (GLOBAL).
+- `dashboard/page.tsx` (antes de este fix, línea ~236): calculaba `idsObjetivo` solo con
+  `estado.objetivos` — los objetivos de ESE tipo de check-in (`objetivosPorTipo`, agrupados por
+  `PERIODICIDAD_A_TIPO_CHECKIN`), no los de los otros dos (LOCAL).
+- Ambas coinciden siempre que la periodicidad del objetivo coincide con el tipo donde vive su
+  campo fuente — solo divergen cuando NO coincide (un objetivo semanal alimentado por un campo
+  cuyo `Tipos` es `['diario']`, patrón ya conocido y resuelto para el backend en `DEC-2026-044`/
+  `047`, pero nunca aplicado a `dashboard/page.tsx`).
+
+### Fixture y resultado (6 escenarios pedidos, cliente/entrenador desechables `@example.com`)
+- **A) objetivo sin revisión** (mismo tipo): sin divergencia.
+- **B) revisión sin objetivo**: sin divergencia.
+- **C) misma métrica como fuente Y revisión, misma periodicidad**: sin divergencia — el campo
+  se excluye correctamente en ambas lógicas.
+- **D) objetivo diario + revisión diaria** (campos distintos, mismo tipo): sin divergencia.
+- **E) objetivo semanal + revisión semanal** (campos distintos, mismo tipo): sin divergencia.
+- **F) objetivo semanal alimentado por un campo `Tipos: ['diario']`**: **divergencia real
+  confirmada** — con el código anterior, `dashboard.tieneRevision('diario') = true` (mostraba
+  "Diario: Pendiente", invitando al cliente a responder algo) mientras `checkin/page.tsx` y la
+  ficha del entrenador ya decían `false` (0 preguntas de revisión reales en diario, todo era
+  fuente de un objetivo semanal). Un cliente que pulsara "Registrar" en esa fila del dashboard
+  aterrizaba en `/cliente/checkin?tipo=diario` y no encontraba ninguna pregunta que responder
+  ("Tu entrenador no ha configurado ninguna pregunta de revisión para este tipo").
+
+Solo A-E fueron pedidos como "deberían ser consistentes" y lo eran; F confirmó el riesgo.
+
+### Corrección
+`idsFuenteDeObjetivos()` (antes función local no exportada dentro de `checkin/page.tsx`) se
+mueve a `src/lib/objetivos.ts` como export compartido — única fuente de verdad de "qué campos
+son fuente de un objetivo", reutilizada ahora por `checkin/page.tsx` (import, sin cambio de
+comportamiento) y por `dashboard/page.tsx` (antes tenía su propio cálculo LOCAL inline). En
+`dashboard/page.tsx`, la tarjeta "Revisión" calcula ahora `idsObjetivoGlobal` una sola vez (unión
+de `checkin.diario/semanal/periodico.objetivos`, igual que el modo general de `checkin/page.tsx`
+y que `GET /api/checkins`) y lo usa para las tres filas, en vez de recalcular un set distinto
+por fila. No se tocó el resto de la lógica (gate por `estado.lanzado`, textos, navegación).
+
+### Por qué no se duplicó lógica
+Antes de este fix había DOS copias de la misma idea (`idsFuenteDeObjetivos` local en
+`checkin/page.tsx`, cálculo inline distinto en `dashboard/page.tsx`) — la corrección elimina una
+copia entera moviendo la función a `lib/` en vez de escribir una tercera versión. Con esto, el
+frontend del cliente tiene un único punto de verdad para "qué campos cuentan como objetivo",
+igual que el backend ya tenía uno solo (`idsFuenteObjetivo` en `GET /api/cliente/checkin`,
+reutilizado desde `DEC-2026-049` por `resolverEstadoCheckinTipo`).
+
+### Verificación
+Reproducido el fixture del escenario F contra el servidor real ANTES del fix (confirma la
+divergencia) y DESPUÉS del fix (confirma que dashboard, `checkin/page.tsx` y la ficha del
+entrenador coinciden los tres en `false`) — 13 comprobaciones, todas OK en ambas pasadas
+(divergencia confirmada antes, ausencia de divergencia confirmada después). `tsc --noEmit`,
+`eslint` (todo `src/`) y `next build` sin errores.
+
+**No probado visualmente en navegador** (sin acceso a la extensión de Chrome en esta sesión) —
+verificado mediante réplica exacta en JavaScript de la expresión JSX real de `dashboard/page.tsx`
+(antes y después del cambio) contra las respuestas reales de la API, no el renderizado.
+
+### Riesgo actualizado
+El riesgo "exclusión local en `dashboard/page.tsx`" que quedaba abierto en `DEC-2026-049` queda
+**cerrado**. Grep de `idsFuenteDeObjetivos`/`idsFuenteObjetivo` en todo `src/` confirma el estado
+final: en el **frontend** (`checkin/page.tsx`, `dashboard/page.tsx`) ambas pantallas importan
+ahora la misma `idsFuenteDeObjetivos()` de `src/lib/objetivos.ts` — un único punto, sin copias.
+En el **backend**, `GET /api/cliente/checkin` y `GET /api/checkins` siguen calculando
+`idsFuenteObjetivo` cada uno por su lado (operan sobre `AirtableRecord<ObjetivoFields>` crudos,
+antes de resolver `ObjetivoResuelto`, así que no pueden compartir literalmente la misma función
+que el frontend) — pero ambos ya eran GLOBAL desde su origen (`DEC-2026-047` y `DEC-2026-049`
+respectivamente) y coinciden entre sí; no había divergencia ahí y esta sesión no encontró
+ninguna. La única duplicación real detectada y corregida era la del frontend.

@@ -1,5 +1,17 @@
 import type { AirtableRecord, ObjetivoFields, RegistroCheckinFields } from './airtable'
-import { CampoCheckinResuelto, FrecuenciaCheckin, TipoCampoCheckin, inicioDeHoyUTC, inicioDePeriodoSemanalUTC, DiaSemana } from './checkinFields'
+import type { CheckinFrecuenciaEstado } from './types'
+import {
+  CampoCheckinResuelto,
+  FrecuenciaCheckin,
+  TipoCampoCheckin,
+  ProgramacionTipoResuelta,
+  inicioDeHoyUTC,
+  inicioDePeriodoSemanalUTC,
+  DiaSemana,
+  esCampoOcultoEnConfigAvanzada,
+  deserializarValor,
+  calcularProximaFecha,
+} from './checkinFields'
 
 export type PeriodicidadObjetivo = 'diario' | 'semanal' | 'mensual'
 
@@ -296,6 +308,82 @@ export function validarConfiguracionProgreso(
   if (direccion !== 'subir' && direccion !== 'bajar') return 'Indica si el objetivo es subir o bajar.'
   if (valorInicial === null || !Number.isFinite(valorInicial)) return 'El valor inicial es obligatorio y debe ser un número.'
   return null
+}
+
+// Entrada pura para resolverEstadoCheckinTipo — separada de cualquier fetch/auth para poder
+// reutilizarse tal cual desde GET /api/cliente/checkin (auth de cliente) y desde el endpoint
+// de "check-ins pendientes" de la ficha del entrenador (auth de entrenador), sin duplicar el
+// cálculo entre ambas pantallas (ver DECISIONS.md, resiliencia: misma lógica en ficha y
+// dashboard/check-in del cliente).
+export interface EntradaEstadoCheckinTipo {
+  tipo: FrecuenciaCheckin
+  campos: CampoCheckinResuelto[]
+  programacion: ProgramacionTipoResuelta
+  registros: AirtableRecord<RegistroCheckinFields>[]
+  camposPorId: Map<string, CampoCheckinResuelto>
+  // Global (no local al tipo): ver comentario en GET /api/cliente/checkin — un objetivo
+  // puede alimentarse de un campo que vive en un tipo distinto al de su periodicidad.
+  idsFuenteObjetivoGlobal: Set<string>
+  objetivosDelTipo: ObjetivoResuelto[]
+  inicioPeriodoActualMs: number | null
+}
+
+// Movido tal cual desde el `estadoPara` que vivía inline en GET /api/cliente/checkin (Parte
+// 1.5.3 en adelante) — mismo comportamiento exacto, solo parametrizado para poder llamarse
+// también desde el endpoint de check-ins pendientes de la ficha del entrenador.
+export function resolverEstadoCheckinTipo(entrada: EntradaEstadoCheckinTipo): CheckinFrecuenciaEstado {
+  const { tipo, campos, programacion, registros, camposPorId, idsFuenteObjetivoGlobal, objetivosDelTipo, inicioPeriodoActualMs } = entrada
+
+  const camposSinExclusivosSueltos = campos.filter(
+    (c) => idsFuenteObjetivoGlobal.has(c.id) || !esCampoOcultoEnConfigAvanzada(c)
+  )
+  const camposVisibles = programacion.lanzado
+    ? camposSinExclusivosSueltos
+    : camposSinExclusivosSueltos.filter((c) => idsFuenteObjetivoGlobal.has(c.id))
+
+  const idsVisibles = new Set(camposVisibles.map((c) => c.id))
+  const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo && idsVisibles.has(r.fields.Field_id))
+  const registrosVigentes =
+    inicioPeriodoActualMs === null
+      ? registrosDelTipo
+      : registrosDelTipo.filter((r) => new Date(r.fields.Fecha).getTime() >= inicioPeriodoActualMs)
+
+  const ultimosValores: Record<string, unknown> = {}
+  let yaEnviado = false
+  // registros ya vienen ordenados desc por Fecha (ver getRegistrosCheckinByClienteEmail)
+  for (const r of registrosVigentes) {
+    yaEnviado = true
+    const campo = camposPorId.get(r.fields.Field_id)
+    if (campo && !(r.fields.Field_id in ultimosValores)) {
+      ultimosValores[r.fields.Field_id] = deserializarValor(campo.tipo, r.fields.Valor)
+    }
+  }
+
+  const proximaFecha = calcularProximaFecha(tipo, yaEnviado, inicioPeriodoActualMs, programacion)
+
+  return {
+    lanzado: programacion.lanzado,
+    disponibleDesde: programacion.disponibleDesde,
+    campos: camposVisibles,
+    yaEnviado,
+    ultimosValores,
+    proximaFecha,
+    objetivos: objetivosDelTipo,
+  }
+}
+
+// Un campo es "de objetivo" si al menos un objetivo vigente (de CUALQUIER periodicidad) lo
+// usa como fuente de progreso — Objetivos y Revisiones son independientes: un campo fuente de
+// objetivo nunca debe presentarse como pregunta de revisión, aunque su periodicidad no
+// coincida con el tipo de check-in donde vive el campo (mismo motivo que `idsFuenteObjetivo`
+// en GET /api/cliente/checkin, ver comentario en `resolverEstadoCheckinTipo` más arriba).
+// GLOBAL a propósito, nunca calculado por tipo/sección — ver DECISIONS.md DEC-2026-047 (bug
+// real corregido en checkin/page.tsx por calcularlo local) y DEC-2026-050 (mismo bug, hasta
+// entonces sin corregir, en dashboard/page.tsx). Único punto de esta lógica en el frontend —
+// reutilizado por checkin/page.tsx y dashboard/page.tsx, para que ambas pantallas del cliente
+// nunca puedan divergir sobre si un campo cuenta como revisión.
+export function idsFuenteDeObjetivos(objetivos: ObjetivoResuelto[]): Set<string> {
+  return new Set(objetivos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
 }
 
 // Texto de progreso reutilizado por las 3 vistas que lo muestran (ficha del entrenador,

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClienteCheckinResponse, ClienteCheckinTipoResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 import type { ObjetivoResuelto } from '@/lib/objetivos'
-import { formatearProgresoTexto } from '@/lib/objetivos'
+import { formatearProgresoTexto, idsFuenteDeObjetivos } from '@/lib/objetivos'
 import { campoDisponible } from '@/lib/checkinFields'
 import { formatFechaLarga } from '@/lib/format'
 import CampoInput from '@/components/CampoInput'
@@ -20,15 +20,6 @@ const TITULO_SECCION: Record<Seccion, string> = {
   diario: 'Revisión diaria',
   semanal: 'Revisión semanal',
   periodico: 'Revisión periódica',
-}
-
-// Un campo es "de objetivo" si al menos un objetivo vigente lo usa como fuente de progreso —
-// se registra desde el modo enfocado de "Mis objetivos", no como revisión. El resto de campos
-// activos (Energía, Fatiga, Dolor, Comentario…) son "Revisión": preguntas sobre cómo está el
-// cliente, no metas con progreso. Cálculo puramente derivado de datos ya cargados, sin tocar
-// la API (ver DECISIONS.md, "Objetivos primero, Revisiones aparte").
-function idsFuenteDeObjetivos(objetivos: ObjetivoResuelto[]): Set<string> {
-  return new Set(objetivos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
 }
 
 function ObjetivoPeso({ objetivo }: { objetivo: ObjetivoResuelto }) {

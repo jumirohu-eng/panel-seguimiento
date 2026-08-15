@@ -45,12 +45,80 @@ Datos:
 - `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`) + `Checkin_tipos` (`tblsiRHYa7SFro2Th`, Parte 1.5): modelo de check-in in-app del cliente. Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 020.
 - `notas_privadas` (Supabase Postgres, no Airtable): "Mis notas" se **eliminó por completo** de la app en Parte 1.5.3 (UI, rutas, API) — ver `DECISIONS.md` DEC-2026-030. La tabla en sí y su única fila real (de `jumirohu@gmail.com`, rol cliente) **no se han borrado**, por decisión explícita del usuario al confirmar la retirada — quedan huérfanas en Supabase, sin ningún endpoint que las use. No reintroducir esta funcionalidad sin revisar antes esa decisión.
 - `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. `Objetivos.Eliminado` (checkbox, Parte 1.5.3) es un soft-delete distinto de `Activo` — ver `DECISIONS.md` DEC-2026-032. `Objetivos.Modo_progreso` (`acumulado`/`valor_objetivo`), `Direccion` y `Valor_inicial` (sesión "Objetivos + Check-ins", 2026-08-14) permiten objetivos tipo peso (progreso por distancia a una meta, no por suma) — ver DEC-2026-035. Un objetivo puede crear su propia métrica de check-in automáticamente (check-in dinámico) — ver DEC-2026-034. Ver sección dedicada más abajo.
+- `Registros_checkin` se puede borrar de verdad (no soft-delete) desde la ficha del cliente (entrenador): "Check-ins pendientes" + "Historial de check-ins" con botón Eliminar por envío, `DELETE /api/checkins`. El progreso de `Objetivos` se recalcula solo (siempre se agrega en caliente, sin caché) — ver `DECISIONS.md` DEC-2026-049. `idsFuenteDeObjetivos()` (`src/lib/objetivos.ts`) es la única fuente de verdad frontend de "qué campos son fuente de un objetivo" (GLOBAL, no por tipo) — usada por `checkin/page.tsx` y `dashboard/page.tsx` — ver DEC-2026-050 (bug real corregido: `dashboard/page.tsx` calculaba esto en LOCAL).
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## Bugfix — dashboard del cliente calculaba la exclusión objetivo/revisión en LOCAL, no GLOBAL (2026-08-15)
+
+**Pedido de Juanmi:** tras `DEC-2026-049` (que dejaba un riesgo documentado, no confirmado),
+comparar exactamente la lógica de `dashboard/page.tsx` con `checkin/page.tsx`/`GET
+/api/checkins` y probar con fixtures 6 escenarios concretos (objetivo sin revisión, revisión
+sin objetivo, misma métrica como ambas, objetivo+revisión mismo tipo x2, y con periodicidad
+distinta) para confirmar si había una discrepancia real.
+
+**Resultado:** 5 de 6 escenarios sin divergencia; el 6º (objetivo semanal alimentado por un
+campo cuyo `Tipos` es `['diario']`) **sí divergía de verdad**: el dashboard mostraba "Diario:
+Pendiente" para una fila sin ninguna pregunta de revisión real (0 campos tras excluir
+correctamente los de objetivo), mientras `checkin/page.tsx` y la ficha del entrenador ya decían
+lo contrario. Un cliente que pulsara "Registrar" ahí no encontraba nada que responder.
+
+**Fix:** `idsFuenteDeObjetivos()` (antes función local no exportada en `checkin/page.tsx`) se
+movió a `src/lib/objetivos.ts` como export compartido. `dashboard/page.tsx` la usa ahora en
+GLOBAL (unión de los tres tipos) igual que las otras dos pantallas, en vez de su propio cálculo
+LOCAL por tipo. Sin cambios en el resto de la lógica (gate por `lanzado`, textos, navegación).
+
+**Validación:** reproducido el fixture del escenario divergente contra el servidor real antes y
+después del fix (13 comprobaciones, confirmando la divergencia antes y su ausencia después).
+`tsc --noEmit`, `eslint` y `next build` sin errores. **No probado visualmente en navegador.** Ver
+`DECISIONS.md` `DEC-2026-050` para el detalle completo (incluye por qué los otros 5 escenarios
+NO reproducían nada).
+
+---
+
+## Feature — Check-ins pendientes, historial con eliminación e integridad del progreso en la ficha del cliente (2026-08-15)
+
+**Pedido de Juanmi:** en la ficha del cliente (entrenador), poder ver los check-ins pendientes
+(diario/semanal/periódico), ver el historial de check-ins registrados, eliminar uno
+individualmente, y garantizar que el progreso de cualquier objetivo que use ese registro como
+fuente se recalcula correctamente tras el borrado. Prioridad explícita: resiliencia/integridad
+de datos > seguridad > consistencia > UX > velocidad de implementación.
+
+**Auditoría previa (regla de este archivo):** releído `CLAUDE.md` completo y las decisiones de
+`DECISIONS.md` relacionadas con check-ins/objetivos/progreso (`DEC-2026-007` a `048`) antes de
+tocar código — ninguna contradice la tarea. El diseño ya existente (progreso de `Objetivos`
+siempre agregado en caliente desde `Registros_checkin`, nunca cacheado — `DEC-2026-026`/`032`)
+significa que un `DELETE` real de fila, seguido de una lectura normal, ya es suficiente para
+que el progreso se recalcule sin ninguna lógica adicional.
+
+**Cambios:** `resolverEstadoCheckinTipo()` (nuevo, `src/lib/objetivos.ts`) extrae el cálculo de
+estado por tipo (antes inline en `GET /api/cliente/checkin`) para reutilizarlo también en el
+cálculo de "pendientes" de la ficha del entrenador (misma lógica exacta en ambas pantallas,
+nunca dos implementaciones distintas del mismo cálculo). `borrarRegistrosCheckin()` (nuevo,
+`src/lib/airtable.ts`) — borrado real, no soft-delete. `DELETE /api/checkins` (mismo route ya
+existente para el histórico) recibe `{clienteId, fecha, tipo}` — nunca un id de Airtable del
+frontend, que nunca los ha expuesto. `ClienteFicha.tsx`: nueva sección "Check-ins pendientes",
+"Check-ins recientes (app)" renombrada a "Historial de check-ins" con botón Eliminar +
+confirmación de dos pasos. `ObjetivosEntrenador.tsx` gana una prop `refreshToken` para
+refrescar el progreso mostrado tras un `DELETE`, sin recarga manual de página.
+
+**Validación:** 34 comprobaciones E2E con fixtures desechables contra el servidor real y
+Airtable/Supabase reales — incluido el caso obligatorio del brief (diario 10.000 + semanal
+60.000 pasos, misma fuente, registrar 8.000, eliminar, progreso vuelve a 0 en ambos sin
+fantasma), acumulación con eliminación de registro intermedio, tres objetivos (diario/semanal/
+mensual) compartiendo una fuente, peso con avance/retroceso y eliminación del registro
+intermedio y del último, booleano, seguridad/ownership cruzado entre entrenadores, doble DELETE
+idempotente, y que el historial no expone ningún dato técnico de Airtable. `tsc --noEmit`,
+`eslint` y `next build` sin errores. **No probado visualmente en navegador** (sin acceso a la
+extensión de Chrome en esta sesión). Ver `DECISIONS.md` `DEC-2026-049` para el detalle completo,
+incluidos los riesgos conocidos no resueltos (exclusión objetivo/revisión local en
+`dashboard/page.tsx`, no tocada, ver ahí).
+
+---
 
 ## Bugfix — el botón "Registrar" del dashboard no pasaba el tipo, mostraba las tres revisiones a la vez (2026-08-15)
 

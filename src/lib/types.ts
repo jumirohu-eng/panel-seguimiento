@@ -222,9 +222,20 @@ export interface CheckinEnvio {
   valores: { fieldId: string; nombre: string; valor: unknown }[]
 }
 
+// "Pendiente" = revisión de ese tipo, lanzada, con preguntas de revisión configuradas
+// (excluyendo campos fuente de objetivo — Objetivos y Revisiones son independientes, ver
+// DECISIONS.md), sin ningún registro todavía para la ventana/periodo actual. Nunca se
+// calcula para un cliente inactivo (Estado != 'Activo') — ver GET /api/checkins.
+export interface PendientesCheckin {
+  diario: boolean
+  semanal: boolean
+  periodico: boolean
+}
+
 export interface ChecklinsResponse {
   checkins: CheckinEnvio[]
   hasMore: boolean
+  pendientes: PendientesCheckin
 }
 
 export interface MetricasNegocio {

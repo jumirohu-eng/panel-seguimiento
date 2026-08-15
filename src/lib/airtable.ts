@@ -739,6 +739,27 @@ export async function getRegistrosCheckinByClienteEmail(clienteEmail: string) {
   return data.records
 }
 
+// Borrado real (no soft-delete) de filas de Registros_checkin — a diferencia del resto de
+// esta tabla (insert-only en el flujo normal del cliente, ver DEC-2026-007), esto es una
+// acción de mantenimiento del entrenador desde la ficha del cliente. No hay nada que
+// "reactivar": el progreso de cualquier objetivo se recalcula en caliente desde las filas
+// que queden (ver resolverObjetivo/calcularProgresoDesdeCheckins/calcularProgresoValorObjetivo
+// en objetivos.ts, que nunca cachean ni duplican este dato), así que borrar de verdad la fila
+// es suficiente y no requiere ninguna lógica de recálculo adicional. Mismo patrón DELETE que
+// borrarCampoCheckin. Secuencial (no Promise.all) por el límite compartido de 5 req/seg de
+// Airtable (ver fetchWithRetry) — un envío normal tiene pocas filas (una por campo).
+export async function borrarRegistrosCheckin(recordIds: string[]) {
+  const baseId = process.env.AIRTABLE_BASE_ID
+  for (const recordId of recordIds) {
+    const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_REGISTROS_CHECKIN}/${recordId}`
+    const res = await fetchWithRetry(url, { method: 'DELETE', headers: airtableHeaders() })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Airtable error ${res.status}: ${text}`)
+    }
+  }
+}
+
 export async function getCheckinTiposByEntrenador(email: string) {
   const params = new URLSearchParams()
   params.set('filterByFormula', `{Entrenador} = "${escapeFormulaValue(email)}"`)

@@ -18,7 +18,17 @@ function estadoObjetivo(o: ObjetivoResuelto): { label: string; className: string
   return { label: 'Activo', className: 'bg-success/10 text-success' }
 }
 
-export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }) {
+export default function ObjetivosEntrenador({
+  clienteId,
+  refreshToken,
+}: {
+  clienteId: string
+  // Cambia cuando algo fuera de este componente puede haber alterado el progreso mostrado
+  // (p.ej. eliminar un check-in del historial, ver ClienteFicha.tsx) — el progreso siempre
+  // se recalcula en caliente en el backend, esto solo dispara una recarga para que la ficha
+  // no se quede mostrando una barra de progreso obsoleta hasta el próximo refresco manual.
+  refreshToken?: number
+}) {
   const [objetivos, setObjetivos] = useState<ObjetivoResuelto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -55,9 +65,10 @@ export default function ObjetivosEntrenador({ clienteId }: { clienteId: string }
       await cargar()
     }
     load()
-    // Solo al cambiar de cliente: cargar cambia de identidad en cada render de clienteId
+    // Al cambiar de cliente o cuando refreshToken cambia (recálculo externo de progreso,
+    // ver prop): cargar cambia de identidad en cada render de clienteId
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteId])
+  }, [clienteId, refreshToken])
 
   async function toggleActivo(o: ObjetivoResuelto) {
     setCambiandoEstado(o.id)

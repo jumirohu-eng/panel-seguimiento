@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ClientePerfil, ClienteCheckinResponse } from '@/lib/types'
 import type { ObjetivoResuelto } from '@/lib/objetivos'
+import { idsFuenteDeObjetivos } from '@/lib/objetivos'
 import { formatFechaLarga } from '@/lib/format'
 import AdminNavDropdown from '@/components/AdminNavDropdown'
 import ChangePasswordModal from '@/components/ChangePasswordModal'
@@ -223,46 +224,59 @@ export default function ClienteDashboardPage() {
             <h2 className="text-sm font-semibold text-card-foreground">Revisión</h2>
             <p className="mb-3 text-xs text-muted">Preguntas de tu entrenador sobre cómo te encuentras.</p>
             <div className="flex flex-col gap-3">
-              {(['diario', 'semanal', 'periodico'] as const).map((tipo) => {
-                const estado = checkin[tipo]
-                // Esta tarjeta es solo para revisiones (el registro de objetivos se hace desde
-                // "Mis objetivos", independiente de si el entrenador lanzó este tipo — ver
-                // DECISIONS.md, "Objetivos independientes de Revisiones"). Si el tipo no está
-                // lanzado, la API ya solo devuelve aquí campos de objetivo (o ninguno), así que
-                // sin lanzar nunca hay revisión real que mostrar: se omite la fila entera en
-                // vez de decir "No disponible todavía" sobre un tipo que puede tener un
-                // objetivo perfectamente disponible.
-                if (!estado.lanzado) return null
-                const idsObjetivo = new Set(estado.objetivos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
-                const tieneRevision = estado.campos.some((c) => !idsObjetivo.has(c.id))
-                if (!tieneRevision) return null
-                return (
-                  <div key={tipo} className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-card-foreground">{TITULOS_CHECKIN[tipo]}</p>
-                      {estado.yaEnviado ? (
-                        estado.proximaFecha ? (
-                          <p className="text-xs text-muted">
-                            ✓ Completado — próxima fecha el {formatFechaLarga(estado.proximaFecha)}
-                          </p>
+              {/* Global (unión de los tres tipos), no por sección — mismo motivo que en
+                  checkin/page.tsx (ver DECISIONS.md, DEC-2026-047/050): un campo puede vivir en
+                  un tipo distinto al de la periodicidad del objetivo que lo usa como fuente
+                  (p.ej. objetivo semanal alimentado por un campo que solo se pregunta a
+                  diario). Calcularlo por sección (estado.objetivos, local a ESE tipo) hacía que
+                  esta tarjeta mostrara "Pendiente" para una revisión que en realidad era 100%
+                  fuente de un objetivo — confirmado con fixture real, ver DEC-2026-050. */}
+              {(() => {
+                const idsObjetivoGlobal = idsFuenteDeObjetivos([
+                  ...checkin.diario.objetivos,
+                  ...checkin.semanal.objetivos,
+                  ...checkin.periodico.objetivos,
+                ])
+                return (['diario', 'semanal', 'periodico'] as const).map((tipo) => {
+                  const estado = checkin[tipo]
+                  // Esta tarjeta es solo para revisiones (el registro de objetivos se hace desde
+                  // "Mis objetivos", independiente de si el entrenador lanzó este tipo — ver
+                  // DECISIONS.md, "Objetivos independientes de Revisiones"). Si el tipo no está
+                  // lanzado, la API ya solo devuelve aquí campos de objetivo (o ninguno), así que
+                  // sin lanzar nunca hay revisión real que mostrar: se omite la fila entera en
+                  // vez de decir "No disponible todavía" sobre un tipo que puede tener un
+                  // objetivo perfectamente disponible.
+                  if (!estado.lanzado) return null
+                  const tieneRevision = estado.campos.some((c) => !idsObjetivoGlobal.has(c.id))
+                  if (!tieneRevision) return null
+                  return (
+                    <div key={tipo} className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-card-foreground">{TITULOS_CHECKIN[tipo]}</p>
+                        {estado.yaEnviado ? (
+                          estado.proximaFecha ? (
+                            <p className="text-xs text-muted">
+                              ✓ Completado — próxima fecha el {formatFechaLarga(estado.proximaFecha)}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted">✓ Actualizado — disponible cuando quieras</p>
+                          )
+                        ) : estado.proximaFecha ? (
+                          <p className="text-xs text-warning">Pendiente — próxima fecha el {formatFechaLarga(estado.proximaFecha)}</p>
                         ) : (
-                          <p className="text-xs text-muted">✓ Actualizado — disponible cuando quieras</p>
-                        )
-                      ) : estado.proximaFecha ? (
-                        <p className="text-xs text-warning">Pendiente — próxima fecha el {formatFechaLarga(estado.proximaFecha)}</p>
-                      ) : (
-                        <p className="text-xs text-warning">Pendiente</p>
-                      )}
+                          <p className="text-xs text-warning">Pendiente</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => router.push(`/cliente/checkin?tipo=${tipo}`)}
+                        className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
+                      >
+                        {estado.yaEnviado ? 'Ver/actualizar' : 'Registrar'}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => router.push(`/cliente/checkin?tipo=${tipo}`)}
-                      className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-background"
-                    >
-                      {estado.yaEnviado ? 'Ver/actualizar' : 'Registrar'}
-                    </button>
-                  </div>
-                )
-              })}
+                  )
+                })
+              })()}
             </div>
           </section>
         )}

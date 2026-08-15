@@ -52,6 +52,72 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Adaptación técnica — Objetivos independientes de Revisiones (2026-08-15)
+
+**Hallazgo:** tras el rediseño de UX (sección siguiente), el botón "Registrar" de un objetivo
+seguía pudiendo caer en "Tu entrenador todavía no ha activado este check-in" — porque
+`GET/POST /api/cliente/checkin` gateaban **todo un tipo** (diario/semanal/periódico) por
+`lanzado`, incluidos los campos que son fuente de un objetivo activo. El registro de un
+objetivo nunca debió depender de que el entrenador "lanzara" el check-in — eso es un concepto
+que solo tiene sentido para Revisiones.
+
+**Causa exacta:** en `GET`, cuando `!programacion.lanzado` para un tipo, la ruta devolvía
+`campos: []` y `objetivos: []` sin excepción. En `POST`, `if (!lanzado) return 403` bloqueaba
+la petición entera, sin distinguir si el campo enviado era la fuente de un objetivo o una
+revisión.
+
+**Fix (`src/app/api/cliente/checkin/route.ts`):** se calcula `idsFuenteObjetivo` — el conjunto
+de `Field_id` que son fuente de un objetivo del cliente autenticado que esté `Activo=true` y
+vigente hoy (derivado siempre de la propia ficha del cliente resuelta por su JWT, nunca de un
+ID que mande el frontend). En `GET`, cuando un tipo no está lanzado, `campos` ya no es `[]`
+sino `campos.filter(c => idsFuenteObjetivo.has(c.id))` — los objetivos y sus últimos valores
+siguen resolviéndose siempre, lanzado o no. En `POST`, se quitó el `403` global; ahora
+`camposAEnviar` acepta un campo si `lanzado` es `true` **o** si ese campo es fuente de un
+objetivo activo — el resto (revisiones) se ignora en silencio si el tipo no está lanzado (mismo
+patrón ya existente para la regla "No he entrenado"), en vez de rechazar toda la petición y
+bloquear también los campos de objetivo enviados en el mismo envío.
+
+**Frontend:** `/cliente/checkin/page.tsx` ya no sustituye toda la sección por "no disponible"
+cuando el tipo no está lanzado — solo lo hace si de verdad no hay ningún campo que registrar
+(`estado.campos.length === 0`); si hay campos de objetivo, se muestran igual. La partición
+objetivo/revisión que ya existía (`RevisionesEntrenador`/sesión UX anterior) sigue funcionando
+sin cambios porque ahora la API ya solo devuelve campos de revisión cuando de verdad están
+lanzados. `/cliente/dashboard/page.tsx` (tarjeta "Revisión"): se quitó el aviso "No disponible
+todavía" cuando el tipo no está lanzado — esa tarjeta es solo de revisiones, y mostrar ese aviso
+sobre un tipo que en realidad tenía un objetivo disponible en "Mis objetivos" era engañoso; ahora
+simplemente no muestra fila si no hay revisión real pendiente.
+
+**Seguridad (sin cambios de gate, solo nueva lógica dentro del mismo gate ya existente):**
+`getClienteActivoAutenticado()` sigue siendo el único punto de resolución de "quién es el
+cliente" (por email del JWT, nunca por ID del body) — así que `idsFuenteObjetivo` nunca puede
+contaminarse con objetivos de otro cliente. Cliente inactivo sigue bloqueado igual
+(`403` antes de llegar a nada de esto). Un objetivo desactivado o fuera de vigencia deja de
+desbloquear su campo inmediatamente. Validación de tipo/valor (`validarValorCampo`) no cambió —
+sigue rechazando con `400` explícito, nunca en silencio.
+
+**Validación:** `tsc --noEmit`, `eslint`, `next build` sin errores. Prueba E2E con fixtures
+desechables (2 entrenadores+clientes ficticios, borrados al terminar), 22 comprobaciones,
+todas OK: objetivo de pasos diario+semanal registrado y con progreso correcto **sin lanzar
+ningún check-in** (antes: `403`); doble envío inmediato sigue siendo idempotente; objetivo de
+peso con dirección "bajar" avanza/retrocede correctamente (secuencia 70→68→66→69 kg dio
+0%→40%→80%→20%, exactamente lo esperado); cliente sin objetivo de peso nunca ve el campo
+`peso` ni puede registrarlo manipulando la petición directamente (`400`); cliente inactivo
+bloqueado; aislamiento entre dos clientes de fixtures distintos; valor de tipo incompatible
+rechazado con `400` explícito.
+
+**No probado visualmente en navegador** (sin Chrome/Playwright disponibles en esta sesión) —
+verificado el comportamiento real de la API contra Supabase/Airtable reales, no el
+renderizado.
+
+**Limitación técnica documentada (no resuelta a propósito):** si el entrenador desactiva un
+objetivo justo después de que su campo ya estuviera "lanzado" como parte de una revisión, ese
+campo sigue siendo registrable por el cliente (ahora como revisión normal, con `lanzado=true`)
+— es el comportamiento correcto y ya existente, no una regresión de este fix, pero se deja
+anotado porque la distinción "campo de objetivo vs de revisión" no es una propiedad fija de
+`Campos_checkin`, se recalcula en cada request.
+
+---
+
 ## Parte UX — Objetivos primero, Revisiones aparte (2026-08-15)
 
 Rediseño puramente de UX/frontend, sin tocar modelo de datos, endpoints ni lógica de cálculo.

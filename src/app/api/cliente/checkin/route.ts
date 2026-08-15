@@ -23,7 +23,7 @@ import {
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
-import { resolverObjetivo, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto } from '@/lib/objetivos'
+import { resolverObjetivo, esVigenteHoy, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto } from '@/lib/objetivos'
 import { ClienteCheckinResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 
 function respuestaError(mensaje: string, status: number) {
@@ -74,25 +74,28 @@ export async function GET(request: NextRequest) {
       objetivosPorTipo.get(PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad])!.push(o)
     }
 
+    // Campos que son la fuente de progreso de un objetivo activo y vigente (de cualquier
+    // periodicidad) — el registro de un objetivo es independiente de que el entrenador haya
+    // "lanzado" el check-in de ese tipo (ver DECISIONS.md, "Objetivos independientes de
+    // Revisiones"). Solo las revisiones (campos que no alimentan ningún objetivo) siguen
+    // dependiendo del lanzamiento.
+    const idsFuenteObjetivo = new Set(
+      objetivosResueltos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!)
+    )
+
     function estadoPara(
       tipo: FrecuenciaCheckin,
       campos: CampoCheckinResuelto[],
       inicioPeriodoActualMs: number | null
     ): CheckinFrecuenciaEstado {
       const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
-      if (!programacion.lanzado) {
-        return {
-          lanzado: false,
-          disponibleDesde: programacion.disponibleDesde,
-          campos: [],
-          yaEnviado: false,
-          ultimosValores: {},
-          proximaFecha: null,
-          objetivos: [],
-        }
-      }
+      // Sin lanzar: solo se exponen los campos que alimentan un objetivo (el cliente siempre
+      // puede registrar sus objetivos); los campos de revisión quedan ocultos hasta que el
+      // entrenador lance ese tipo, igual que antes.
+      const camposVisibles = programacion.lanzado ? campos : campos.filter((c) => idsFuenteObjetivo.has(c.id))
 
-      const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo)
+      const idsVisibles = new Set(camposVisibles.map((c) => c.id))
+      const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo && idsVisibles.has(r.fields.Field_id))
       const registrosVigentes =
         inicioPeriodoActualMs === null
           ? registrosDelTipo
@@ -112,9 +115,9 @@ export async function GET(request: NextRequest) {
       const proximaFecha = calcularProximaFecha(tipo, yaEnviado, inicioPeriodoActualMs, programacion)
 
       return {
-        lanzado: true,
+        lanzado: programacion.lanzado,
         disponibleDesde: programacion.disponibleDesde,
-        campos,
+        campos: camposVisibles,
         yaEnviado,
         ultimosValores,
         proximaFecha,
@@ -157,25 +160,39 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [entrenador, filasTipos, filasConfig, registros] = await Promise.all([
+    const [entrenador, filasTipos, filasConfig, registros, filasObjetivos] = await Promise.all([
       getEntrenadorByEmail(cliente.fields.Entrenador),
       getCheckinTiposByEntrenador(cliente.fields.Entrenador),
       getCamposCheckinByEntrenador(cliente.fields.Entrenador),
       getRegistrosCheckinByClienteEmail(cliente.fields.Email ?? ''),
+      getObjetivosByClienteEmail(cliente.fields.Email ?? ''),
     ])
 
     const filaTipo = filasTipos.find((f) => f.fields.Tipo === tipo)
     const { lanzado } = resolverProgramacionTipo(filaTipo?.fields, entrenador?.fields.Checkin_disponible_desde)
-    if (!lanzado) {
-      return respuestaError('Tu entrenador todavía no ha activado este check-in', 403)
-    }
+
+    // Campos que alimentan un objetivo propio, activo y vigente hoy del cliente autenticado
+    // (derivado siempre de su propia ficha, nunca de un ID que mande el frontend — ver
+    // DECISIONS.md, "Objetivos independientes de Revisiones"). Estos campos se pueden
+    // registrar exista o no un check-in lanzado; el resto (revisiones) sigue exigiendo
+    // `lanzado`, igual que antes.
+    const idsFuenteObjetivo = new Set(
+      filasObjetivos
+        .filter((r) => r.fields.Activo === true && esVigenteHoy(r.fields.Fecha_inicio, r.fields.Fecha_fin))
+        .map((r) => r.fields.Fuente_field_id)
+        .filter((id): id is string => Boolean(id))
+    )
 
     const camposResueltos = resolverCamposEfectivos(filasConfig)
     const grupos = agruparPorFrecuencia(camposResueltos)
     // Regla "No he entrenado": un campo dependiente no disponible se ignora del todo
     // (ni se valida ni se guarda), aunque el cliente lo mande manipulando la petición
-    // directamente — rechazo real en backend, no solo cosmético.
-    const camposAEnviar = grupos[tipo].filter((campo) => campoDisponible(campo, valores))
+    // directamente — rechazo real en backend, no solo cosmético. Igual criterio para
+    // campos de revisión cuando el tipo no está lanzado: se ignoran en vez de rechazar
+    // toda la petición, para no bloquear los campos de objetivo enviados en el mismo envío.
+    const camposAEnviar = grupos[tipo].filter(
+      (campo) => campoDisponible(campo, valores) && (lanzado || idsFuenteObjetivo.has(campo.id))
+    )
 
     // Validación estricta de tipo/rango ANTES de serializar (ver DECISIONS.md): un valor
     // presente pero incompatible con el tipo del campo se rechaza con un 400 explícito —

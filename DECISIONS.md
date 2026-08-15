@@ -1707,6 +1707,16 @@ dato real.
   campo, un único registro alimenta ambos progresos, y objetivo de peso (`valor_objetivo`)
   calcula correctamente la dirección. `tsc --noEmit`, `eslint` y `next build` sin errores. No
   probado visualmente en navegador (sin acceso a Chrome/Playwright en esta sesión).
+- Añadida `DEC-2026-040`: corregido que el registro de un objetivo dependiera de que el
+  entrenador hubiera "lanzado" el check-in de ese tipo — `GET/POST /api/cliente/checkin`
+  gateaban todo el tipo por `lanzado`, no por campo. Ahora los campos que son fuente de un
+  objetivo activo y vigente del cliente están siempre disponibles (lanzado o no); los campos
+  de revisión siguen dependiendo del lanzamiento, sin cambios. Validado con prueba E2E de
+  fixtures desechables, 22 comprobaciones: registro de objetivos sin ningún check-in lanzado,
+  peso direccional (secuencia 70→68→66→69 kg dio 0→40→80→20%), cliente sin objetivo de peso
+  nunca ve ni puede registrar ese campo, cliente inactivo bloqueado, aislamiento entre
+  clientes, tipo incompatible rechazado con 400. `tsc --noEmit`, `eslint` y `next build` sin
+  errores. No probado visualmente en navegador.
 
 ---
 
@@ -1860,3 +1870,106 @@ renderizado real.
 - Un registro verdaderamente inline en `/cliente/dashboard` (sin navegar a `/cliente/checkin`)
   requeriría extraer `CampoInput` a un flujo de guardado propio.
 - Prueba visual real en navegador de todas las pantallas nuevas.
+
+---
+
+## DEC-2026-040 — Registro de objetivos independiente del lanzamiento de check-ins/revisiones
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug de arquitectura / Backend
+**Estado:** Corregido
+
+### Hallazgo
+Tras `DEC-2026-039` (Objetivos primero, Revisiones aparte), el botón "Registrar" de un objetivo
+seguía pudiendo terminar en "Tu entrenador todavía no ha activado este check-in" — contradice
+la decisión de producto: un objetivo activo debe poder registrarse exista o no una
+revisión/check-in lanzada. Objetivos y Revisiones son conceptos independientes; solo compartían
+almacenamiento (`Registros_checkin`) y catálogo (`Campos_checkin`), no debían compartir el gate
+de lanzamiento.
+
+### Causa exacta
+`GET/POST /api/cliente/checkin` (`src/app/api/cliente/checkin/route.ts`) gateaban **todo un
+tipo** (diario/semanal/periódico) por `programacion.lanzado`, sin distinguir si el campo en
+cuestión era la fuente de un objetivo o una pregunta de revisión:
+- `GET`: si `!lanzado`, devolvía `campos: []` y `objetivos: []` sin excepción — el objetivo no
+  aparecía en absoluto, aunque estuviera activo y vigente.
+- `POST`: `if (!lanzado) return 403` bloqueaba toda la petición, incluidos los campos de
+  objetivo enviados en el mismo envío.
+
+### Decisión
+Se calcula, tanto en `GET` como en `POST`, el conjunto `idsFuenteObjetivo` = `Field_id` que son
+`Fuente_field_id` de un objetivo del cliente autenticado con `Activo === true` y vigente hoy
+(`esVigenteHoy()`, ya existente en `src/lib/objetivos.ts`) — derivado siempre de la ficha del
+cliente resuelta por `getClienteActivoAutenticado()` (email del JWT), nunca de un ID que mande
+el frontend.
+
+- **`GET`**: cuando un tipo no está lanzado, `campos` pasa de `[]` a
+  `campos.filter(c => idsFuenteObjetivo.has(c.id))` — los campos de objetivo siguen visibles;
+  los de revisión, no. `objetivos` (y su progreso) se resuelve siempre igual, lanzado o no —
+  se quitó el `return` anticipado que los vaciaba. `yaEnviado`/`ultimosValores` se recalculan
+  también solo sobre los campos visibles, para no mostrar "ya registrado" sobre contenido que
+  el cliente ni siquiera puede ver.
+- **`POST`**: se quitó el `403` global. `camposAEnviar` acepta un campo si `lanzado` es `true`
+  (comportamiento de antes, sin cambios) **o** si ese campo está en `idsFuenteObjetivo`. Los
+  campos de revisión enviados con el tipo sin lanzar se ignoran en silencio (mismo patrón ya
+  existente para la regla "No he entrenado", `campoDisponible()`) — no se rechaza toda la
+  petición para no bloquear también los campos de objetivo del mismo envío. Si tras el filtro
+  no queda ningún campo válido, sigue devolviendo el mismo `400` que ya existía ("No hay
+  valores válidos para los campos activos de este tipo").
+- **`src/app/cliente/checkin/page.tsx`**: ya no sustituye la sección entera por "no disponible"
+  cuando el tipo no está lanzado — solo lo hace si `estado.campos.length === 0` de verdad. La
+  partición objetivo/revisión de `DEC-2026-039` no necesitó cambios: como la API ya solo
+  devuelve campos de revisión cuando están lanzados, el bloque "Revisión" queda vacío por
+  construcción cuando corresponde.
+- **`src/app/cliente/dashboard/page.tsx`** (tarjeta "Revisión"): se quitó el aviso "No
+  disponible todavía" para un tipo no lanzado — esa tarjeta es solo de revisiones, y el aviso
+  podía aparecer sobre un tipo que en realidad tenía un objetivo perfectamente registrable
+  desde "Mis objetivos". Ahora simplemente omite la fila si no hay revisión real pendiente.
+
+### Por qué no se reescribió el modelo
+`Registros_checkin` (EAV insert-only, `DEC-2026-007`), el cálculo de progreso
+(`resolverObjetivo()`/`calcularProgresoDesdeCheckins()`/`calcularProgresoValorObjetivo()`) y el
+dedup de métrica compartida (`DEC-2026-034`) no se tocaron — la única pieza que estaba mal era
+la condición de acceso (`lanzado`), no el almacenamiento ni el cálculo. `/checkin-config`,
+`Checkin_tipos`, `resolverLanzamientoPorTipo()` y el resto de la programación de revisiones
+siguen exactamente igual.
+
+### Seguridad
+`idsFuenteObjetivo` se deriva siempre server-side de la ficha del cliente autenticado — nunca
+de un id de objetivo o de cliente que llegue en el body. El gate de cliente activo/inactivo
+(`getClienteActivoAutenticado`) no cambió y sigue evaluándose antes que cualquier lógica nueva.
+Un objetivo desactivado (`Activo=false`) o fuera de vigencia deja de desbloquear su campo de
+inmediato — no hay forma de que un objetivo "eliminado" (que `getObjetivosByClienteEmail()` ya
+excluye centralmente, `DEC-2026-032`) reaparezca. La validación de tipo/rango
+(`validarValorCampo()`) no cambió: sigue rechazando con `400` explícito, nunca en silencio.
+
+### Verificación
+`tsc --noEmit`, `eslint` y `next build`, los tres sin errores. Prueba E2E con fixtures
+desechables (2 entrenadores + 2 clientes ficticios, `@example.com`, patrón `DEC-2026-009`,
+borrados al terminar), 22 comprobaciones, todas OK:
+- Objetivo diario "10.000 pasos" + objetivo semanal "60.000 pasos" (misma fuente) creados y
+  registrados **sin lanzar ningún check-in** — antes devolvía `403`, ahora `201`; progreso
+  diario `8500/10000`, semanal `8500/60000`, desde un único registro.
+- Reenvío idéntico inmediato sigue respondiendo `200 duplicado=true` (guard de doble envío
+  intacto, ver `DEC-2026-037` sobre su límite conocido bajo concurrencia real).
+- Objetivo de peso (`valor_objetivo`, bajar, inicial 70, meta 65): secuencia de registros
+  70→68→66→69 kg dio porcentajes `0→40→80→20`, exactamente el cálculo esperado (avanza y
+  retrocede correctamente).
+- Cliente sin objetivo de peso: el campo `peso` no aparece en ningún tipo sin lanzar, y un
+  intento directo de `POST` con `valores: {peso: X}` sin objetivo ni check-in lanzado se
+  rechaza con `400` (no crea el registro).
+- Cliente inactivo (`Estado='Perdido'`) sigue bloqueado con `403`.
+- Aislamiento entre dos clientes de fixtures distintos: ninguno ve los objetivos del otro.
+- Valor de tipo incompatible (`peso: "no-soy-un-numero"`) rechazado con `400` explícito.
+
+**No probado visualmente en navegador** (sin Chrome/Playwright disponibles en esta sesión) —
+verificado el comportamiento real de la API contra Supabase/Airtable reales.
+
+### Limitación documentada (no resuelta a propósito)
+La distinción "campo de objetivo vs de revisión" no es una propiedad fija guardada en
+`Campos_checkin` — se recalcula en cada request cruzando `Fuente_field_id` de los objetivos
+activos del cliente contra el catálogo del entrenador. Si el entrenador desactiva un objetivo
+después de que su campo ya estuviera disponible como revisión (tipo lanzado), ese campo sigue
+siendo registrable por el cliente como revisión normal — comportamiento correcto y ya
+existente, no una regresión de este fix, mencionado aquí para que quede explícito el modelo
+mental correcto en sesiones futuras.

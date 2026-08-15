@@ -189,19 +189,26 @@ function ClienteCheckinPageContent() {
         {secciones.map((seccion) => {
           const estado = data[seccion]
 
-          if (!estado.lanzado) {
-            return (
-              <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
-                <p className="text-sm text-muted">
-                  {estado.disponibleDesde
-                    ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
-                    : 'Tu entrenador todavía no ha activado este check-in.'}
-                </p>
-              </section>
-            )
+          // El registro de objetivos es independiente de que el entrenador haya lanzado el
+          // check-in de este tipo — la API ya solo devuelve aquí los campos "de objetivo"
+          // cuando no está lanzado (ver DECISIONS.md, "Objetivos independientes de
+          // Revisiones"). Solo mostramos el aviso de "no disponible" cuando de verdad no hay
+          // nada que registrar en este tipo.
+          if (estado.campos.length === 0) {
+            if (!estado.lanzado) {
+              return (
+                <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
+                  <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
+                  <p className="text-sm text-muted">
+                    {estado.disponibleDesde
+                      ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
+                      : 'Tu entrenador todavía no ha activado nada aquí.'}
+                  </p>
+                </section>
+              )
+            }
+            return null
           }
-          if (estado.campos.length === 0) return null
 
           const valores = valoresPorSeccion[seccion]
           const idsObjetivo = idsFuenteDeObjetivos(estado.objetivos)

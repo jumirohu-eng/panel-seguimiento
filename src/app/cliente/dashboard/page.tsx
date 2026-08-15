@@ -225,22 +225,14 @@ export default function ClienteDashboardPage() {
             <div className="flex flex-col gap-3">
               {(['diario', 'semanal', 'periodico'] as const).map((tipo) => {
                 const estado = checkin[tipo]
-                if (!estado.lanzado) {
-                  return (
-                    <div key={tipo} className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-card-foreground">{TITULOS_CHECKIN[tipo]}</p>
-                        <p className="text-xs text-muted">
-                          {estado.disponibleDesde
-                            ? `Disponible desde el ${formatFechaLarga(estado.disponibleDesde)}`
-                            : 'No disponible todavía'}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                }
-                // Si todos los campos activos de este tipo son la fuente de un objetivo, ya se
-                // registran desde "Mis objetivos" — esta tarjeta es solo para revisiones.
+                // Esta tarjeta es solo para revisiones (el registro de objetivos se hace desde
+                // "Mis objetivos", independiente de si el entrenador lanzó este tipo — ver
+                // DECISIONS.md, "Objetivos independientes de Revisiones"). Si el tipo no está
+                // lanzado, la API ya solo devuelve aquí campos de objetivo (o ninguno), así que
+                // sin lanzar nunca hay revisión real que mostrar: se omite la fila entera en
+                // vez de decir "No disponible todavía" sobre un tipo que puede tener un
+                // objetivo perfectamente disponible.
+                if (!estado.lanzado) return null
                 const idsObjetivo = new Set(estado.objetivos.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
                 const tieneRevision = estado.campos.some((c) => !idsObjetivo.has(c.id))
                 if (!tieneRevision) return null

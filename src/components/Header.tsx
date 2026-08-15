@@ -18,16 +18,10 @@ export default function Header({
   email,
   isAdmin = false,
   showMarketplace = true,
-  showCheckinConfigLink = false,
 }: {
   email: string
   isAdmin?: boolean
   showMarketplace?: boolean
-  // Acceso a la configuración avanzada de check-ins (/checkin-config), ahora secundaria (ver
-  // DECISIONS.md, "Objetivos primero, Revisiones aparte"). Se pasa explícitamente desde el
-  // branch de render correcto en vez de condicionar por `isAdmin` — un admin en "Ver como
-  // entrenador" también debe verlo (ver DEC-2026-011, mismo bug ya corregido una vez).
-  showCheckinConfigLink?: boolean
 }) {
   const router = useRouter()
   const [dark, setDark] = useState(getInitialDark)
@@ -66,16 +60,6 @@ export default function Header({
           >
             <span className="text-base">🏪</span>
             Marketplace
-          </button>
-        )}
-        {showCheckinConfigLink && (
-          <button
-            onClick={() => router.push('/checkin-config')}
-            aria-label="Configuración avanzada de check-ins"
-            title="Configuración avanzada de check-ins"
-            className="rounded-lg border border-border p-2 text-sm text-card-foreground hover:bg-background"
-          >
-            ⚙️
           </button>
         )}
         <button

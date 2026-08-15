@@ -165,7 +165,7 @@ function DashboardPageContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      {email && <Header email={email} isAdmin={isAdmin} showCheckinConfigLink />}
+      {email && <Header email={email} isAdmin={isAdmin} />}
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         {isAdmin && vistaEntrenador && (

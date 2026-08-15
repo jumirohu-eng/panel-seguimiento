@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Cliente } from '@/lib/types'
 import RegistrarClienteModal from './RegistrarClienteModal'
 
@@ -21,6 +22,7 @@ export default function ClientesLista({
   onSelect: (id: string) => void
   onClienteCreado: (cliente: Cliente) => void
 }) {
+  const router = useRouter()
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('activos')
   const [mostrarRegistro, setMostrarRegistro] = useState(false)
@@ -56,8 +58,17 @@ export default function ClientesLista({
         </select>
         <button
           type="button"
+          onClick={() => router.push('/checkin-config')}
+          title="Check-ins avanzados: configura las revisiones que le preguntas a tus clientes (energía, dolor, comentarios…) y cuándo se lanzan."
+          aria-label="Check-ins avanzados"
+          className="ml-auto rounded-lg border border-border p-2 text-sm text-card-foreground transition hover:bg-background"
+        >
+          ⚙️
+        </button>
+        <button
+          type="button"
           onClick={() => setMostrarRegistro(true)}
-          className="ml-auto rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
+          className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
         >
           + Registrar cliente
         </button>

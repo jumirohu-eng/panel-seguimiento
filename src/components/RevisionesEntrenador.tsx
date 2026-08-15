@@ -20,6 +20,7 @@ export default function RevisionesEntrenador({ clienteId }: { clienteId: string 
   const [cambiando, setCambiando] = useState<string | null>(null)
   const [confirmandoEliminar, setConfirmandoEliminar] = useState<string | null>(null)
   const [eliminando, setEliminando] = useState<string | null>(null)
+  const [mostrarEliminadas, setMostrarEliminadas] = useState(false)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
@@ -128,11 +129,11 @@ export default function RevisionesEntrenador({ clienteId }: { clienteId: string 
 
       {loading ? (
         <p className="text-sm text-muted">Cargando…</p>
-      ) : revisiones.length === 0 ? (
+      ) : revisionesActivas.length === 0 ? (
         <p className="text-sm text-muted">Todavía no tienes revisiones configuradas.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {[...revisionesActivas, ...revisionesInactivas].map((c) => (
+          {revisionesActivas.map((c) => (
             <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background p-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-card-foreground">{c.nombre}</p>
@@ -168,28 +169,45 @@ export default function RevisionesEntrenador({ clienteId }: { clienteId: string 
                   </button>
                 </div>
               ) : (
-                <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmandoEliminar(c.id)}
+                  className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-danger hover:bg-card"
+                >
+                  Eliminar
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {revisionesInactivas.length > 0 && (
+        <div className="mt-3 border-t border-border pt-3">
+          <button
+            type="button"
+            onClick={() => setMostrarEliminadas((v) => !v)}
+            className="text-xs font-medium text-muted hover:text-card-foreground"
+          >
+            {mostrarEliminadas ? '▾' : '▸'} Revisiones eliminadas ({revisionesInactivas.length})
+          </button>
+          {mostrarEliminadas && (
+            <div className="mt-2 flex flex-col gap-2">
+              {revisionesInactivas.map((c) => (
+                <div key={c.id} className="flex items-center justify-between gap-2 rounded-lg bg-background p-3">
+                  <p className="truncate text-sm text-muted">{c.nombre}</p>
                   <button
                     type="button"
                     onClick={() => toggleActivo(c)}
                     disabled={cambiando === c.id}
-                    className={`rounded-full px-3 py-1 text-xs font-medium disabled:opacity-50 ${
-                      c.activo ? 'bg-primary text-white' : 'bg-card text-muted'
-                    }`}
+                    className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
                   >
-                    {cambiando === c.id ? '…' : c.activo ? 'Activa' : 'Inactiva'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmandoEliminar(c.id)}
-                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-danger hover:bg-card"
-                  >
-                    Eliminar
+                    {cambiando === c.id ? '…' : 'Reactivar'}
                   </button>
                 </div>
-              )}
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 

@@ -28,6 +28,7 @@ export default function CheckinConfigView({
   const [mostrarModal, setMostrarModal] = useState(false)
   const [confirmandoEliminar, setConfirmandoEliminar] = useState<string | null>(null)
   const [eliminando, setEliminando] = useState<string | null>(null)
+  const [mostrarEliminados, setMostrarEliminados] = useState(false)
 
   // Opera sobre el array completo (por id, no por índice de la lista filtrada) — los campos
   // ocultos en esta pantalla (peso, entrenamiento_realizado, pasos) siguen en `campos` para no
@@ -97,6 +98,27 @@ export default function CheckinConfigView({
     }
   }
 
+  async function reactivar(campo: CampoCheckinResuelto) {
+    setEliminando(campo.id)
+    setError(null)
+    try {
+      const res = await fetch('/api/entrenador/checkin-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          campos: [{ fieldId: campo.id, activo: true, orden: campo.orden, tipos: campo.tipos }],
+        }),
+      })
+      if (!res.ok) throw new Error()
+      const data: CheckinConfigResponse = await res.json()
+      setCampos(data.campos)
+    } catch {
+      setError('No se pudo reactivar el campo.')
+    } finally {
+      setEliminando(null)
+    }
+  }
+
   async function recargarTrasCrear() {
     const res = await fetch('/api/entrenador/checkin-config', { headers: { Authorization: `Bearer ${token}` } })
     if (res.ok) {
@@ -146,7 +168,12 @@ export default function CheckinConfigView({
 
         <div className="flex flex-col divide-y divide-border">
           {campos
-            .filter((campo) => !esCampoOcultoEnConfigAvanzada(campo))
+            // "Eliminar" desactiva de forma duradera (campos estándar) o borra la fila
+            // (personalizados) — en ambos casos, la fila deja de mostrarse aquí. `activo`
+            // ya no controla solo el badge, controla si la fila aparece en absoluto: si
+            // solo se ocultara el badge, "Eliminar" parecería no hacer nada (la fila
+            // seguía ahí, solo marcada "Inactivo").
+            .filter((campo) => !esCampoOcultoEnConfigAvanzada(campo) && campo.activo)
             .map((campo, index, visibles) => (
             <div key={campo.id} className="flex flex-wrap items-center gap-3 py-3">
               <div className="flex flex-col">
@@ -190,16 +217,6 @@ export default function CheckinConfigView({
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={() => actualizarCampo(campo.id, { activo: !campo.activo })}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                  campo.activo ? 'bg-primary text-white' : 'bg-background text-muted'
-                }`}
-              >
-                {campo.activo ? 'Activo' : 'Inactivo'}
-              </button>
-
               {confirmandoEliminar === campo.id ? (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-danger">¿Eliminar «{campo.nombre}»?</span>
@@ -232,6 +249,39 @@ export default function CheckinConfigView({
             </div>
           ))}
         </div>
+
+        {(() => {
+          const eliminados = campos.filter((c) => !esCampoOcultoEnConfigAvanzada(c) && !c.activo)
+          if (eliminados.length === 0) return null
+          return (
+            <div className="mt-4 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={() => setMostrarEliminados((v) => !v)}
+                className="text-xs font-medium text-muted hover:text-card-foreground"
+              >
+                {mostrarEliminados ? '▾' : '▸'} Campos eliminados ({eliminados.length})
+              </button>
+              {mostrarEliminados && (
+                <div className="mt-2 flex flex-col divide-y divide-border">
+                  {eliminados.map((campo) => (
+                    <div key={campo.id} className="flex items-center justify-between gap-3 py-2">
+                      <p className="text-sm text-muted">{campo.nombre}</p>
+                      <button
+                        type="button"
+                        onClick={() => reactivar(campo)}
+                        disabled={eliminando === campo.id}
+                        className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-background disabled:opacity-50"
+                      >
+                        {eliminando === campo.id ? '…' : 'Reactivar'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {error && <p className="mt-4 text-sm text-danger">{error}</p>}
 

@@ -1760,6 +1760,13 @@ dato real.
   (`PERIODICIDAD_A_TIPO_CHECKIN[objetivo.periodicidad]`), no por el `Tipos` legado del campo.
   Validado con fixture E2E reproduciendo el escenario real detectado en la cuenta
   `retaincoachsolution@gmail.com`. `tsc --noEmit`, `eslint` y `next build` sin errores.
+- Añadida `DEC-2026-045`, reemplaza parcialmente `DEC-2026-015`: por pedido explícito de
+  Juanmi, un campo de revisión ya no puede pertenecer a varios tipos de check-in a la vez —
+  `CheckinConfigView.tsx`/`CampoPersonalizadoModal.tsx` cambian de checkboxes a radio buttons
+  (un único tipo por campo), reforzado en el backend (`PUT /api/entrenador/checkin-config`,
+  `POST /api/entrenador/checkin-config/campos` recortan `tipos` a un elemento). Verificado que
+  ningún dato real tenía más de un tipo asignado — sin migración necesaria. Validado con
+  fixture E2E. `tsc --noEmit`, `eslint` y `next build` sin errores.
 
 ---
 
@@ -2262,5 +2269,54 @@ directamente con `Tipos: ['semanal', 'periodico']` (igual que en producción) + 
 peso` contra `periodico` se rechaza (`400`); contra `semanal` se acepta (`201`). `energia`
 (revisión normal, sin exclusividad) sigue apareciendo solo en su tipo configurado, sin cambios.
 `tsc --noEmit`, `eslint` y `next build` sin errores.
+
+**No probado visualmente en navegador.**
+
+---
+
+## DEC-2026-045 — Un campo de revisión pertenece a un único tipo de check-in, nunca a varios a la vez
+
+**Fecha:** 2026-08-15
+**Tipo:** Producto / Arquitectura — reemplaza parcialmente `DEC-2026-015`
+**Estado:** Implementada
+
+### Decisión anterior que reemplaza
+`DEC-2026-015` permitía explícitamente que un campo de revisión perteneciera a varios tipos de
+check-in a la vez (ej. Energía → Diario + Semanal), modelado como `Campos_checkin.Tipos`
+(multiSelect) con checkboxes en `/checkin-config`. Juanmi pidió ahora explícitamente lo
+contrario: "que lo del checkin diario no aparezca en el checkin semanal ni periódico y
+viceversa" — confirmado explícitamente (ver pregunta de aclaración) que quiere quitar la
+capacidad multi-tipo, no solo verificar que no hay solape accidental.
+
+### Decisión
+Un campo de revisión editable desde `/checkin-config` pertenece a un único tipo de check-in.
+`CheckinConfigView.tsx` cambia sus checkboxes por radio buttons (`seleccionarTipo()`, reemplaza
+`toggleTipo()`) — un campo solo puede tener un tipo marcado a la vez.
+`CampoPersonalizadoModal.tsx` cambia igual: un `<input type=radio>` por campo nuevo en vez de
+checkboxes, estado `tipoCheckin: Frecuencia` en vez de `tipos: Frecuencia[]`. Reforzado también
+en el backend (defensa en profundidad, no solo cosmético en frontend): `PUT
+/api/entrenador/checkin-config` y `POST /api/entrenador/checkin-config/campos` recortan
+`tipos` a como mucho un elemento (`.slice(0, 1)`) antes de guardar, aunque llegue una petición
+manipulada con varios.
+
+### Por qué no se tocó el esquema de Airtable
+`Campos_checkin.Tipos` sigue siendo `multipleSelects` en Airtable — cambiar el tipo de campo
+implicaría migrar datos y no aporta nada que la app no garantice ya escribiendo siempre como
+mucho un valor. Los campos exclusivos de objetivo (`peso`, `entrenamiento_realizado`, "Pasos")
+no pasan por esta pantalla (ver `DEC-2026-041`) y no se tocan aquí — su solapamiento entre tipos
+ya se resolvió por otra vía en `DEC-2026-044` (se resuelven por la periodicidad real del
+objetivo, no por su `Tipos`).
+
+### Migración de datos real
+Verificado contra los datos reales de `Campos_checkin`: ningún campo de revisión editable
+(no oculto) tenía más de un tipo asignado en ninguna cuenta real antes de este cambio — no hizo
+falta ninguna migración/backfill.
+
+### Verificación
+Prueba E2E con fixture desechable: `PUT` con `tipos: ['diario', 'semanal']` para un campo
+estándar se normaliza a `['diario']` (el primero); `POST` de un campo personalizado con
+`tipos: ['semanal', 'periodico']` se normaliza a `['semanal']`; `GET /api/cliente/checkin`
+confirma que cada campo aparece únicamente en su tipo, nunca en los otros dos. `tsc --noEmit`,
+`eslint` y `next build` sin errores.
 
 **No probado visualmente en navegador.**

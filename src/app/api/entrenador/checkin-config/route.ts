@@ -82,7 +82,11 @@ export async function PUT(request: NextRequest) {
 
     for (const act of actualizaciones) {
       if (typeof act.fieldId !== 'string') continue
-      const tipos = Array.isArray(act.tipos) ? act.tipos.filter((t) => TIPOS.includes(t)) : []
+      // Un campo de revisión pertenece a un único tipo de check-in, nunca a varios a la vez
+      // (ver DECISIONS.md: reemplaza el multi-tipo de DEC-2026-015 — el contenido de un tipo
+      // no debe poder coincidir con el de otro). Si llegan varios (petición manipulada o fila
+      // legada), se queda solo con el primero en vez de rechazar todo el guardado.
+      const tipos = (Array.isArray(act.tipos) ? act.tipos.filter((t) => TIPOS.includes(t)) : []).slice(0, 1)
       const filaExistente = filaPorFieldId.get(act.fieldId)
       const esEstandar = CAMPOS_ESTANDAR_POR_ID.has(act.fieldId)
 

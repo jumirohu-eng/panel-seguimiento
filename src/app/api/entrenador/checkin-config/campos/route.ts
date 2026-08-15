@@ -24,9 +24,14 @@ export async function POST(request: NextRequest) {
   const nombre = typeof body?.nombre === 'string' ? body.nombre.trim() : ''
   const tipo = body?.tipo as TipoCampoCheckin
   const categoria = typeof body?.categoria === 'string' ? body.categoria.trim() : 'personalizado'
-  const tipos: FrecuenciaCheckin[] = Array.isArray(body?.tipos)
-    ? body.tipos.filter((t: unknown): t is FrecuenciaCheckin => TIPOS_CHECKIN_VALIDOS.includes(t as FrecuenciaCheckin))
-    : []
+  // Un campo pertenece a un único tipo de check-in, nunca a varios a la vez (ver
+  // DECISIONS.md: reemplaza el multi-tipo de DEC-2026-015). Si llegan varios se queda solo
+  // con el primero en vez de rechazar la petición.
+  const tipos: FrecuenciaCheckin[] = (
+    Array.isArray(body?.tipos)
+      ? body.tipos.filter((t: unknown): t is FrecuenciaCheckin => TIPOS_CHECKIN_VALIDOS.includes(t as FrecuenciaCheckin))
+      : []
+  ).slice(0, 1)
   const unidad = typeof body?.unidad === 'string' ? body.unidad.trim() : undefined
   const opciones = Array.isArray(body?.opciones)
     ? body.opciones.filter((o: unknown) => typeof o === 'string' && o.trim().length > 0)
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Tipo de campo inválido' }, { status: 400 })
   }
   if (tipos.length === 0) {
-    return NextResponse.json({ error: 'Selecciona al menos un tipo de check-in (diario/semanal/periódico)' }, { status: 400 })
+    return NextResponse.json({ error: 'Selecciona el tipo de check-in (diario/semanal/periódico)' }, { status: 400 })
   }
   if ((tipo === 'seleccion' || tipo === 'seleccion_multiple') && (!opciones || opciones.length < 2)) {
     return NextResponse.json({ error: 'Un campo de selección necesita al menos 2 opciones' }, { status: 400 })

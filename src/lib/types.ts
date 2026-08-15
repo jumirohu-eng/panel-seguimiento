@@ -153,7 +153,9 @@ export interface CampoCheckinResuelto {
   nombre: string
   tipo: 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
   categoria: string
-  // Un campo puede pertenecer a varios tipos de check-in a la vez (Parte 1.5).
+  // Array por compatibilidad con Campos_checkin.Tipos (multiSelect en Airtable), pero desde
+  // DEC-2026-045 un campo de revisión editable pertenece a un único tipo (nunca varios a la
+  // vez) — ver DECISIONS.md.
   tipos: ('diario' | 'semanal' | 'periodico')[]
   unidad?: string
   opciones?: string[]

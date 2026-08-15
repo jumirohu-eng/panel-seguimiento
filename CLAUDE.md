@@ -52,6 +52,33 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Cambio de producto — un campo de revisión pertenece a un único tipo de check-in (2026-08-15)
+
+**Pedido de Juanmi:** "que lo del checkin diario no aparezca en el checkin semanal ni periódico
+y viceversa" — reemplaza parcialmente `DEC-2026-015`, que permitía explícitamente que un campo
+(ej. Energía) perteneciera a varios tipos a la vez (Diario + Semanal). Confirmado con una
+pregunta de aclaración: quiere quitar del todo la capacidad multi-tipo, no solo verificar que no
+había solape accidental.
+
+**Cambio:** `CheckinConfigView.tsx` y `CampoPersonalizadoModal.tsx` pasan de checkboxes a radio
+buttons — un campo de revisión solo puede tener un tipo marcado. Reforzado en el backend (no
+solo cosmético en frontend): `PUT /api/entrenador/checkin-config` y `POST
+/api/entrenador/checkin-config/campos` recortan `tipos` a un único elemento
+(`.slice(0, 1)`) antes de guardar, aunque llegue una petición manipulada con varios. Los campos
+exclusivos de objetivo (peso, entrenamiento_realizado, "Pasos") no pasan por esta pantalla y no
+se tocaron — su propio solapamiento entre tipos ya se resolvió en el fix anterior de esta misma
+sesión (ver abajo, "un campo exclusivo de objetivo se colaba...").
+
+**Datos reales:** verificado antes de implementar que ningún campo de revisión editable en
+ninguna cuenta real tenía más de un tipo asignado — no hizo falta migración.
+
+**Validación:** E2E con fixture desechable — `PUT`/`POST` con dos tipos a la vez se normalizan a
+uno solo (el primero enviado); `GET /api/cliente/checkin` confirma que cada campo aparece
+únicamente en su tipo, nunca en los otros dos. `tsc --noEmit`, `eslint` y `next build` sin
+errores. Ver `DEC-2026-045`.
+
+---
+
 ## Bugfix — un campo exclusivo de objetivo se colaba en otro tipo por su `Tipos` legado (2026-08-15)
 
 **Reporte de Juanmi:** "que no salga lo mismo en la revisión diaria, semanal y periódica, que

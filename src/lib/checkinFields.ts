@@ -15,8 +15,13 @@ export interface CampoCheckinDef {
   nombre: string
   tipo: TipoCampoCheckin
   categoria: string
-  // Un campo puede pertenecer a varios tipos de check-in a la vez (Parte 1.5) — ver
-  // DECISIONS.md. Reemplaza al antiguo `frecuenciaDefault` (un único valor, Parte 1).
+  // Sigue siendo un array por compatibilidad con `Campos_checkin.Tipos` (multipleSelects en
+  // Airtable) y con overrides antiguos, pero un campo de revisión editable desde
+  // /checkin-config solo puede pertenecer a UN tipo a la vez desde DEC-2026-045 (reemplaza el
+  // multi-tipo de DEC-2026-015: el contenido de un tipo no debe poder coincidir con el de
+  // otro) — usar siempre `tiposDefault[0]` como el tipo real, salvo para los campos
+  // exclusivos de objetivo (ver `CAMPOS_OCULTOS_EN_CONFIG_AVANZADA`), que no pasan por esta
+  // pantalla y se resuelven por periodicidad del objetivo (ver DEC-2026-044).
   tiposDefault: FrecuenciaCheckin[]
   unidad?: string
   opciones?: string[]
@@ -136,10 +141,15 @@ function parseOpciones(raw?: string): string[] | undefined {
   }
 }
 
-// Un campo puede tener varios tipos a la vez (Campos_checkin.Tipos, multiSelect). Si esa
-// fila todavía no tiene `Tipos` seteado (overrides creados en Parte 1, antes de esta
-// migración), cae a `Frecuencia` (el singleSelect viejo, deprecado pero intacto) para no
-// perder la config existente. Ver DECISIONS.md, migración de Campos_checkin.
+// `Campos_checkin.Tipos` sigue siendo un multiSelect en Airtable (no se cambió el esquema),
+// pero desde DEC-2026-045 la app nunca escribe más de un valor — un campo pertenece a un
+// único tipo. Filas con varios valores (legadas, de antes de esa decisión, o de un campo
+// exclusivo de objetivo cuyo `Tipos` ya no es editable, ver DEC-2026-041/044) siguen
+// leyéndose tal cual aquí sin normalizar, porque cada consumidor decide qué hacer con ellas
+// (p.ej. `agruparPorFrecuencia` las incluye en cada tipo listado). Si esa fila todavía no
+// tiene `Tipos` seteado (overrides creados en Parte 1, antes de esa migración), cae a
+// `Frecuencia` (el singleSelect viejo, deprecado pero intacto) para no perder la config
+// existente. Ver DECISIONS.md, migración de Campos_checkin.
 function resolverTiposCampo(
   fields: { Tipos?: FrecuenciaCheckin[]; Frecuencia?: FrecuenciaCheckin },
   tiposDefault: FrecuenciaCheckin[]

@@ -33,7 +33,9 @@ export default function CampoPersonalizadoModal({
   const [tipo, setTipo] = useState<Tipo>('escala')
   const [categoria, setCategoria] = useState('personalizado')
   const [unidad, setUnidad] = useState('')
-  const [tipos, setTipos] = useState<Frecuencia[]>(['diario'])
+  // Un campo pertenece a un único tipo de check-in (diario/semanal/periódico), nunca a
+  // varios a la vez (ver DECISIONS.md, reemplaza el multi-tipo de DEC-2026-015).
+  const [tipoCheckin, setTipoCheckin] = useState<Frecuencia>('diario')
   const [opciones, setOpciones] = useState<string[]>(['', ''])
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,10 +52,6 @@ export default function CampoPersonalizadoModal({
       setError('Añade al menos 2 opciones')
       return
     }
-    if (tipos.length === 0) {
-      setError('Selecciona al menos un tipo de check-in')
-      return
-    }
     setGuardando(true)
     setError(null)
     try {
@@ -65,7 +63,7 @@ export default function CampoPersonalizadoModal({
           tipo,
           categoria: categoria.trim() || 'personalizado',
           unidad: unidad.trim() || undefined,
-          tipos,
+          tipos: [tipoCheckin],
           opciones: requiereOpciones ? opcionesLimpias : undefined,
         }),
       })
@@ -121,16 +119,15 @@ export default function CampoPersonalizadoModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-card-foreground">Tipos de check-in</label>
+            <label className="mb-1 block text-sm font-medium text-card-foreground">Tipo de check-in</label>
             <div className="flex gap-4">
               {TIPOS_CHECKIN.map((t) => (
                 <label key={t.value} className="flex items-center gap-1 text-sm text-card-foreground">
                   <input
-                    type="checkbox"
-                    checked={tipos.includes(t.value)}
-                    onChange={(e) =>
-                      setTipos((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((x) => x !== t.value)))
-                    }
+                    type="radio"
+                    name="tipoCheckinNuevo"
+                    checked={tipoCheckin === t.value}
+                    onChange={() => setTipoCheckin(t.value)}
                   />
                   {t.label}
                 </label>

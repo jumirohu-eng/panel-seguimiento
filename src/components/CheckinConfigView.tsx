@@ -48,9 +48,11 @@ export default function CheckinConfigView({
     setCampos((prev) => prev.map((c) => (c.id === id ? { ...c, ...cambios } : c)))
   }
 
-  function toggleTipo(campo: CampoCheckinResuelto, tipo: 'diario' | 'semanal' | 'periodico', activo: boolean) {
-    const tipos = activo ? [...campo.tipos, tipo] : campo.tipos.filter((t) => t !== tipo)
-    actualizarCampo(campo.id, { tipos })
+  // Un campo pertenece a un único tipo de check-in (diario/semanal/periódico), nunca a
+  // varios a la vez — así el contenido de un tipo nunca coincide con el de otro (ver
+  // DECISIONS.md, reemplaza el multi-tipo de DEC-2026-015).
+  function seleccionarTipo(campo: CampoCheckinResuelto, tipo: 'diario' | 'semanal' | 'periodico') {
+    actualizarCampo(campo.id, { tipos: [tipo] })
   }
 
   async function guardar() {
@@ -208,9 +210,10 @@ export default function CheckinConfigView({
                 {TIPOS.map((t) => (
                   <label key={t.value} className="flex items-center gap-1">
                     <input
-                      type="checkbox"
+                      type="radio"
+                      name={`tipo-${campo.id}`}
                       checked={campo.tipos.includes(t.value)}
-                      onChange={(e) => toggleTipo(campo, t.value, e.target.checked)}
+                      onChange={() => seleccionarTipo(campo, t.value)}
                     />
                     {t.label}
                   </label>

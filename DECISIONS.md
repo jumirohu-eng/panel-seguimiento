@@ -2733,3 +2733,77 @@ antes de resolver `ObjetivoResuelto`, así que no pueden compartir literalmente 
 que el frontend) — pero ambos ya eran GLOBAL desde su origen (`DEC-2026-047` y `DEC-2026-049`
 respectivamente) y coinciden entre sí; no había divergencia ahí y esta sesión no encontró
 ninguna. La única duplicación real detectada y corregida era la del frontend.
+
+---
+
+## DEC-2026-051 — Ficha del cliente (entrenador): eliminados "Notas del cliente al registrarse" y "Acceso al panel del cliente"
+
+**Fecha:** 2026-08-15
+**Tipo:** UX / Frontend
+**Estado:** Implementada, pendiente de revisión del usuario (sin commit)
+
+### Contexto
+Tras revisar visualmente el preview de Vercel de la rama `fix-registrar-revision-scope`
+(commit `b96cbdf`, ver `DEC-2026-049`/`DEC-2026-050`) — prueba visual confirmada correcta por
+Juanmi — pidió simplificar la ficha del cliente eliminando dos bloques que aparecían al final
+de la sección "Notas" y que no aportan valor en esa pantalla. Objetivo UX explícito: información
+básica del cliente → Seguimiento del cliente (Objetivos/Revisiones) → Check-ins pendientes →
+Historial de check-ins — sin ningún bloque de notas iniciales ni de estado de acceso.
+
+### Auditoría previa (regla de `CLAUDE.md`)
+Releídos `CLAUDE.md` y `DECISIONS.md` completos antes de tocar código. Ninguna decisión
+existente prohíbe esto — es coherente con la línea ya seguida en `DEC-2026-039`/`DEC-2026-041`
+(simplificación progresiva de la ficha del cliente, retirada de bloques sin código muerto).
+Localizados ambos bloques por `grep` en `src/components/ClienteFicha.tsx` (únicos consumidores
+en toda la app de los textos "Notas del cliente al registrarse" y "Acceso al panel del
+cliente"/"Cuenta activa").
+
+### Decisión
+Eliminados de `src/components/ClienteFicha.tsx`:
+1. **"Notas del cliente al registrarse"** — bloque que renderizaba `cliente.notasIniciales`
+   cuando no estaba vacío. El dato (`Clientes.Notas_iniciales` en Airtable, campo
+   `notasIniciales` del tipo `Cliente`) **no se toca**: sigue devuelto por `GET /api/clientes`
+   y sigue inicializándose en `RegistrarClienteModal.tsx` al crear un cliente — solo se retira
+   su representación visual en esta pantalla, sin ningún reemplazo.
+2. **"Acceso al panel del cliente"** (badge Cuenta activa/Pendiente de activación/Sin
+   invitación + link copiable + botón generar/regenerar invitación). Junto con el JSX se
+   eliminó todo el estado y la lógica que existían **únicamente** para alimentar este bloque
+   dentro de `ClienteFicha.tsx`: `invitacionEstado`, `loadingInvitacion`,
+   `generandoInvitacion`, `errorInvitacion`, `copiadoInvitacion`, las funciones
+   `cargarInvitacion()`/`handleGenerarInvitacion()`/`handleCopyInvitacion()`, el `useEffect`
+   que cargaba la invitación al montar, y el import de `InvitacionClienteEstado` — verificado
+   por `grep` que ninguno de estos se usaba en ningún otro punto del archivo; dejarlos habría
+   sido código muerto (mismo criterio ya aplicado en el proyecto a `StatusBadge.tsx`,
+   `DEC-2026-029`, y `RevisionesEntrenador.tsx`/`RevisionModal.tsx`, `DEC-2026-041`).
+
+### Qué NO se tocó (verificado antes y después del cambio)
+- `GET/POST /api/clientes/[id]/invitacion` (el endpoint backend) sigue intacto y en uso real:
+  `RegistrarClienteModal.tsx` lo sigue llamando automáticamente al crear un cliente nuevo (ver
+  `CLAUDE.md`, Parte 1.5.1) — esa generación automática de invitación al alta no se ve
+  afectada por este cambio.
+- El tipo `InvitacionClienteEstado` (`src/lib/types.ts`) no se tocó — lo sigue usando el propio
+  endpoint backend.
+- `cliente.notasIniciales` (tipo `Cliente`, `GET /api/clientes`, `RegistrarClienteModal.tsx`)
+  no se tocó en absoluto.
+- Ninguna lógica de Objetivos, Revisiones, Check-ins, autenticación ni permisos se modificó —
+  `ObjetivosEntrenador`, `resolverEstadoCheckinTipo()`/`GET /api/checkins`, `handleDarBaja`,
+  `handleReactivar`, `handleNotasChange` (notas privadas del entrenador, campo distinto, no
+  tocado) siguen exactamente igual.
+
+### Impacto funcional real, comunicado explícitamente
+El entrenador ya no puede, desde la ficha de un cliente ya creado, ver si ha activado su
+cuenta ni copiar/regenerar el link de invitación manualmente — antes de este cambio esa era la
+única vía para reenviar el acceso a un cliente que hubiera perdido su invitación original
+(aparte de la generación automática al crear el cliente, que sigue intacta). Decisión de
+producto explícita del usuario tras revisión visual del preview, no una inferencia de esta
+sesión — sin bloque alternativo, tal como se pidió.
+
+### Verificación
+`tsc --noEmit`, `eslint src/` y `next build`, los tres sin errores (build genera correctamente
+las 47 rutas, incluida `/api/clientes/[id]/invitacion`, confirmando que el endpoint sigue
+compilando aunque ya no tenga consumidor en `ClienteFicha.tsx`). `git diff` tras el cambio
+confirma que se limita a `src/components/ClienteFicha.tsx` (126 líneas eliminadas, 0 añadidas,
+ningún otro archivo tocado). No se borró ni modificó ningún dato real en Airtable/Supabase.
+
+**No probado visualmente en navegador tras este cambio** — pendiente de que el usuario lo
+revise en un preview nuevo de esta misma rama.

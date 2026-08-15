@@ -53,6 +53,38 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## UX — ficha del cliente: eliminados "Notas del cliente al registrarse" y "Acceso al panel del cliente" (2026-08-15)
+
+**Pedido de Juanmi:** tras revisar visualmente el preview de la rama
+`fix-registrar-revision-scope` (commit `b96cbdf`) — prueba visual confirmada correcta —,
+eliminar por completo de la ficha del cliente (entrenador) dos bloques que aparecían al final
+de la sección "Notas": "Notas del cliente al registrarse" y "Acceso al panel del cliente"/
+"Cuenta activa". Objetivo UX explícito: información básica del cliente → Seguimiento del
+cliente (Objetivos/Revisiones) → Check-ins pendientes → Historial de check-ins, sin ningún
+bloque alternativo en su lugar.
+
+**Cambio:** eliminados de `src/components/ClienteFicha.tsx` ambos bloques JSX y, junto con el
+segundo, todo el estado/lógica que existía únicamente para alimentarlo dentro de ese componente
+(`invitacionEstado`, `cargarInvitacion()`, `handleGenerarInvitacion()`, `handleCopyInvitacion()`,
+el `useEffect` de carga y el import de `InvitacionClienteEstado`) — código muerto tras retirar
+su único consumidor. **No se tocó** el dato persistente: `Clientes.Notas_iniciales`/
+`cliente.notasIniciales` sigue existiendo tal cual (Airtable, tipo `Cliente`,
+`GET /api/clientes`, `RegistrarClienteModal.tsx`). **No se tocó** el endpoint
+`GET/POST /api/clientes/[id]/invitacion` — `RegistrarClienteModal.tsx` lo sigue usando para
+generar la invitación automáticamente al crear un cliente nuevo; solo se perdió la posibilidad
+de ver el estado de la cuenta o regenerar/copiar el link desde la ficha de un cliente ya
+creado (impacto funcional comunicado explícitamente al usuario, decisión de producto suya, no
+de esta sesión).
+
+**Validación:** `tsc --noEmit`, `eslint src/` y `next build`, los tres sin errores. `git diff`
+confirma el cambio limitado a `ClienteFicha.tsx` (126 líneas eliminadas, 0 añadidas, ningún
+otro archivo tocado) — ninguna lógica de Objetivos, Revisiones, Check-ins, autenticación ni
+permisos se modificó. **No probado visualmente en navegador tras este cambio** — pendiente de
+que el usuario lo revise en un preview nuevo de esta misma rama. Ver `DECISIONS.md`
+`DEC-2026-051`.
+
+---
+
 ## Bugfix — dashboard del cliente calculaba la exclusión objetivo/revisión en LOCAL, no GLOBAL (2026-08-15)
 
 **Pedido de Juanmi:** tras `DEC-2026-049` (que dejaba un riesgo documentado, no confirmado),

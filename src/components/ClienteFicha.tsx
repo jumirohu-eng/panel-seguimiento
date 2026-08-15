@@ -9,7 +9,6 @@ import {
   ReportesResponse,
   CheckinEnvio,
   ChecklinsResponse,
-  InvitacionClienteEstado,
   PendientesCheckin,
 } from '@/lib/types'
 import { formatDateTime } from '@/lib/format'
@@ -53,11 +52,6 @@ export default function ClienteFicha({
   const [reactivando, setReactivando] = useState(false)
   const [errorReactivar, setErrorReactivar] = useState<string | null>(null)
   const [conflictoError, setConflictoError] = useState<string | null>(null)
-  const [invitacionEstado, setInvitacionEstado] = useState<InvitacionClienteEstado | null>(null)
-  const [loadingInvitacion, setLoadingInvitacion] = useState(true)
-  const [generandoInvitacion, setGenerandoInvitacion] = useState(false)
-  const [errorInvitacion, setErrorInvitacion] = useState<string | null>(null)
-  const [copiadoInvitacion, setCopiadoInvitacion] = useState(false)
   const [checkins, setCheckins] = useState<CheckinEnvio[]>([])
   const [checkinsPage, setCheckinsPage] = useState(0)
   const [checkinsHasMore, setCheckinsHasMore] = useState(false)
@@ -168,60 +162,6 @@ export default function ClienteFicha({
       setReactivando(false)
     }
   }, [cliente.id, cliente.lastModified, getToken, onUpdated])
-
-  const cargarInvitacion = useCallback(async () => {
-    setLoadingInvitacion(true)
-    const token = await getToken()
-    try {
-      const res = await fetch(`/api/clientes/${cliente.id}/invitacion`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (res.ok) {
-        const data: InvitacionClienteEstado = await res.json()
-        setInvitacionEstado(data)
-      }
-    } catch {
-      // Si falla, simplemente no se muestra el estado de invitación
-    } finally {
-      setLoadingInvitacion(false)
-    }
-  }, [cliente.id, getToken])
-
-  useEffect(() => {
-    async function load() {
-      await cargarInvitacion()
-    }
-    load()
-    // Solo al cambiar de cliente: cargarInvitacion cambia de identidad en cada render de cliente.id
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cliente.id])
-
-  const handleGenerarInvitacion = useCallback(async () => {
-    setGenerandoInvitacion(true)
-    setErrorInvitacion(null)
-    const token = await getToken()
-    try {
-      const res = await fetch(`/api/clientes/${cliente.id}/invitacion`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(data?.error ?? 'No se pudo generar la invitación')
-      await cargarInvitacion()
-    } catch (err) {
-      setErrorInvitacion(err instanceof Error ? err.message : 'Error al generar la invitación')
-    } finally {
-      setGenerandoInvitacion(false)
-    }
-  }, [cliente.id, getToken, cargarInvitacion])
-
-  const handleCopyInvitacion = useCallback(async () => {
-    const link = invitacionEstado?.invitacion?.inviteLink
-    if (!link) return
-    await navigator.clipboard.writeText(link)
-    setCopiadoInvitacion(true)
-    setTimeout(() => setCopiadoInvitacion(false), 2000)
-  }, [invitacionEstado])
 
   useEffect(() => {
     async function cargarPerfil() {
@@ -459,72 +399,6 @@ export default function ClienteFicha({
           rows={3}
           className="w-full resize-y rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-card-foreground outline-none focus:border-primary"
         />
-        {cliente.notasIniciales.trim() && (
-          <div className="mt-1 rounded-lg bg-background p-3">
-            <p className="mb-1 text-xs font-medium text-muted">Notas del cliente al registrarse</p>
-            <p className="whitespace-pre-wrap text-sm text-card-foreground">{cliente.notasIniciales}</p>
-          </div>
-        )}
-        <div className="mt-1 flex flex-col gap-2 rounded-lg bg-background p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-medium text-muted">Acceso al panel del cliente</p>
-            {!loadingInvitacion && invitacionEstado && (
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  invitacionEstado.cuentaActiva
-                    ? 'bg-success/10 text-success'
-                    : invitacionEstado.invitacion?.estado === 'Activo'
-                      ? 'bg-warning/10 text-warning'
-                      : 'bg-muted/10 text-muted'
-                }`}
-              >
-                {invitacionEstado.cuentaActiva
-                  ? 'Cuenta activa'
-                  : invitacionEstado.invitacion?.estado === 'Activo'
-                    ? 'Pendiente de activación'
-                    : 'Sin invitación'}
-              </span>
-            )}
-          </div>
-
-          {loadingInvitacion ? (
-            <p className="text-xs text-muted">Cargando…</p>
-          ) : invitacionEstado?.cuentaActiva ? (
-            <p className="text-xs text-muted">{cliente.nombre} ya confirmó su cuenta y puede acceder.</p>
-          ) : (
-            <>
-              {invitacionEstado?.invitacion?.inviteLink ? (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="truncate text-xs text-muted">{invitacionEstado.invitacion.inviteLink}</p>
-                  <button
-                    type="button"
-                    onClick={handleCopyInvitacion}
-                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card"
-                  >
-                    {copiadoInvitacion ? '¡Copiado!' : 'Copiar'}
-                  </button>
-                </div>
-              ) : (
-                <p className="text-xs text-muted">
-                  Genera una invitación para que {cliente.nombre} cree su propia contraseña de acceso.
-                </p>
-              )}
-              {errorInvitacion && <p className="text-xs text-danger">{errorInvitacion}</p>}
-              <button
-                type="button"
-                onClick={handleGenerarInvitacion}
-                disabled={generandoInvitacion}
-                className="w-fit rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
-              >
-                {generandoInvitacion
-                  ? 'Generando…'
-                  : invitacionEstado?.invitacion?.inviteLink
-                    ? 'Regenerar invitación (24h)'
-                    : 'Generar invitación'}
-              </button>
-            </>
-          )}
-        </div>
       </div>
 
       <div className="flex flex-col gap-4">

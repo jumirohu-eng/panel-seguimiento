@@ -657,6 +657,22 @@ export async function actualizarCampoCheckin(recordId: string, fields: Partial<C
   )
 }
 
+// Solo tiene sentido borrar de verdad la fila de un campo PERSONALIZADO (no existe en
+// código, no hay a qué "volver"). Un override de un campo ESTÁNDAR nunca se borra por esta
+// vía — ver DELETE /api/entrenador/checkin-config/campos/[fieldId], que en ese caso lo
+// desactiva de forma duradera en su lugar (borrar la fila solo revertiría a los valores
+// por defecto del catálogo, reapareciendo activo).
+export async function borrarCampoCheckin(recordId: string) {
+  const baseId = process.env.AIRTABLE_BASE_ID
+  const url = `${AIRTABLE_API_URL}/${baseId}/${TABLE_CAMPOS_CHECKIN}/${recordId}`
+  const res = await fetchWithRetry(url, { method: 'DELETE', headers: airtableHeaders() })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Airtable error ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<{ id: string; deleted: boolean }>
+}
+
 // Check-in dinámico a partir de Objetivos: cuando el entrenador da de alta un objetivo
 // con una métrica nueva ("Pasos", "Movilidad"...), esa métrica debe quedar disponible
 // automáticamente en el check-in — sin que el entrenador tenga que ir primero a

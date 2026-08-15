@@ -18,6 +18,8 @@ export default function RevisionesEntrenador({ clienteId }: { clienteId: string 
   const [token, setToken] = useState<string | null>(null)
   const [mostrarModal, setMostrarModal] = useState(false)
   const [cambiando, setCambiando] = useState<string | null>(null)
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState<string | null>(null)
+  const [eliminando, setEliminando] = useState<string | null>(null)
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
@@ -79,6 +81,28 @@ export default function RevisionesEntrenador({ clienteId }: { clienteId: string 
     }
   }
 
+  // Campo estándar: el backend lo desactiva de forma duradera (no se puede borrar del
+  // catálogo, vive en el código). Campo personalizado: se borra la fila de verdad. En
+  // ambos casos desaparece de esta lista.
+  async function eliminar(campoId: string) {
+    if (!token) return
+    setEliminando(campoId)
+    setError(null)
+    try {
+      const res = await fetch(`/api/entrenador/checkin-config/campos/${encodeURIComponent(campoId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+      setConfirmandoEliminar(null)
+      await cargar()
+    } catch {
+      setError('No se pudo eliminar la revisión.')
+    } finally {
+      setEliminando(null)
+    }
+  }
+
   const revisiones = (config?.campos ?? []).filter((c) => c.activo !== undefined && !idsDeObjetivos.has(c.id))
   const revisionesActivas = revisiones.filter((c) => c.activo)
   const revisionesInactivas = revisiones.filter((c) => !c.activo)
@@ -123,16 +147,47 @@ export default function RevisionesEntrenador({ clienteId }: { clienteId: string 
                     : 'Sin programar todavía'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => toggleActivo(c)}
-                disabled={cambiando === c.id}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium disabled:opacity-50 ${
-                  c.activo ? 'bg-primary text-white' : 'bg-card text-muted'
-                }`}
-              >
-                {cambiando === c.id ? '…' : c.activo ? 'Activa' : 'Inactiva'}
-              </button>
+              {confirmandoEliminar === c.id ? (
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs text-danger">¿Eliminar?</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmandoEliminar(null)}
+                    disabled={eliminando === c.id}
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-card disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => eliminar(c.id)}
+                    disabled={eliminando === c.id}
+                    className="rounded-lg bg-danger px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {eliminando === c.id ? 'Eliminando…' : 'Sí, eliminar'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleActivo(c)}
+                    disabled={cambiando === c.id}
+                    className={`rounded-full px-3 py-1 text-xs font-medium disabled:opacity-50 ${
+                      c.activo ? 'bg-primary text-white' : 'bg-card text-muted'
+                    }`}
+                  >
+                    {cambiando === c.id ? '…' : c.activo ? 'Activa' : 'Inactiva'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmandoEliminar(c.id)}
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-danger hover:bg-card"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

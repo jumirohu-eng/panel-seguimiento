@@ -26,6 +26,8 @@ export default function CheckinConfigView({
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mostrarModal, setMostrarModal] = useState(false)
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState<string | null>(null)
+  const [eliminando, setEliminando] = useState<string | null>(null)
 
   // Opera sobre el array completo (por id, no por índice de la lista filtrada) — los campos
   // ocultos en esta pantalla (peso, entrenamiento_realizado, pasos) siguen en `campos` para no
@@ -70,6 +72,28 @@ export default function CheckinConfigView({
       setError('Error al guardar. Inténtalo de nuevo.')
     } finally {
       setGuardando(false)
+    }
+  }
+
+  // Campo estándar: no se puede borrar del catálogo (vive en el código) — el backend lo
+  // desactiva de forma duradera. Campo personalizado: se borra la fila de verdad. En
+  // ambos casos desaparece de esta lista (ver DELETE /api/entrenador/checkin-config/campos).
+  async function eliminar(campoId: string) {
+    setEliminando(campoId)
+    setError(null)
+    try {
+      const res = await fetch(`/api/entrenador/checkin-config/campos/${encodeURIComponent(campoId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+      const data: CheckinConfigResponse = await res.json()
+      setCampos(data.campos)
+      setConfirmandoEliminar(null)
+    } catch {
+      setError('No se pudo eliminar el campo.')
+    } finally {
+      setEliminando(null)
     }
   }
 
@@ -175,6 +199,36 @@ export default function CheckinConfigView({
               >
                 {campo.activo ? 'Activo' : 'Inactivo'}
               </button>
+
+              {confirmandoEliminar === campo.id ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-danger">¿Eliminar «{campo.nombre}»?</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmandoEliminar(null)}
+                    disabled={eliminando === campo.id}
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-background disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => eliminar(campo.id)}
+                    disabled={eliminando === campo.id}
+                    className="rounded-lg bg-danger px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {eliminando === campo.id ? 'Eliminando…' : 'Sí, eliminar'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmandoEliminar(campo.id)}
+                  className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-danger hover:bg-background"
+                >
+                  Eliminar
+                </button>
+              )}
             </div>
           ))}
         </div>

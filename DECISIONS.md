@@ -1741,6 +1741,16 @@ dato real.
   condición de carrera en `PUT /api/entrenador/checkin-config` no idempotente. Validado con
   fixture E2E reproduciendo el escenario real exacto. `tsc --noEmit`, `eslint` y `next build`
   sin errores.
+- Añadida `DEC-2026-043`: corregido que la vista general de `/cliente/checkin` (no el modo de
+  campo único) siguiera mostrando "Pasos" y títulos técnicos por tipo ("Hoy"/"Esta semana"/"Tus
+  datos") pese al fix de backend de `DEC-2026-042` — causa distinta: el frontend todavía
+  renderizaba un bloque completo de objetivos junto a la revisión. Ahora la vista general
+  muestra únicamente un bloque "Revisión" (encabezado fijo + "Esto es una revisión de tu
+  estado, no un objetivo.") con los campos que no son fuente de ningún objetivo del cliente; los
+  objetivos se registran solo desde el modo de campo único enlazado desde `MisObjetivos.tsx`.
+  `tsc --noEmit`, `eslint` y `next build` sin errores; E2E confirma que "Pasos" queda excluido
+  de `camposRevision` y "energía" aparece correctamente como revisión. No probado visualmente
+  en navegador.
 
 ---
 
@@ -2136,3 +2146,59 @@ ese mismo cliente — `peso` reaparece en `GET` y el `POST` pasa a aceptarse (`2
 --noEmit`, `eslint` y `next build` sin errores.
 
 **No probado visualmente en navegador.**
+
+---
+
+## DEC-2026-043 — `/cliente/checkin` (vista general): solo "Revisión", sin bloque de objetivos ni títulos técnicos por tipo
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / Frontend
+**Estado:** Corregido
+
+### Hallazgo
+Tras el fix de backend de `DEC-2026-042`, Juanmi reportó que "Pasos" seguía apareciendo en
+`/cliente/checkin`, junto con títulos de sección "Esta semana"/"Tus datos". La causa no era una
+repetición del bug de `DEC-2026-042` (el backend ya no servía `peso`/`entrenamiento_realizado`/
+"Pasos" como revisión suelta) sino un problema de presentación separado: la vista general
+(no la de registro de un solo campo) todavía renderizaba, dentro de cada sección
+diario/semanal/periódico, un bloque completo "Objetivos de hoy/esta semana/el periodo" con el
+nombre técnico de cada objetivo (incluido "Pasos") mezclado con la "Revisión", y usaba
+`TITULOS`/`TITULOS_OBJETIVOS` con etiquetas por tipo ("Hoy", "Esta semana", "Tus datos") en vez
+de una única palabra "Revisión".
+
+### Decisión
+`src/app/cliente/checkin/page.tsx`: la vista general deja de mostrar ningún contenido de
+objetivos — los objetivos se registran exclusivamente desde el modo de campo único
+(`?campo=&tipo=`, ya enlazado desde `MisObjetivos.tsx` desde `DEC-2026-041`). Por sección se
+calcula `camposRevision = estado.campos.filter(c => !idsFuenteDeObjetivos(estado.objetivos).has(c.id))`
+y se renderiza un único bloque con encabezado fijo "Revisión" y el texto "Esto es una revisión
+de tu estado, no un objetivo.", listando solo `camposRevision`. Si una sección no tiene ningún
+campo de revisión (todo lo configurado son fuentes de objetivo, como "diario" en el caso real
+reportado), se muestra igualmente el encabezado "Revisión" con un mensaje de estado
+(disponible desde / "tu entrenador todavía no ha activado ninguna revisión") en vez de ocultar
+la sección entera, para que el cliente nunca vea una pantalla en blanco sin explicación.
+Eliminadas las constantes `TITULOS`/`TITULOS_OBJETIVOS`; el `<h1>` de la página pasa de "Tu
+seguimiento" a "Revisión". `enviar()`/`enviarCampoUnico()` se unificaron en `enviarCampos(seccion,
+campoIds, recargar?)`, que envía exactamente los `campoIds` indicados — la vista general envía
+`camposRevision.map(c => c.id)`, el modo de campo único sigue enviando solo ese campo. Sin
+cambios en `GET/POST /api/cliente/checkin` (el criterio de qué es objetivo vs revisión ya lo
+resuelve el backend desde `DEC-2026-040`/`DEC-2026-042`; este fix es puramente de qué subconjunto
+del payload ya recibido se pinta en pantalla).
+
+### Por qué no se ocultó la sección cuando no hay revisiones
+Elegido explícitamente sobre la alternativa de devolver `null`: un cliente con **todos** sus
+campos configurados como objetivo (como en el caso real) se quedaría con "diario" completamente
+invisible sin ninguna pista de por qué — más confuso que un mensaje corto. Coherente con el
+patrón ya usado para "sin lanzar" en el resto del archivo.
+
+### Verificación
+Prueba E2E con fixture desechable: entrenador con un objetivo de pasos diario (`Fuente_field_id`
+propio) y `energia` activado como revisión semanal, ambos tipos lanzados. `GET
+/api/cliente/checkin` (mismo payload que consume la página): en "diario", el único campo
+(`Pasos`) queda excluido de `camposRevision` (0 campos de revisión, correcto — es 100% objetivo);
+en "semanal", `energia` aparece como revisión y no hay ningún objetivo colado. `tsc --noEmit`,
+`eslint` y `next build` sin errores.
+
+**No probado visualmente en navegador** — verificado por inspección de código (JSX) + los mismos
+datos que consume la página, siguiendo el mismo criterio de validación ya usado para cambios
+puramente frontend anteriores en esta sesión (`DEC-2026-041`, punto 5).

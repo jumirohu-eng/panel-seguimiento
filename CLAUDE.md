@@ -52,6 +52,36 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — `/cliente/checkin` (vista general) mostraba objetivos y títulos técnicos por tipo (2026-08-15)
+
+**Reporte de Juanmi:** "sigue apareciendo lo de pasos, esta semana y tus datos" — tras el fix de
+`DEC-2026-042` (backend), esperaba ver solo un encabezado "Revisión", el texto "Esto es una
+revisión de tu estado, no un objetivo." y los campos de revisión reales.
+
+**Causa (distinta de `DEC-2026-042`):** el backend ya no servía `peso`/`Pasos` como revisión
+suelta, pero la vista general de `/cliente/checkin` (no el modo de campo único) seguía
+renderizando un bloque completo "Objetivos de hoy/esta semana/el periodo" con el nombre técnico
+de cada objetivo (incluido "Pasos") mezclado junto a la revisión, y usaba títulos por tipo ("Hoy",
+"Esta semana", "Tus datos") en vez de una única palabra "Revisión". Bug de presentación frontend,
+no de datos.
+
+**Fix (`src/app/cliente/checkin/page.tsx`):** eliminado por completo el bloque de objetivos de la
+vista general — los objetivos se registran solo desde el modo de campo único (`?campo=&tipo=`,
+enlazado desde "Registrar" en `MisObjetivos.tsx`). Cada sección ahora calcula
+`camposRevision = estado.campos.filter(c => !idsFuenteDeObjetivos(estado.objetivos).has(c.id))` y
+muestra un único bloque con encabezado fijo "Revisión" + la frase de aclaración, listando solo
+esos campos. Si una sección no tiene ningún campo de revisión (todo son fuentes de objetivo, como
+"diario" en el caso real), se muestra igualmente "Revisión" con un mensaje de estado en vez de
+desaparecer sin explicación. `<h1>` de la página: "Tu seguimiento" → "Revisión". `enviar()` y
+`enviarCampoUnico()` se unificaron en `enviarCampos(seccion, campoIds, recargar?)`.
+
+**Validación:** E2E con fixture desechable — cliente con objetivo de pasos diario (fuente propia)
++ `energia` activado como revisión semanal: "diario" no deja ningún campo en `camposRevision`
+(correcto, es 100% objetivo); "semanal" muestra `energia` como revisión sin ningún objetivo
+colado. `tsc --noEmit`, `eslint` y `next build` sin errores. Ver `DEC-2026-043`.
+
+---
+
 ## Bugfix — campos exclusivos de objetivo se colaban como revisión suelta (2026-08-15)
 
 **Hallazgo real (datos de producción):** en la cuenta de prueba `espartakofake@gmail.com`,

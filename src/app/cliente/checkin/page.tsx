@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ClienteCheckinResponse, CampoCheckinResuelto } from '@/lib/types'
+import { ClienteCheckinResponse } from '@/lib/types'
 import type { ObjetivoResuelto } from '@/lib/objetivos'
 import { formatearProgresoTexto } from '@/lib/objetivos'
 import { campoDisponible } from '@/lib/checkinFields'
@@ -11,18 +11,6 @@ import { formatFechaLarga } from '@/lib/format'
 import CampoInput from '@/components/CampoInput'
 
 type Seccion = 'diario' | 'semanal' | 'periodico'
-
-const TITULOS: Record<Seccion, string> = {
-  diario: 'Hoy',
-  semanal: 'Esta semana',
-  periodico: 'Tus datos',
-}
-
-const TITULOS_OBJETIVOS: Record<Seccion, string> = {
-  diario: 'Objetivos de hoy',
-  semanal: 'Objetivos de esta semana',
-  periodico: 'Objetivos de este periodo',
-}
 
 // Un campo es "de objetivo" si al menos un objetivo vigente de esta sección lo usa como fuente
 // de progreso — se registra dentro del bloque de objetivos, no como revisión. El resto de
@@ -127,47 +115,23 @@ function ClienteCheckinPageContent() {
     init()
   }, [router])
 
-  useEffect(() => {
-    if (!campoDestacado || !data) return
-    const el = document.getElementById(`campo-${campoDestacado}`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [campoDestacado, data])
-
-  async function enviar(seccion: Seccion) {
+  // Envía solo los campos indicados (nunca todo `valoresPorSeccion[seccion]` sin filtrar) —
+  // así el envío de una revisión nunca reenvía de paso el valor de un campo de objetivo que
+  // comparta el mismo tipo, y el registro enfocado de un objetivo nunca reenvía revisiones.
+  async function enviarCampos(seccion: Seccion, campoIds: string[], recargar = false) {
     if (!token) return
     setGuardando(seccion)
     setGuardadoOk(null)
     try {
+      const valores = Object.fromEntries(campoIds.map((id) => [id, valoresPorSeccion[seccion][id]]))
       const res = await fetch('/api/cliente/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ tipo: seccion, valores: valoresPorSeccion[seccion] }),
+        body: JSON.stringify({ tipo: seccion, valores }),
       })
       if (!res.ok) throw new Error('No se pudo guardar')
       setGuardadoOk(seccion)
-    } catch {
-      setError('Error al guardar. Inténtalo de nuevo.')
-    } finally {
-      setGuardando(null)
-    }
-  }
-
-  // Registro enfocado en un único campo (llegada desde "Registrar" en un objetivo concreto,
-  // ver MisObjetivos.tsx) — envía solo ese campo, no el resto de valores de la sección, para
-  // no reenviar sin querer datos de otras métricas que compartan el mismo tipo.
-  async function enviarCampoUnico(seccion: Seccion, campoId: string) {
-    if (!token) return
-    setGuardando(seccion)
-    setGuardadoOk(null)
-    try {
-      const res = await fetch('/api/cliente/checkin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ tipo: seccion, valores: { [campoId]: valoresPorSeccion[seccion][campoId] } }),
-      })
-      if (!res.ok) throw new Error('No se pudo guardar')
-      setGuardadoOk(seccion)
-      await cargarCheckin(token)
+      if (recargar) await cargarCheckin(token)
     } catch {
       setError('Error al guardar. Inténtalo de nuevo.')
     } finally {
@@ -248,7 +212,7 @@ function ClienteCheckinPageContent() {
                 />
                 <button
                   type="button"
-                  onClick={() => enviarCampoUnico(tipoDestacado, campo.id)}
+                  onClick={() => enviarCampos(tipoDestacado, [campo.id], true)}
                   disabled={guardandoEste}
                   className="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                 >
@@ -267,7 +231,7 @@ function ClienteCheckinPageContent() {
   return (
     <div className="min-h-screen bg-background">
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
-        <h1 className="text-sm font-medium text-card-foreground">Tu seguimiento</h1>
+        <h1 className="text-sm font-medium text-card-foreground">Revisión</h1>
         <button
           onClick={() => router.push('/cliente/dashboard')}
           className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-card-foreground hover:bg-background"
@@ -285,15 +249,21 @@ function ClienteCheckinPageContent() {
           // cuando no está lanzado (ver DECISIONS.md, "Objetivos independientes de
           // Revisiones"). Solo mostramos el aviso de "no disponible" cuando de verdad no hay
           // nada que registrar en este tipo.
-          if (estado.campos.length === 0) {
+          // Esta vista general es solo Revisión — registrar un objetivo siempre pasa por el
+          // modo enfocado (arriba, "Registrar" desde Mis objetivos). Los campos que son
+          // fuente de un objetivo nunca se muestran aquí, aunque estén en `estado.campos`.
+          const idsObjetivo = idsFuenteDeObjetivos(estado.objetivos)
+          const camposRevision = estado.campos.filter((c) => !idsObjetivo.has(c.id))
+
+          if (camposRevision.length === 0) {
             if (!estado.lanzado) {
               return (
                 <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                  <h2 className="mb-2 text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
+                  <h2 className="mb-2 text-lg font-semibold text-card-foreground">Revisión</h2>
                   <p className="text-sm text-muted">
                     {estado.disponibleDesde
                       ? `Disponible a partir del ${formatFechaLarga(estado.disponibleDesde)}.`
-                      : 'Tu entrenador todavía no ha activado nada aquí.'}
+                      : 'Tu entrenador todavía no ha activado ninguna revisión.'}
                   </p>
                 </section>
               )
@@ -302,33 +272,11 @@ function ClienteCheckinPageContent() {
           }
 
           const valores = valoresPorSeccion[seccion]
-          const idsObjetivo = idsFuenteDeObjetivos(estado.objetivos)
-          const camposObjetivo = estado.campos.filter((c) => idsObjetivo.has(c.id))
-          const camposRevision = estado.campos.filter((c) => !idsObjetivo.has(c.id))
-
-          function renderCampo(campo: CampoCheckinResuelto, objetivoPeso?: ObjetivoResuelto) {
-            return (
-              <div key={campo.id} id={`campo-${campo.id}`}>
-                {objetivoPeso && <ObjetivoPeso objetivo={objetivoPeso} />}
-                <CampoInput
-                  campo={objetivoPeso ? { ...campo, nombre: '¿Cuánto pesas?' } : campo}
-                  valor={valores[campo.id]}
-                  disabled={!campoDisponible(campo, valores)}
-                  onChange={(v) =>
-                    setValoresPorSeccion((prev) => ({
-                      ...prev,
-                      [seccion]: { ...prev[seccion], [campo.id]: v },
-                    }))
-                  }
-                />
-              </div>
-            )
-          }
 
           return (
             <section key={seccion} className="rounded-xl border border-border bg-card p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-card-foreground">{TITULOS[seccion]}</h2>
+              <div className="mb-1 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-card-foreground">Revisión</h2>
                 {estado.yaEnviado && (
                   <span className="text-xs text-muted">
                     {estado.proximaFecha
@@ -337,49 +285,28 @@ function ClienteCheckinPageContent() {
                   </span>
                 )}
               </div>
+              <p className="mb-4 text-xs text-muted">Esto es una revisión de tu estado, no un objetivo.</p>
 
-              {camposObjetivo.length > 0 && (
-                <div className="mb-5 flex flex-col gap-4">
-                  {estado.objetivos.length > 0 && (
-                    <div className="flex flex-col gap-2 rounded-lg bg-background p-3">
-                      <p className="text-xs font-semibold text-muted">{TITULOS_OBJETIVOS[seccion]}</p>
-                      {estado.objetivos.map((o) => (
-                        <div key={o.id} className="flex items-center justify-between gap-2 text-sm">
-                          <span className="text-card-foreground">{o.nombre}</span>
-                          {o.progreso && o.modoProgreso === 'acumulado' && (
-                            <span className={o.progreso.completado ? 'font-medium text-success' : 'text-muted'}>
-                              {formatearProgresoTexto(o.unidad, o.progreso)}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-4">
-                    {camposObjetivo.map((campo) => {
-                      const objetivoPeso =
-                        campo.id === 'peso'
-                          ? estado.objetivos.find((o) => o.fuenteFieldId === campo.id && o.modoProgreso === 'valor_objetivo')
-                          : undefined
-                      return renderCampo(campo, objetivoPeso)
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {camposRevision.length > 0 && (
-                <div className="flex flex-col gap-4 border-t border-border pt-4 first:border-t-0 first:pt-0">
-                  <div>
-                    <p className="text-sm font-semibold text-card-foreground">Revisión</p>
-                    <p className="text-xs text-muted">Esto es una revisión de tu estado, no un objetivo.</p>
-                  </div>
-                  {camposRevision.map((campo) => renderCampo(campo))}
-                </div>
-              )}
+              <div className="flex flex-col gap-4">
+                {camposRevision.map((campo) => (
+                  <CampoInput
+                    key={campo.id}
+                    campo={campo}
+                    valor={valores[campo.id]}
+                    disabled={!campoDisponible(campo, valores)}
+                    onChange={(v) =>
+                      setValoresPorSeccion((prev) => ({
+                        ...prev,
+                        [seccion]: { ...prev[seccion], [campo.id]: v },
+                      }))
+                    }
+                  />
+                ))}
+              </div>
 
               <button
                 type="button"
-                onClick={() => enviar(seccion)}
+                onClick={() => enviarCampos(seccion, camposRevision.map((c) => c.id))}
                 disabled={guardando === seccion}
                 className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >

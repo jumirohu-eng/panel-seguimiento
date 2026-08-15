@@ -52,6 +52,39 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — un campo exclusivo de objetivo se colaba en otro tipo por su `Tipos` legado (2026-08-15)
+
+**Reporte de Juanmi:** "que no salga lo mismo en la revisión diaria, semanal y periódica, que
+solo se vea en cada una los campos seleccionados para cada periodo según lo que marca el
+entrenador".
+
+**Causa (dato real, cuenta `retaincoachsolution@gmail.com`, cliente de
+`espartakofake@gmail.com`):** `Peso` tiene en `Campos_checkin` un `Tipos: ['semanal',
+'periodico']` heredado de antes de que `DEC-2026-041` lo ocultara de `/checkin-config` (el
+entrenador ya no puede editarlo). El objetivo de peso real de ese cliente es
+`periodicidad: 'semanal'` — pero `idsFuenteObjetivo` en `GET/POST /api/cliente/checkin` se
+calculaba de forma global (cualquier objetivo con `Fuente_field_id='peso'`, sin mirar su
+periodicidad) y se reutilizaba igual en las tres secciones. Resultado: "Peso" se reconocía como
+objetivo en "semanal" (correcto) pero en "periódico" — donde no hay ningún objetivo de peso
+mensual — no se reconocía como objetivo y se colaba como pregunta de revisión suelta. Literalmente
+"lo mismo" (Peso) apareciendo en dos secciones.
+
+**Fix (`src/app/api/cliente/checkin/route.ts`):** `idsFuenteObjetivo` pasa a calcularse **por
+tipo** (`idsFuenteObjetivoPorTipo`), agrupando cada objetivo según
+`PERIODICIDAD_A_TIPO_CHECKIN[periodicidad]` en vez de por el `Tipos` legado del campo. Un campo
+exclusivo de objetivo solo cuenta como tal en el tipo que corresponde a la periodicidad real de
+ESE objetivo — en cualquier otro tipo donde aparezca por su `Tipos` heredado, se excluye por
+completo (ni objetivo ni revisión). Mismo criterio en `POST`: registrar `peso` contra un tipo que
+no coincide con la periodicidad del objetivo real se rechaza con `400`.
+
+**Validación:** E2E con fixture reproduciendo el escenario real exacto (`Peso` con `Tipos:
+['semanal','periodico']` + objetivo de peso solo semanal): `peso` no aparece ni en `diario` ni en
+`periodico` (ni como objetivo ni como revisión), solo en `semanal`; `POST peso` contra
+`periodico` se rechaza, contra `semanal` se acepta. `tsc --noEmit`, `eslint` y `next build` sin
+errores. Ver `DEC-2026-044`.
+
+---
+
 ## Bugfix — `/cliente/checkin` (vista general) mostraba objetivos y títulos técnicos por tipo (2026-08-15)
 
 **Reporte de Juanmi:** "sigue apareciendo lo de pasos, esta semana y tus datos" — tras el fix de

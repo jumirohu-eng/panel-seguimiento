@@ -1751,6 +1751,15 @@ dato real.
   `tsc --noEmit`, `eslint` y `next build` sin errores; E2E confirma que "Pasos" queda excluido
   de `camposRevision` y "energía" aparece correctamente como revisión. No probado visualmente
   en navegador.
+- Añadida `DEC-2026-044`: corregido que un campo exclusivo de objetivo (p.ej. `Peso`, con
+  `Tipos` heredado `['semanal','periodico']` de antes de `DEC-2026-041`) se considerara "de
+  objetivo" en CUALQUIER tipo al que estuviera asignado, en vez de solo en el tipo que coincide
+  con la periodicidad real del objetivo del cliente — causaba que, p.ej., un objetivo de peso
+  semanal hiciera aparecer "Peso" también como revisión suelta en "periódico". `idsFuenteObjetivo`
+  en `GET/POST /api/cliente/checkin` pasa a calcularse por tipo
+  (`PERIODICIDAD_A_TIPO_CHECKIN[objetivo.periodicidad]`), no por el `Tipos` legado del campo.
+  Validado con fixture E2E reproduciendo el escenario real detectado en la cuenta
+  `retaincoachsolution@gmail.com`. `tsc --noEmit`, `eslint` y `next build` sin errores.
 
 ---
 
@@ -2202,3 +2211,56 @@ en "semanal", `energia` aparece como revisión y no hay ningún objetivo colado.
 **No probado visualmente en navegador** — verificado por inspección de código (JSX) + los mismos
 datos que consume la página, siguiendo el mismo criterio de validación ya usado para cambios
 puramente frontend anteriores en esta sesión (`DEC-2026-041`, punto 5).
+
+---
+
+## DEC-2026-044 — Campo exclusivo de objetivo solo cuenta como tal en el tipo de la periodicidad real del objetivo
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / Backend
+**Estado:** Corregido
+
+### Hallazgo (datos reales)
+Juanmi reportó que las revisiones diaria/semanal/periódica mostraban "lo mismo" repetido en
+vez de solo los campos que el entrenador marcó para cada periodo. Se encontró el caso real en
+la cuenta `retaincoachsolution@gmail.com` (cliente de `espartakofake@gmail.com`): `Peso` tiene
+en `Campos_checkin` un `Tipos: ['semanal', 'periodico']` heredado de antes de que `DEC-2026-041`
+lo ocultara de `/checkin-config` (el entrenador ya no puede editar ese `Tipos`), pero el objetivo
+de peso real del cliente es `periodicidad: 'semanal'` únicamente. `idsFuenteObjetivo` en
+`GET/POST /api/cliente/checkin` se calculaba de forma global (cualquier objetivo con
+`Fuente_field_id = 'peso'`, sin mirar su periodicidad) y se reutilizaba igual en las tres
+secciones — así que `Peso` se consideraba "de objetivo" tanto en "semanal" (correcto) como en
+"periódico" (incorrecto: ahí no hay ningún objetivo de peso mensual). Al no reconocerse como
+objetivo en "periódico", el frontend (`DEC-2026-043`) lo mostraba ahí como pregunta de revisión
+suelta — literalmente "lo mismo" (Peso) apareciendo en dos secciones distintas.
+
+### Decisión
+`src/app/api/cliente/checkin/route.ts`: `idsFuenteObjetivo` pasa a calcularse **por tipo**
+(`idsFuenteObjetivoPorTipo: Map<FrecuenciaCheckin, Set<string>>`), agrupando cada
+`objetivo.fuenteFieldId` según `PERIODICIDAD_A_TIPO_CHECKIN[objetivo.periodicidad]` — no según
+el `Tipos` legado del campo en `Campos_checkin`. Un campo exclusivo de objetivo (peso,
+entrenamiento_realizado, "Pasos") solo se trata como "de objetivo" en el tipo que corresponde a
+la periodicidad real de ESE objetivo concreto; en cualquier otro tipo en el que el campo
+aparezca por su `Tipos` heredado, sigue tratándose como `esCampoOcultoEnConfigAvanzada()` y
+queda excluido por completo (no aparece ni como objetivo ni como revisión). Mismo criterio
+aplicado en el `POST`: un intento directo de registrar `peso` contra un tipo que no coincide con
+la periodicidad del objetivo real se rechaza con `400`, aunque el campo tenga ese tipo asignado
+en su config legada.
+
+### Por qué no se tocó `Campos_checkin.Tipos` de los campos exclusivos existentes
+Se consideró limpiar directamente el `Tipos` heredado de las filas reales (dejar solo el tipo
+que coincide con el objetivo), pero se descartó: son datos reales de producción y el criterio
+correcto (periodicidad del objetivo, no `Tipos` del campo) ya cubre el caso sin necesitar tocar
+Airtable — y sigue siendo correcto automáticamente si en el futuro el mismo campo se reutiliza
+como fuente de un objetivo con otra periodicidad.
+
+### Verificación
+Prueba E2E con fixture desechable reproduciendo el escenario real exacto: fila `Peso` creada
+directamente con `Tipos: ['semanal', 'periodico']` (igual que en producción) + objetivo de peso
+`periodicidad: 'semanal'` — `GET /api/cliente/checkin` no devuelve `peso` ni en `diario` ni en
+`periodico` (solo en `semanal`, ni como objetivo ni como revisión en las otras dos); `POST
+peso` contra `periodico` se rechaza (`400`); contra `semanal` se acepta (`201`). `energia`
+(revisión normal, sin exclusividad) sigue apareciendo solo en su tipo configurado, sin cambios.
+`tsc --noEmit`, `eslint` y `next build` sin errores.
+
+**No probado visualmente en navegador.**

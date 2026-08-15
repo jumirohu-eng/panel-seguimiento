@@ -52,6 +52,39 @@ Auth/API:
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
 
+## Bugfix — campos exclusivos de objetivo se colaban como revisión suelta (2026-08-15)
+
+**Hallazgo real (datos de producción):** en la cuenta de prueba `espartakofake@gmail.com`,
+`Peso` y `Entrenamiento realizado` ya estaban ocultos de `/checkin-config` (ver `DEC-2026-041`
+punto 2), pero seguían con `Activo=true` en Airtable (config heredada de antes de ese cambio).
+Como la ocultación solo actuaba sobre la pantalla del entrenador, un cliente **sin objetivo de
+peso** seguía viendo "Peso" como una pregunta de revisión suelta en `/cliente/checkin` — rompe
+la regla explícita "el objetivo activa la métrica" (ver `DEC-2026-040`).
+
+**Fix (`src/app/api/cliente/checkin/route.ts`):** los campos "exclusivos de objetivo"
+(`esCampoOcultoEnConfigAvanzada()` — peso, entrenamiento_realizado, cualquier personalizado
+llamado "Pasos") ahora se excluyen de `camposVisibles` en el `GET` **salvo** que sean de verdad
+la fuente de un objetivo vigente de ese cliente concreto (`idsFuenteObjetivo`), sin importar si
+`Activo=true` o si el tipo está lanzado. Mismo criterio aplicado en el `POST`: un intento
+directo de registrar `peso` sin objetivo se rechaza con `400`, aunque el tipo esté lanzado — no
+basta con ocultarlo en frontend.
+
+**Hallazgo aparte, sin tocar (dato real, pendiente de confirmación):** la misma cuenta tiene
+**filas duplicadas** en `Campos_checkin` para `Peso` y para `Medidas` (dos overrides con el
+mismo `Field_id`, creadas segundos aparte — probablemente un doble envío del botón "Guardar
+cambios" en `/checkin-config`, ya que `PUT /api/entrenador/checkin-config` no es idempotente
+frente a dos peticiones simultáneas: ambas pueden ver "no existe fila" y crear cada una la suya).
+No se ha limpiado ni investigado más a fondo — anotado para una sesión futura si se confirma que
+molesta.
+
+**Validación:** prueba E2E con fixture desechable reproduciendo el escenario real exacto
+(`Activo=true` heredado, tipo lanzado, sin objetivo para ese cliente): `peso` y
+`entrenamiento_realizado` no aparecen; `energia` (revisión normal) sí; `POST peso` sin objetivo
+se rechaza con `400`; al crear un objetivo de peso para ese cliente, `peso` reaparece y el
+`POST` se acepta. `tsc --noEmit`, `eslint` y `next build` sin errores.
+
+---
+
 ## Ajustes de UX — Objetivos independientes de Revisiones (2026-08-15)
 
 Serie de ajustes pedidos tras probar en el preview de Vercel el fix de `DEC-2026-040`

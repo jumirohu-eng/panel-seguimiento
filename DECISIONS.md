@@ -1731,6 +1731,16 @@ dato real.
   errores en cada commit; E2E con fixtures desechables para los puntos de backend/catálogo. No
   probado visualmente en navegador por Claude — la validación visual la hizo el usuario en el
   preview de Vercel.
+- Añadida `DEC-2026-042`: corregido que Peso/Entrenamiento realizado (ya ocultos de
+  `/checkin-config` por `DEC-2026-041`, pero con `Activo=true` heredado) siguieran apareciendo
+  como revisión suelta en `/cliente/checkin` para un cliente sin objetivo que los use — rompía
+  "el objetivo activa la métrica" (`DEC-2026-040`). `GET/POST /api/cliente/checkin` excluyen
+  ahora estos campos salvo que sean de verdad fuente de un objetivo de ese cliente concreto,
+  con independencia de `Activo`/lanzamiento. Hallazgo aparte sin resolver: dos filas
+  duplicadas reales en `Campos_checkin` (Peso, Medidas) en la cuenta de prueba, probable
+  condición de carrera en `PUT /api/entrenador/checkin-config` no idempotente. Validado con
+  fixture E2E reproduciendo el escenario real exacto. `tsc --noEmit`, `eslint` y `next build`
+  sin errores.
 
 ---
 
@@ -2073,3 +2083,56 @@ de código.
 **No probado visualmente en navegador por Claude** (sin Chrome/Playwright disponibles en esta
 sesión) — la validación visual de los 5 puntos la hizo el usuario directamente en el preview de
 Vercel de esta rama, y de ahí surgieron los puntos 1, 4 y 5 de esta misma decisión.
+
+---
+
+## DEC-2026-042 — Campos exclusivos de objetivo nunca aparecen como revisión suelta
+
+**Fecha:** 2026-08-15
+**Tipo:** Bug / Backend
+**Estado:** Corregido
+
+### Hallazgo (datos reales)
+En la cuenta de prueba `espartakofake@gmail.com` se comprobó que `Peso` y `Entrenamiento
+realizado`, ya ocultos de `/checkin-config` por `DEC-2026-041` (punto 2), seguían con
+`Activo=true` en Airtable (config heredada de antes de ese cambio). La ocultación de
+`DEC-2026-041` solo actuaba sobre la pantalla de configuración del entrenador —
+`GET/POST /api/cliente/checkin` seguían tratándolos como cualquier otro campo activo. Un
+cliente sin objetivo de peso seguía viendo "Peso" como pregunta de revisión suelta en
+`/cliente/checkin`, contradiciendo la regla explícita de `DEC-2026-040`: "el objetivo activa la
+métrica; si no existe objetivo de peso, el cliente no debe ver un campo de peso".
+
+### Decisión
+`src/app/api/cliente/checkin/route.ts`: los campos que `esCampoOcultoEnConfigAvanzada()`
+identifica como "exclusivos de objetivo" (peso, entrenamiento_realizado, cualquier
+personalizado llamado "Pasos") se excluyen ahora de `camposVisibles` en el `GET` salvo que sean
+de verdad la fuente (`Fuente_field_id`) de un objetivo vigente **de ese cliente concreto**
+(`idsFuenteObjetivo`) — con independencia de `Activo` o de si el tipo está lanzado. El `POST`
+aplica el mismo criterio: `campoDisponible(...) && (idsFuenteObjetivo.has(id) || (lanzado &&
+!esCampoOcultoEnConfigAvanzada(campo)))` — un intento directo de registrar `peso` sin objetivo
+se rechaza con `400` aunque el tipo esté lanzado y el campo tenga `Activo=true`. No basta con
+ocultar en frontend (`DEC-2026-041`); la regla se aplica también en el backend, por petición
+manipulada o no.
+
+### Hallazgo aparte, no resuelto (dato real, pendiente de confirmación)
+La misma cuenta tiene **dos filas duplicadas** en `Campos_checkin` para `Peso`
+(`rec53eqbp0CJRxcWQ` y `recZAuu25lDMOpRMS`) y para `Medidas` (`recWJjmSjvJvpXRSh` y
+`recalEbRIpRqsq0LD`), creadas con segundos de diferencia el 2026-08-14. Hipótesis más probable:
+`PUT /api/entrenador/checkin-config` no es idempotente frente a dos peticiones casi simultáneas
+para el mismo `fieldId` sin override previo — ambas pueden leer "no existe fila" antes de que
+la primera termine de crearla, y cada una crea la suya (`crearCampoCheckin`, sin ningún lock ni
+constraint de unicidad). `resolverCamposEfectivos()` no rompe con esto (usa un `Map` por
+`Field_id`, se queda con la última fila procesada), pero dos filas reales para el mismo campo
+son basura de producción. **No se ha limpiado ni arreglado la causa** — anotado para una sesión
+futura si se confirma que molesta o se repite.
+
+### Verificación
+Prueba E2E con fixture desechable reproduciendo el escenario real exacto: `PUT` deja `peso` y
+`entrenamiento_realizado` con `Activo=true` y tipos asignados, se lanzan los tres tipos de
+check-in, y **sin ningún objetivo** para ese cliente — `GET /api/cliente/checkin` no devuelve
+ni `peso` ni `entrenamiento_realizado` en ningún tipo (pero sí `energia`, revisión normal);
+`POST` con `valores: {peso: 80}` se rechaza con `400`. Se crea después un objetivo de peso para
+ese mismo cliente — `peso` reaparece en `GET` y el `POST` pasa a aceptarse (`201`). `tsc
+--noEmit`, `eslint` y `next build` sin errores.
+
+**No probado visualmente en navegador.**

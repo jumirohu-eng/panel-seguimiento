@@ -20,6 +20,7 @@ import {
   inicioDeHoyUTC,
   inicioDePeriodoSemanalUTC,
   campoDisponible,
+  esCampoOcultoEnConfigAvanzada,
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
@@ -89,10 +90,21 @@ export async function GET(request: NextRequest) {
       inicioPeriodoActualMs: number | null
     ): CheckinFrecuenciaEstado {
       const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
+      // Campos "exclusivos de objetivo" (peso, entrenamiento_realizado, cualquier "Pasos"
+      // personalizado — ver esCampoOcultoEnConfigAvanzada) nunca se muestran como revisión
+      // suelta, aunque tengan Activo=true de una configuración anterior: solo aparecen si de
+      // verdad son la fuente de un objetivo de ESTE cliente. "El objetivo activa la métrica"
+      // (ver DECISIONS.md) — si no existe objetivo de peso para este cliente, no debe ver un
+      // campo de peso.
+      const camposSinExclusivosSueltos = campos.filter(
+        (c) => idsFuenteObjetivo.has(c.id) || !esCampoOcultoEnConfigAvanzada(c)
+      )
       // Sin lanzar: solo se exponen los campos que alimentan un objetivo (el cliente siempre
       // puede registrar sus objetivos); los campos de revisión quedan ocultos hasta que el
       // entrenador lance ese tipo, igual que antes.
-      const camposVisibles = programacion.lanzado ? campos : campos.filter((c) => idsFuenteObjetivo.has(c.id))
+      const camposVisibles = programacion.lanzado
+        ? camposSinExclusivosSueltos
+        : camposSinExclusivosSueltos.filter((c) => idsFuenteObjetivo.has(c.id))
 
       const idsVisibles = new Set(camposVisibles.map((c) => c.id))
       const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo && idsVisibles.has(r.fields.Field_id))
@@ -190,8 +202,14 @@ export async function POST(request: NextRequest) {
     // directamente — rechazo real en backend, no solo cosmético. Igual criterio para
     // campos de revisión cuando el tipo no está lanzado: se ignoran en vez de rechazar
     // toda la petición, para no bloquear los campos de objetivo enviados en el mismo envío.
+    // Campos "exclusivos de objetivo" (peso, entrenamiento_realizado, "Pasos" personalizado)
+    // nunca se aceptan salvo que sean de verdad la fuente de un objetivo de este cliente —
+    // "el objetivo activa la métrica", ni siquiera con el tipo lanzado y Activo=true de una
+    // config anterior (no basta con ocultarlo en el frontend, ver DECISIONS.md).
     const camposAEnviar = grupos[tipo].filter(
-      (campo) => campoDisponible(campo, valores) && (lanzado || idsFuenteObjetivo.has(campo.id))
+      (campo) =>
+        campoDisponible(campo, valores) &&
+        (idsFuenteObjetivo.has(campo.id) || (lanzado && !esCampoOcultoEnConfigAvanzada(campo)))
     )
 
     // Validación estricta de tipo/rango ANTES de serializar (ver DECISIONS.md): un valor

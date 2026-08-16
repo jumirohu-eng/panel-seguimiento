@@ -51,11 +51,17 @@ export async function PATCH(
     if (!nombre) return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 })
     fields.Nombre = nombre
   }
-  if (typeof body?.periodicidad === 'string') {
-    if (!PERIODICIDADES_VALIDAS.includes(body.periodicidad)) {
+  if ('periodicidad' in (body ?? {})) {
+    // null explícito = "sin frecuencia fija" (ver DECISIONS.md, "Objetivos avanzados sin
+    // frecuencia") — validarConfiguracionProgreso() decide más abajo si la combinación final
+    // (con el modo de progreso resultante) es válida.
+    if (body.periodicidad === null) {
+      fields.Periodicidad = null
+    } else if (!PERIODICIDADES_VALIDAS.includes(body.periodicidad)) {
       return NextResponse.json({ error: 'Periodicidad no válida' }, { status: 400 })
+    } else {
+      fields.Periodicidad = body.periodicidad
     }
-    fields.Periodicidad = body.periodicidad
   }
   if (body?.meta !== undefined) {
     const meta = Number(body.meta)
@@ -147,8 +153,10 @@ export async function PATCH(
     const direccionFinal: DireccionObjetivo | null = 'Direccion' in fields ? (fields.Direccion ?? null) : (objetivo.fields.Direccion ?? null)
     const valorInicialFinal: number | null =
       'Valor_inicial' in fields ? (fields.Valor_inicial ?? null) : (typeof objetivo.fields.Valor_inicial === 'number' ? objetivo.fields.Valor_inicial : null)
+    const periodicidadFinal: PeriodicidadObjetivo | null =
+      'Periodicidad' in fields ? (fields.Periodicidad ?? null) : (objetivo.fields.Periodicidad ?? null)
 
-    const errorModo = validarConfiguracionProgreso(modoFinal, direccionFinal, valorInicialFinal, fuenteFinalTipo)
+    const errorModo = validarConfiguracionProgreso(modoFinal, direccionFinal, valorInicialFinal, fuenteFinalTipo, periodicidadFinal)
     if (errorModo) return NextResponse.json({ error: errorModo }, { status: 400 })
 
     await actualizarObjetivo(objetivoId, fields)

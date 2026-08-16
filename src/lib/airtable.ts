@@ -183,7 +183,11 @@ export interface ObjetivoFields {
   // Escrito por la app al crear, no es un lookup de Airtable — ver DEC-2026-024 (filtrar
   // por ARRAYJOIN sobre un campo enlazado no funciona de forma fiable).
   Cliente_Email: string
-  Periodicidad: PeriodicidadObjetivoAirtable
+  // Ausente/null = "sin frecuencia fija" — solo válido en Modo_progreso='valor_objetivo'
+  // (ver DECISIONS.md, "Objetivos avanzados sin frecuencia"); 'acumulado' siempre la exige,
+  // reforzado en validarConfiguracionProgreso(). Nullable (no solo opcional) para poder
+  // limpiarla explícitamente desde PATCH, mismo patrón que Direccion.
+  Periodicidad?: PeriodicidadObjetivoAirtable | null
   Meta: number
   Unidad: string
   // Field_id de Campos_checkin (estándar o personalizado) usado para calcular el

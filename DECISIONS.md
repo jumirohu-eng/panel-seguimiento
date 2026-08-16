@@ -2955,3 +2955,180 @@ pendiente de que el usuario lo revise en un preview de esta rama.
   agrupamiento y el texto "Última actualización".
 - Confirmación del usuario para hacer commit/push/merge/deploy — no realizado en esta sesión
   a propósito.
+
+---
+
+## DEC-2026-053 — Objetivos predefinidos, "sin frecuencia fija" y Sueño como check-in informativo (no objetivo)
+
+**Fecha:** 2026-08-16
+**Tipo:** Producto / Arquitectura / Frontend
+**Estado:** Implementada, pendiente de revisión visual y de despliegue
+**Rama:** `feat-objetivos-predefinidos-checkin-sueno` (derivada de
+`feat-ventana-inicio-registros-checkin`, para no perder ni tocar `Ventana_inicio`/DEC-2026-052/053*).
+
+*Nota de numeración: el commit `83994bf` de la rama `feat-ventana-inicio-registros-checkin`
+referencia "DEC-2026-053" en su mensaje, pero esa rama nunca llegó a escribir la entrada
+correspondiente en este archivo — gap detectado en la auditoría previa a esta sesión, no
+corregido aquí (pertenece a esa otra rama/sesión). Este número (`DEC-2026-053`) se reutiliza
+para la presente decisión porque es el siguiente hueco real en `DECISIONS.md`; si ambas ramas
+llegan a `main` por separado, una de las dos deberá renumerarse en el merge.
+
+### Contexto y pedido de Juanmi
+El configurador de objetivos exigía que el entrenador construyera la estructura técnica
+completa (nombre, unidad, tipo de fuente, cómo se calcula el progreso) para casos que se
+repiten siempre igual. Pedido: un catálogo de **objetivos predefinidos** (Pasos,
+Entrenamientos, Movilidad, Peso) donde el entrenador solo introduce Meta + Valor inicial +
+Frecuencia (+ Dirección en Peso) — unidad/tipo/fuente/modo de progreso quedan resueltos
+internamente por el predefinido, nunca preguntados. El **avanzado/personalizable** se
+mantiene con toda su flexibilidad previa, añadiendo "¿Tiene frecuencia? Sí/No". **Sueño deja
+de ser un objetivo** y pasa a ser información de check-in (escala 1-5, "Muy mal"…"Muy
+bien"), sin tocar `resolverObjetivo()` en ningún punto.
+
+### Auditoría previa (regla de `CLAUDE.md`) y bloqueo señalado antes de tocar código
+Se releyeron `CLAUDE.md`/`DECISIONS.md` completos y el código de Objetivos/Check-ins. Se
+identificó una ambigüedad real entre lo pedido ("Valor inicial" para los 4 predefinidos) y
+`validarConfiguracionProgreso()`, que hasta ahora **prohibía explícitamente** `Valor_inicial`
+fuera del modo `valor_objetivo` — y un hecho técnico duro: `calcularProgresoValorObjetivo()`
+(el motor de Peso) hace `Number(valor)` sobre el texto guardado, que para un campo `si_no`
+(Entrenamientos/Movilidad) da `NaN`/`0`, así que reutilizar ese motor para ellos habría estado
+roto. Se preguntó explícitamente antes de implementar (`AskUserQuestion`): Juanmi confirmó que
+"Valor inicial" en Pasos/Entrenamientos/Movilidad (modo `acumulado`) es **puramente
+informativo/de referencia** — se guarda y se muestra, pero **nunca** participa en el cálculo
+de progreso, que sigue siendo exactamente el mecanismo `acumulado` ya existente (comparar lo
+registrado con la meta). Coincide además con la redacción literal del brief para esos tres
+("se mide comparando el valor registrado con la meta"), frente a la de Peso ("por
+acercamiento a la meta, respetando la dirección").
+
+### Decisión 1 — Catálogo de objetivos predefinidos (puramente frontend)
+Nuevo `src/lib/objetivosPredefinidos.ts`: constante `OBJETIVOS_PREDEFINIDOS` (Pasos,
+Entrenamientos, Movilidad, Peso) con nombre/unidad/modo de progreso/fuente ya resueltos. El
+backend **nunca sabe** que un objetivo se creó desde una plantilla — recibe exactamente el
+mismo `body` que ya aceptaban `POST/PATCH /api/clientes/[id]/objetivos(/[objetivoId])` desde
+antes de esta sesión (sin segunda arquitectura paralela, pedido explícito).
+- **Pasos:** fuente nueva (`fuenteNueva`, tipo `numero`) — reutiliza tal cual el mecanismo de
+  check-in dinámico ya existente (`resolverOCrearCampoCheckinParaObjetivo()`, DEC-2026-034).
+- **Entrenamientos:** fuente **fija** `fuenteFieldId: 'entrenamiento_realizado'` — nunca
+  `fuenteNueva` (crearía un campo personalizado duplicado, distinto del campo estándar real ya
+  usado en producción, ver DEC-2026-026/backfill de Parte 1.5.2).
+- **Movilidad:** fuente nueva, tipo `si_no` — auditado explícitamente antes de implementar
+  (pedido del brief): **no existía ningún campo/convención equivalente en todo el repo**
+  (confirmado por grep en código y en este archivo). `esCampoOcultoEnConfigAvanzada()`
+  (`checkinFields.ts`) se amplía para ocultar también "Movilidad" de `/checkin-config`, mismo
+  criterio ya aplicado a "Pasos".
+- **Peso:** fuente **fija** `fuenteFieldId: 'peso'`, `Modo_progreso: 'valor_objetivo'`,
+  `Direccion` obligatoria — reutiliza el motor de Peso construido en DEC-2026-035 **sin tocar
+  su fórmula de cálculo** (instrucción explícita de Juanmi: "no cambies la lógica de cálculo
+  si ya funciona correctamente").
+- **Frecuencia nunca fijada por el objetivo:** las 4 plantillas muestran siempre el selector
+  de periodicidad (diario/semanal/mensual) — la decide el entrenador en cada creación, nunca
+  un valor por defecto oculto. Verificado con E2E: dos objetivos "Pasos" con periodicidades
+  distintas en dos fixtures separados.
+- **Valor inicial:** campo siempre visible en el formulario del predefinido (obligatorio en
+  Peso por `validarConfiguracionProgreso()`; pedido también como paso del flujo guiado para
+  Pasos/Entrenamientos/Movilidad, aunque el backend lo trate como opcional/no bloqueante para
+  esos tres — decisión de UX, no de backend).
+
+### Decisión 2 — `Valor_inicial` permitido (informativo) en modo `acumulado`
+`validarConfiguracionProgreso()` (`src/lib/objetivos.ts`) ya no rechaza `Valor_inicial` en
+modo `acumulado` (solo sigue rechazando `Direccion`, que no tiene sentido sin distancia a una
+meta). **Cero cambios en `calcularProgresoDesdeCheckins()`** — el valor inicial se guarda en
+`Objetivos.Valor_inicial` (campo ya existente, sin migración) y se expone en
+`ObjetivoResuelto.valorInicial` (ya lo hacía `resolverObjetivo()` para cualquier modo, no hubo
+que tocarlo), pero ningún cálculo de progreso lo lee. Es responsabilidad exclusiva de la UI
+mostrarlo como referencia ("empezó en X").
+
+### Decisión 3 — Objetivos avanzados sin frecuencia fija
+`Objetivos.Periodicidad` pasa de obligatoria a opcional/nullable
+(`ObjetivoFields.Periodicidad?: PeriodicidadObjetivoAirtable | null`, sin migración —
+Airtable ya omite `singleSelect` vacíos igual que los checkbox `false`, DEC-2026-008).
+`ObjetivoResuelto.periodicidad: PeriodicidadObjetivo | null`. Regla aplicada explícitamente
+(citando la instrucción de Juanmi: "no imponer periodicidad salvo que el modelo la requiera
+técnicamente"): **"sin frecuencia" solo es válido en modo `valor_objetivo`** —
+`validarConfiguracionProgreso()` exige periodicidad no nula en modo `acumulado` (esa fórmula
+necesita técnicamente una ventana para saber "dentro de qué periodo sumar"; `valor_objetivo`
+no la necesita, usa siempre el último valor real, sin ventana — mismo mecanismo ya usado por
+Peso desde DEC-2026-035). El toggle "¿Tiene frecuencia? Sí/No" del avanzado fuerza "Sí" en
+cuanto se elige el modo "Sumando/acumulando", para que la UI nunca pueda enviar una
+combinación que el backend rechazaría.
+
+**Puntos corregidos para que "sin frecuencia" no rompa nada existente** (los 2 crash-sites
+identificados en la auditoría previa a esta sesión):
+`PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad]` se usaba con `Map.get(...)!.push(o)` (non-null
+assertion) en `GET/POST /api/cliente/checkin` y `GET /api/checkins` — con `periodicidad: null`
+esto lanzaba una excepción real. Ahora ambos sitios omiten (`continue`) un objetivo sin
+frecuencia de esa agrupación por tipo — un objetivo `valor_objetivo` sin frecuencia
+simplemente no aparece agrupado en ninguna sección de check-in (no tiene una periodicidad de
+la que derivarla; su "Registrar" sigue funcionando vía `fuenteTipos`, ver DEC-2026-047).
+`MisObjetivos.tsx` gana un bloque "Sin frecuencia fija" (antes esos objetivos quedaban
+invisibles, filtrados de los 3 grupos Hoy/Esta semana/Este mes sin ningún aviso).
+`ObjetivosEntrenador.tsx` muestra "Sin frecuencia fija" en vez de intentar indexar
+`TITULOS_PERIODICIDAD[null]`.
+
+### Decisión 4 — Sueño: check-in informativo, nunca objetivo
+Nuevo campo estándar `sueno` en `CAMPOS_ESTANDAR` (`src/lib/checkinFields.ts`), tipo `escala`
+(1-5, mismo tipo que Energía/Fatiga/Ánimo — reutiliza de punta a punta el pipeline existente
+de check-in: catálogo, `/checkin-config`, `POST/GET /api/cliente/checkin`,
+`validarValorCampo()` 1-5, "Historial de check-ins" de la ficha del entrenador — **cero
+cambios** en ninguno de esos puntos). Nuevo campo opcional `escalaEtiquetas` en
+`CampoCheckinDef`/`CampoCheckinResuelto` (`['Muy mal','Mal','Normal','Bien','Muy bien']`, solo
+poblado para `sueno` — Energía/Fatiga/Ánimo quedan exactamente igual, sin etiquetas, sin
+cambio de comportamiento). `CampoInput.tsx` muestra esas etiquetas debajo de los botones 1-5
+(y como `title` de cada botón) únicamente cuando `escalaEtiquetas` existe.
+
+**Sueño nunca es fuente de un objetivo ni se referencia en ningún punto de `objetivos.ts`**
+(confirmado por grep tras el cambio) — separación Objetivos/Check-ins verificada
+estructuralmente, no solo por convención: ningún objetivo de la sesión de pruebas usa `sueno`
+como `Fuente_field_id`, y `GET /api/clientes/[id]/objetivos` nunca lo devuelve porque nunca se
+crea una fila de `Objetivos` para él.
+
+### Verificación
+`tsc --noEmit`, `eslint src/` y `next build` (47 rutas) sin errores. **35 comprobaciones E2E**
+con fixtures desechables (2 entrenadores + 2 clientes ficticios, patrón `DEC-2026-009`, creados
+y borrados contra Airtable/Supabase reales vía `next dev` real en el puerto 3100; limpieza
+verificada post-hoc con consultas directas a las 6 tablas afectadas, 0 restos): creación de los
+4 predefinidos (Pasos con métrica nueva, Entrenamientos reutilizando el campo fijo sin
+duplicarlo, Movilidad con métrica nueva `si_no`, Peso bajar y Peso subir en fixtures
+distintos); Peso sin valor inicial rechazado con `400`; avanzado con frecuencia (`acumulado`,
+"Agua") y avanzado sin frecuencia (`valor_objetivo`, "Cintura") creados correctamente;
+combinación inválida "sin frecuencia + acumulado" rechazada con `400`; registro de valores
+desde el cliente (respetando que un campo se registra en el tipo donde vive según su propio
+`Tipos`, no en la periodicidad de su objetivo — ver DEC-2026-026/047) y progreso correcto en
+los 6 objetivos (Pasos 80%, Peso-bajar 40%, Movilidad 33%, Entrenamientos 25%, Cintura 0% con
+`valor=valorInicial` sin registros); cambiar la frecuencia de un objetivo ya creado (Pasos
+diario→semanal) no rompe su progreso; un objetivo "legacy" simulado (creado directo en
+Airtable sin `Modo_progreso`/`Direccion`/`Valor_inicial`, como los reales de producción) se
+sigue resolviendo como `acumulado` sin cambios; Sueño registrado (`sueno=4`) y rechazado fuera
+de rango (`sueno=6` → `400`); Sueño aparece en el historial del entrenador con su valor y
+**nunca** en la lista de objetivos; edición dentro de la misma ventana de `Ventana_inicio`
+sigue actualizando en sitio sin duplicar filas (confirmado contando filas reales de
+`Registros_checkin` antes/después); aislamiento completo entre los dos entrenadores/clientes
+de fixture (`403` en GET/PATCH cruzados); una revisión normal (energía) sigue funcionando sin
+regresión.
+
+### Qué NO se tocó (a propósito)
+`calcularProgresoDesdeCheckins()`, `calcularProgresoValorObjetivo()`, `resolverObjetivo()`
+(salvo el guard de periodicidad nula descrito arriba), el modelo de `Registros_checkin`, el
+mecanismo de `Ventana_inicio`/upsert por ventana (DEC-2026-052/053*), la deduplicación por
+nombre de `resolverOCrearCampoCheckinParaObjetivo()`, ningún endpoint de check-in fuera de los
+2 guards descritos, y ningún dato real de producción (todo contra fixtures desechables). No se
+creó ninguna tabla ni campo nuevo en Airtable — `Valor_inicial`/`Direccion`/`Modo_progreso`/
+`Periodicidad` ya existían; el catálogo de check-in (`CAMPOS_ESTANDAR`) es solo código, sin
+esquema propio en Airtable hasta que un entrenador lo personalice.
+
+**No probado visualmente en navegador** — pendiente de que el usuario lo revise en un preview
+de esta rama.
+
+### Pendiente real
+- Prueba visual en navegador del selector de predefinidos, el formulario reducido por
+  objetivo, "Sin frecuencia fija" en `MisObjetivos.tsx`/`ObjetivosEntrenador.tsx`, y las
+  etiquetas de la escala de Sueño.
+- Confirmación del usuario para hacer commit/push/merge/deploy — no realizado en esta sesión
+  a propósito.
+- Renumeración pendiente de `DEC-2026-053` si esta rama y `feat-ventana-inicio-registros-checkin`
+  llegan a `main` por separado (ver nota de numeración al principio de esta entrada).
+- Decisión de diseño tomada sin nueva pregunta al usuario (documentada aquí por transparencia,
+  no bloqueante): **editar** un objetivo ya creado (predefinido o avanzado) siempre reabre el
+  formulario "avanzado" completo, nunca el formulario reducido del predefinido — no existe (a
+  propósito) ningún campo en `Objetivos` que recuerde "esto se creó desde la plantilla Pasos".
+  Si en el futuro se quiere que editar un objetivo predefinido muestre el formulario reducido,
+  haría falta guardar esa procedencia explícitamente (cambio de modelo, no hecho aquí).

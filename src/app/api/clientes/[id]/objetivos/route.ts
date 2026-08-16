@@ -71,7 +71,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const body = await request.json().catch(() => null)
   const nombre = typeof body?.nombre === 'string' ? body.nombre.trim() : ''
-  const periodicidad = body?.periodicidad as PeriodicidadObjetivo
+  // `null`/ausente = "sin frecuencia fija" (ver DECISIONS.md, "Objetivos avanzados sin
+  // frecuencia") — validarConfiguracionProgreso() decide si esa combinación es válida según
+  // el modo. Cualquier otro valor no vacío se valida más abajo contra PERIODICIDADES_VALIDAS.
+  const periodicidad: PeriodicidadObjetivo | null =
+    body?.periodicidad === null || body?.periodicidad === undefined ? null : (body.periodicidad as PeriodicidadObjetivo)
   const meta = Number(body?.meta)
   const unidad = typeof body?.unidad === 'string' ? body.unidad.trim() : ''
   const fuenteFieldId = typeof body?.fuenteFieldId === 'string' && body.fuenteFieldId ? body.fuenteFieldId : null
@@ -94,7 +98,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const fechaFin = typeof body?.fechaFin === 'string' && body.fechaFin ? body.fechaFin : undefined
 
   if (!nombre) return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 })
-  if (!PERIODICIDADES_VALIDAS.includes(periodicidad)) {
+  if (periodicidad !== null && !PERIODICIDADES_VALIDAS.includes(periodicidad)) {
     return NextResponse.json({ error: 'Periodicidad no válida' }, { status: 400 })
   }
   if (!Number.isFinite(meta) || meta <= 0) {
@@ -140,19 +144,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       fuenteTipo = campo?.tipo === 'si_no' || campo?.tipo === 'numero' ? campo.tipo : null
     }
 
-    const errorModo = validarConfiguracionProgreso(modoProgreso, direccion, valorInicial, fuenteTipo)
+    const errorModo = validarConfiguracionProgreso(modoProgreso, direccion, valorInicial, fuenteTipo, periodicidad)
     if (errorModo) return NextResponse.json({ error: errorModo }, { status: 400 })
 
     const record = await crearObjetivo({
       Nombre: nombre,
       Cliente: [id],
       Cliente_Email: cliente!.fields.Email,
-      Periodicidad: periodicidad,
+      ...(periodicidad ? { Periodicidad: periodicidad } : {}),
       Meta: meta,
       Unidad: unidad,
       ...(fuenteFieldIdFinal ? { Fuente_field_id: fuenteFieldIdFinal } : {}),
       Modo_progreso: modoProgreso,
-      ...(modoProgreso === 'valor_objetivo' ? { Direccion: direccion!, Valor_inicial: valorInicial! } : {}),
+      ...(modoProgreso === 'valor_objetivo' ? { Direccion: direccion! } : {}),
+      // Valor inicial: obligatorio en modo valor_objetivo (ya validado arriba), opcional y
+      // puramente informativo en modo acumulado (Pasos/Entrenamientos/Movilidad — ver
+      // DECISIONS.md, "Objetivos predefinidos + check-ins") — nunca entra en el cálculo de
+      // progreso acumulado, solo se guarda si el entrenador lo indicó.
+      ...(valorInicial !== null ? { Valor_inicial: valorInicial } : {}),
       Fecha_inicio: fechaInicio,
       ...(fechaFin ? { Fecha_fin: fechaFin } : {}),
       Activo: true,

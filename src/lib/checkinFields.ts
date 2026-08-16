@@ -31,6 +31,11 @@ export interface CampoCheckinDef {
   // ver DECISIONS.md: auditado explícitamente, ninguno depende estructuralmente de haber
   // entrenado. El mecanismo queda listo para un futuro campo de detalle de sesión.
   dependeDe?: DependenciaCampo
+  // Etiquetas humanas para cada valor 1-5 de un campo tipo `escala` (p. ej. "Muy mal"…
+  // "Muy bien" para Sueño) — opcional, solo para dejar explícito qué representa cada
+  // número en la UI del cliente (ver DECISIONS.md, "Sueño como check-in informativo").
+  // Ausente en Energía/Fatiga/Ánimo (sin cambios de comportamiento para ellos).
+  escalaEtiquetas?: [string, string, string, string, string]
 }
 
 // Catálogo estándar definitivo (Parte 1.5). Cambios respecto a Parte 1:
@@ -83,6 +88,20 @@ export const CAMPOS_ESTANDAR: CampoCheckinDef[] = [
   },
   { id: 'peso', nombre: 'Peso', tipo: 'numero', categoria: 'medida', tiposDefault: ['semanal', 'periodico'], unidad: 'kg', ordenDefault: 8 },
   { id: 'medidas', nombre: 'Medidas', tipo: 'texto', categoria: 'medida', tiposDefault: ['semanal'], ordenDefault: 9 },
+  // Sueño (sesión "Objetivos predefinidos + check-ins", ver DECISIONS.md): información
+  // sobre el cliente para el entrenador, NUNCA un objetivo — no tiene Fuente_field_id
+  // asociada por catálogo, ni participa en resolverObjetivo()/cálculo de progreso. Mismo
+  // tipo `escala` (1-5) que Energía/Fatiga/Ánimo, con etiquetas propias porque la escala
+  // de calidad del sueño no es autoexplicativa como "del 1 al 5" genérico.
+  {
+    id: 'sueno',
+    nombre: 'Sueño',
+    tipo: 'escala',
+    categoria: 'bienestar',
+    tiposDefault: ['semanal'],
+    ordenDefault: 10,
+    escalaEtiquetas: ['Muy mal', 'Mal', 'Normal', 'Bien', 'Muy bien'],
+  },
 ]
 
 // Campos que dejan de ofrecerse en la pantalla de configuración avanzada
@@ -92,8 +111,13 @@ export const CAMPOS_ESTANDAR: CampoCheckinDef[] = [
 // cambios: un objetivo que ya los use como fuente sigue funcionando exactamente igual.
 export const CAMPOS_OCULTOS_EN_CONFIG_AVANZADA = new Set(['peso', 'entrenamiento_realizado'])
 
+// Nombres normalizados de métricas creadas dinámicamente (resolverOCrearCampoCheckinParaObjetivo,
+// DEC-2026-034) que también deben ocultarse de config avanzada por su nombre, igual que "Pasos"
+// ya lo hacía — "Movilidad" se suma con el objetivo predefinido nuevo (ver DECISIONS.md).
+const NOMBRES_OCULTOS_EN_CONFIG_AVANZADA = new Set(['pasos', 'movilidad'])
+
 export function esCampoOcultoEnConfigAvanzada(campo: Pick<CampoCheckinResuelto, 'id' | 'nombre'>): boolean {
-  return CAMPOS_OCULTOS_EN_CONFIG_AVANZADA.has(campo.id) || campo.nombre.trim().toLowerCase() === 'pasos'
+  return CAMPOS_OCULTOS_EN_CONFIG_AVANZADA.has(campo.id) || NOMBRES_OCULTOS_EN_CONFIG_AVANZADA.has(campo.nombre.trim().toLowerCase())
 }
 
 export const CAMPOS_ESTANDAR_POR_ID = new Map(CAMPOS_ESTANDAR.map((c) => [c.id, c]))
@@ -129,6 +153,7 @@ export interface CampoCheckinResuelto {
   orden: number
   esEstandar: boolean
   dependeDe?: DependenciaCampo
+  escalaEtiquetas?: [string, string, string, string, string]
 }
 
 function parseOpciones(raw?: string): string[] | undefined {
@@ -183,6 +208,7 @@ export function resolverCamposEfectivos(filas: AirtableRecord<CampoCheckinFields
       orden: override?.fields.Orden ?? def.ordenDefault,
       esEstandar: true,
       dependeDe: def.dependeDe,
+      escalaEtiquetas: def.escalaEtiquetas,
     }
   })
 

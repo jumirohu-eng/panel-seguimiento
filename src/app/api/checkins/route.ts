@@ -72,6 +72,9 @@ function calcularPendientes(
     ['periodico', []],
   ])
   for (const o of objetivosVigentes) {
+    // Mismo criterio que GET /api/cliente/checkin: un objetivo sin frecuencia fija (solo
+    // posible en modo valor_objetivo) no se agrupa por tipo de check-in.
+    if (!o.periodicidad) continue
     objetivosPorTipo.get(PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad])!.push(o)
   }
   const idsFuenteObjetivo = new Set(objetivosVigentes.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))

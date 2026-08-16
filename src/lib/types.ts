@@ -163,6 +163,7 @@ export interface CampoCheckinResuelto {
   orden: number
   esEstandar: boolean
   dependeDe?: { campoId: string; valorRequerido: unknown }
+  escalaEtiquetas?: [string, string, string, string, string]
 }
 
 export interface ProgramacionTipoConfig {

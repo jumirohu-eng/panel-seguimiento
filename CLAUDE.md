@@ -44,15 +44,77 @@ Datos:
 - `Entrenador_nuevo` y `Reportes.Cliente_Entrenador` son vestigiales y no deben utilizarse para resolver ownership.
 - `Campos_checkin` (`tblY8lFGaO2iA29Zf`) + `Registros_checkin` (`tbl7usdXJYJA83lsm`) + `Checkin_tipos` (`tblsiRHYa7SFro2Th`, Parte 1.5): modelo de check-in in-app del cliente. Ver sección dedicada más abajo y `DECISIONS.md` DEC-2026-006 a 020.
 - `notas_privadas` (Supabase Postgres, no Airtable): "Mis notas" se **eliminó por completo** de la app en Parte 1.5.3 (UI, rutas, API) — ver `DECISIONS.md` DEC-2026-030. La tabla en sí y su única fila real (de `jumirohu@gmail.com`, rol cliente) **no se han borrado**, por decisión explícita del usuario al confirmar la retirada — quedan huérfanas en Supabase, sin ningún endpoint que las use. No reintroducir esta funcionalidad sin revisar antes esa decisión.
-- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. `Objetivos.Eliminado` (checkbox, Parte 1.5.3) es un soft-delete distinto de `Activo` — ver `DECISIONS.md` DEC-2026-032. `Objetivos.Modo_progreso` (`acumulado`/`valor_objetivo`), `Direccion` y `Valor_inicial` (sesión "Objetivos + Check-ins", 2026-08-14) permiten objetivos tipo peso (progreso por distancia a una meta, no por suma) — ver DEC-2026-035. Un objetivo puede crear su propia métrica de check-in automáticamente (check-in dinámico) — ver DEC-2026-034. Ver sección dedicada más abajo.
+- `Objetivos` (`tbl0IwhFmKLc0MolG`, Parte 1.5.2): objetivos configurables por cliente, con progreso calculado desde `Registros_checkin`. Sustituye a `Clientes.Entrenamientos_objetivo` como indicador fijo del dashboard. `Objetivos.Eliminado` (checkbox, Parte 1.5.3) es un soft-delete distinto de `Activo` — ver `DECISIONS.md` DEC-2026-032. `Objetivos.Modo_progreso` (`acumulado`/`valor_objetivo`), `Direccion` y `Valor_inicial` (sesión "Objetivos + Check-ins", 2026-08-14) permiten objetivos tipo peso (progreso por distancia a una meta, no por suma) — ver DEC-2026-035. Un objetivo puede crear su propia métrica de check-in automáticamente (check-in dinámico) — ver DEC-2026-034. **Objetivos predefinidos** (`src/lib/objetivosPredefinidos.ts`, sesión 2026-08-16, ver DEC-2026-053): Pasos/Entrenamientos/Movilidad/Peso — puramente frontend, resuelven unidad/fuente/modo de progreso internamente y solo piden Meta+Valor inicial+Frecuencia (+Dirección en Peso); el avanzado/personalizable conserva toda su flexibilidad y gana "¿Tiene frecuencia? Sí/No". `Objetivos.Periodicidad` es ahora opcional/nullable — "sin frecuencia" solo es válido en modo `valor_objetivo` (el `acumulado` la sigue exigiendo, la necesita técnicamente para su ventana de suma). `Valor_inicial` puede guardarse también en modo `acumulado` desde esta sesión, pero es **puramente informativo** — nunca entra en `calcularProgresoDesdeCheckins()`. Ver sección dedicada más abajo.
 - `Registros_checkin` se puede borrar de verdad (no soft-delete) desde la ficha del cliente (entrenador): "Check-ins pendientes" + "Historial de check-ins" con botón Eliminar por envío, `DELETE /api/checkins`. El progreso de `Objetivos` se recalcula solo (siempre se agrega en caliente, sin caché) — ver `DECISIONS.md` DEC-2026-049. `idsFuenteDeObjetivos()` (`src/lib/objetivos.ts`) es la única fuente de verdad frontend de "qué campos son fuente de un objetivo" (GLOBAL, no por tipo) — usada por `checkin/page.tsx` y `dashboard/page.tsx` — ver DEC-2026-050 (bug real corregido: `dashboard/page.tsx` calculaba esto en LOCAL).
 - `Registros_checkin.Ventana_inicio` (dateTime, 2026-08-16): identidad persistente e inmutable de la ventana de registro (día/semana/apertura periódica), calculada UNA VEZ al crear la fila y nunca tocada después — reemplazo PARCIAL de la regla insert-only de DEC-2026-007: dentro del mismo período, "editar y guardar" ahora actualiza `Valor` en sitio (`PATCH`, `POST /api/cliente/checkin`) en vez de crear una fila nueva; entre períodos distintos sigue siendo insert-only, historial preservado. `inicioVentanaRegistro()` (`src/lib/checkinFields.ts`) es la única función que calcula esta ventana, reutilizada en escritura y en lectura. Filas anteriores a este cambio quedan con `Ventana_inicio` vacío ("legacy") — nunca se les asigna retroactivamente ni el nuevo mecanismo de upsert puede sobrescribirlas; conviven con un fallback explícito, sin mezclarse nunca con filas nuevas (ni en `ultimosValores`, ni en el historial del entrenador — `GET /api/checkins` ahora agrupa por ventana en vez de por `Fecha` exacta, con namespace separado `nueva`/`legacy` — ni en `DELETE`). Ver `DECISIONS.md` DEC-2026-052 para el detalle completo, incluida la limitación documentada: datos anteriores a este campo pueden verse afectados por reprogramación futura (los nuevos, no).
+
+- `Campos_checkin` catálogo estándar (`CAMPOS_ESTANDAR`, `src/lib/checkinFields.ts`) incluye `sueno` (escala 1-5, "Muy mal"…"Muy bien") desde la sesión 2026-08-16 (ver DEC-2026-053) — **check-in informativo, nunca objetivo**: no tiene `Fuente_field_id` de ningún objetivo, no participa en `resolverObjetivo()`. Reutiliza el pipeline de check-in existente sin ningún cambio (mismo tipo `escala` que Energía/Fatiga/Ánimo). `CampoCheckinDef`/`CampoCheckinResuelto` ganan `escalaEtiquetas?` (opcional, solo poblado para Sueño) para mostrar el significado de cada valor 1-5 en `CampoInput.tsx`.
 
 Auth/API:
 - Las API routes deben verificar el JWT de Supabase.
 - Los endpoints de admin usan `getAuthenticatedAdminEmail()`.
 - Los endpoints que modifican datos de un entrenador/cliente deben comprobar ownership/rol explícitamente.
 - Los secretos nunca deben estar en frontend, Git o nodos de n8n.
+
+## UX — Objetivos predefinidos + Sueño como check-in informativo (2026-08-16)
+
+Rama: `feat-objetivos-predefinidos-checkin-sueno` (derivada de
+`feat-ventana-inicio-registros-checkin`, para heredar `Ventana_inicio` sin romperlo). **Sin
+commit ni push** — a la espera de revisión visual y confirmación explícita del usuario.
+
+**Pedido de Juanmi:** que el entrenador no tenga que construir manualmente la estructura
+técnica de un objetivo habitual — catálogo de predefinidos (Pasos, Entrenamientos, Movilidad,
+Peso) donde solo se piden Meta+Valor inicial+Frecuencia (+Dirección en Peso), unidad/fuente/
+modo de progreso resueltos internamente. El avanzado/personalizable conserva toda su
+flexibilidad, ganando "¿Tiene frecuencia? Sí/No". Sueño deja de ser un objetivo y pasa a ser
+información de check-in (escala 1-5).
+
+**Bloqueo señalado antes de implementar (regla de este archivo):** el brief pedía "Valor
+inicial" también para Pasos/Entrenamientos/Movilidad, pero `validarConfiguracionProgreso()`
+lo prohibía fuera del modo `valor_objetivo`, y reutilizar el motor de Peso para
+Entrenamientos/Movilidad (tipo `si_no`) estaba técnicamente roto (`Number('true')` es `NaN`).
+Se preguntó explícitamente con `AskUserQuestion` antes de tocar código — Juanmi confirmó:
+"Valor inicial" en esos tres es puramente informativo, nunca entra en el cálculo.
+
+**Cambios:** nuevo `src/lib/objetivosPredefinidos.ts` (catálogo puramente frontend, el backend
+nunca sabe que un objetivo viene de una plantilla). `ObjetivoModal.tsx` rediseñado en dos
+pasos (elegir tipo → formulario reducido o avanzado); editar un objetivo ya existente sigue
+reabriendo siempre el formulario avanzado completo (no hay campo que recuerde la plantilla
+usada — decisión documentada en `DECISIONS.md`, no bloqueante). `Objetivos.Periodicidad` pasa
+a opcional/nullable — "sin frecuencia" solo válido en modo `valor_objetivo` (el `acumulado` la
+sigue exigiendo, la necesita técnicamente para su ventana). Dos crash-sites corregidos
+(`PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad]` con `Map.get(...)!` en
+`GET/POST /api/cliente/checkin` y `GET /api/checkins`, que habrían lanzado una excepción real
+con `periodicidad: null`). `MisObjetivos.tsx`/`ObjetivosEntrenador.tsx` ganan un bloque/label
+"Sin frecuencia fija". Nuevo campo estándar `sueno` (`escala`, "Muy mal"…"Muy bien") en
+`CAMPOS_ESTANDAR` — cero cambios en `resolverObjetivo()`/`calcularProgreso...` (confirmado por
+grep: `sueno` no aparece en ningún punto de `objetivos.ts`).
+
+**Qué NO se tocó:** `calcularProgresoDesdeCheckins()`, `calcularProgresoValorObjetivo()`
+(fórmulas intactas), el modelo de `Registros_checkin`, `Ventana_inicio`/upsert por ventana
+(DEC-2026-052/053 de la rama origen), la deduplicación de check-in dinámico. Sin migraciones
+ni cambios de esquema en Airtable — `Valor_inicial`/`Direccion`/`Modo_progreso`/`Periodicidad`
+ya existían como campos.
+
+**Validación:** `tsc --noEmit`, `eslint src/` y `next build` sin errores. 35 comprobaciones
+E2E con fixtures desechables (2 entrenadores + 2 clientes ficticios, patrón DEC-2026-009,
+contra `next dev` real y Airtable/Supabase reales; limpieza verificada post-hoc, 0 restos en
+las 6 tablas afectadas): los 4 predefinidos, Peso bajar/subir, Peso sin valor inicial
+rechazado, avanzado con y sin frecuencia, combinación inválida rechazada, progreso correcto en
+los 6 objetivos, cambio de frecuencia sin romper progreso, objetivo "legacy" simulado sin
+`Modo_progreso` sigue funcionando, Sueño registrado/rechazado fuera de rango/visible en
+historial/ausente de objetivos, `Ventana_inicio` sin duplicados tras editar, aislamiento entre
+entrenadores, revisión normal sin regresión. **No probado visualmente en navegador** —
+pendiente de que el usuario lo revise en un preview de esta rama. Ver `DECISIONS.md`
+`DEC-2026-053`.
+
+**Pendiente real:**
+- Prueba visual en navegador.
+- Confirmación del usuario para commit/push/merge/deploy.
+- Renumeración de `DEC-2026-053` si esta rama y `feat-ventana-inicio-registros-checkin`
+  llegan a `main` por separado (ver nota en `DECISIONS.md`).
+
+---
 
 ## UX — ficha del cliente: eliminados "Notas del cliente al registrarse" y "Acceso al panel del cliente" (2026-08-15)
 

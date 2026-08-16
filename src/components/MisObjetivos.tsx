@@ -10,7 +10,10 @@ import { formatearProgresoTexto, PERIODICIDAD_A_TIPO_CHECKIN } from '@/lib/objet
 // campo pertenece a un único tipo); el fallback a la periodicidad solo cubre un campo
 // huérfano sin `Tipos` resuelto.
 function linkRegistrar(o: ObjetivoResuelto) {
-  const tipo = o.fuenteTipos[0] ?? PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad]
+  // Último recurso ('diario'): un objetivo con fuente siempre tiene fuenteTipos poblado en
+  // la práctica (todo Campos_checkin resuelto tiene al menos un tipo por defecto) — este
+  // fallback solo cubre un caso huérfano teórico, nunca "sin frecuencia fija" real.
+  const tipo = o.fuenteTipos[0] ?? (o.periodicidad ? PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad] : 'diario')
   return `/cliente/checkin?campo=${o.fuenteFieldId}&tipo=${tipo}`
 }
 
@@ -90,6 +93,9 @@ export default function MisObjetivos({ objetivos }: { objetivos: ObjetivoResuelt
   }
 
   const sinDatosTodavia = objetivos.every((o) => !o.progreso || o.progreso.valor === 0)
+  // "Sin frecuencia fija" (solo posible en modo valor_objetivo, ver DECISIONS.md) no encaja
+  // en ninguno de los 3 grupos por periodicidad — sin este bloque quedaría invisible.
+  const sinFrecuencia = objetivos.filter((o) => !o.periodicidad)
 
   return (
     <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -122,6 +128,14 @@ export default function MisObjetivos({ objetivos }: { objetivos: ObjetivoResuelt
             </div>
           )
         })}
+        {sinFrecuencia.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-muted">Sin frecuencia fija</h3>
+            {sinFrecuencia.map((o) => (
+              <ObjetivoValorLineal key={o.id} objetivo={o} />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

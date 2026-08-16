@@ -31,6 +31,7 @@ export default function CampoInput({
               key={n}
               type="button"
               disabled={disabled}
+              title={campo.escalaEtiquetas?.[n - 1]}
               onClick={() => onChange(n)}
               className={`h-10 w-10 rounded-lg border text-sm font-medium transition-colors disabled:cursor-not-allowed ${
                 valor === n
@@ -42,6 +43,12 @@ export default function CampoInput({
             </button>
           ))}
         </div>
+        {campo.escalaEtiquetas && (
+          <p className="mt-1 text-xs text-muted">
+            {campo.escalaEtiquetas[0]} (1) · {campo.escalaEtiquetas[4]} (5)
+            {typeof valor === 'number' && valor >= 1 && valor <= 5 ? ` — ${campo.escalaEtiquetas[valor - 1]}` : ''}
+          </p>
+        )}
       </div>
     )
   }

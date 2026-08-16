@@ -192,7 +192,11 @@ export function calcularProgresoValorObjetivo(
 export interface ObjetivoResuelto {
   id: string
   nombre: string
-  periodicidad: PeriodicidadObjetivo
+  // `null` = objetivo "sin frecuencia fija" (solo permitido en modo valor_objetivo, que no
+  // necesita ventana de tiempo para calcular progreso — ver DECISIONS.md, "Objetivos
+  // avanzados sin frecuencia"). Un objetivo en modo acumulado siempre exige periodicidad
+  // porque el modelo la necesita técnicamente para saber "dentro de qué ventana sumar".
+  periodicidad: PeriodicidadObjetivo | null
   meta: number
   unidad: string
   fuenteFieldId: string | null
@@ -229,7 +233,7 @@ export function resolverObjetivo(
   diaSemanaCheckin: DiaSemana,
   ahoraMs = Date.now()
 ): ObjetivoResuelto {
-  const periodicidad = record.fields.Periodicidad
+  const periodicidad = record.fields.Periodicidad ?? null
   const fuenteFieldId = record.fields.Fuente_field_id ?? null
   const campoFuente = fuenteFieldId ? camposPorId.get(fuenteFieldId) : undefined
   const modoProgreso: ModoProgresoObjetivo = record.fields.Modo_progreso === 'valor_objetivo' ? 'valor_objetivo' : 'acumulado'
@@ -244,7 +248,11 @@ export function resolverObjetivo(
       if (campoFuente.tipo === 'numero' && direccion && valorInicial !== null) {
         progreso = calcularProgresoValorObjetivo(registros, fuenteFieldId!, valorInicial, record.fields.Meta, direccion)
       }
-    } else {
+      // 'acumulado' necesita una ventana de tiempo real ("dentro de qué periodo sumar") —
+      // sin periodicidad no hay forma de calcularla. No debería alcanzarse en la práctica
+      // (validarConfiguracionProgreso lo exige al crear/editar), pero se deja sin progreso
+      // en vez de asumir una periodicidad por defecto, para no inventar un cálculo.
+    } else if (periodicidad) {
       const { inicioMs, finMs } = ventanaPeriodoActual(periodicidad, diaSemanaCheckin, ahoraMs)
       progreso = calcularProgresoDesdeCheckins(registros, fuenteFieldId!, campoFuente.tipo, record.fields.Meta, inicioMs, finMs)
     }
@@ -286,21 +294,29 @@ export function validarFuenteObjetivo(fuenteFieldId: string | null, camposPorId:
 }
 
 // Validación server-side de la configuración de modo de progreso al crear/editar un
-// objetivo. 'acumulado' no tiene requisitos extra (comportamiento histórico). Rechaza
-// de forma explícita — nunca ignora en silencio — cualquier combinación incoherente:
-// 'valor_objetivo' sin fuente numérica, sin Direccion o sin Valor_inicial; o Direccion/
-// Valor_inicial presentes cuando el modo es 'acumulado' (evita estados ambiguos donde
-// el modo dice una cosa y los datos otra).
+// objetivo. Rechaza de forma explícita — nunca ignora en silencio — cualquier combinación
+// incoherente:
+// - 'acumulado': Direccion nunca se aplica (no tiene sentido "subir/bajar" sumando
+//   registros). Valor_inicial SÍ se admite desde DECISIONS.md ("Objetivos predefinidos +
+//   check-ins") — es puramente informativo/de referencia, mostrado en la UI, y NUNCA entra
+//   en el cálculo de calcularProgresoDesdeCheckins() (decisión de producto explícita: no
+//   reutilizar la fórmula de distancia de 'valor_objetivo' para objetivos acumulados).
+//   Requiere periodicidad — el modelo la necesita técnicamente para saber en qué ventana
+//   sumar (día/semana/mes), a diferencia de 'valor_objetivo'.
+// - 'valor_objetivo': sin fuente numérica, sin Direccion o sin Valor_inicial se rechaza
+//   igual que siempre. periodicidad es opcional aquí — el cálculo usa el último valor real
+//   sin ventana de tiempo, así que "sin frecuencia fija" es una combinación válida (ver
+//   DECISIONS.md, "Objetivos avanzados sin frecuencia").
 export function validarConfiguracionProgreso(
   modoProgreso: ModoProgresoObjetivo,
   direccion: DireccionObjetivo | null,
   valorInicial: number | null,
-  fuenteTipo: TipoCampoCheckin | null
+  fuenteTipo: TipoCampoCheckin | null,
+  periodicidad: PeriodicidadObjetivo | null
 ): string | null {
   if (modoProgreso === 'acumulado') {
-    if (direccion !== null || valorInicial !== null) {
-      return 'Dirección y valor inicial solo se aplican al modo "valor objetivo".'
-    }
+    if (direccion !== null) return 'Dirección solo se aplica al modo "valor objetivo".'
+    if (!periodicidad) return 'Un objetivo con progreso acumulado necesita una frecuencia — es la ventana en la que se suman los registros.'
     return null
   }
   // modoProgreso === 'valor_objetivo'

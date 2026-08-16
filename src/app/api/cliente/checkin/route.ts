@@ -93,6 +93,10 @@ export async function GET(request: NextRequest) {
       ['periodico', []],
     ])
     for (const o of objetivosResueltos) {
+      // Un objetivo "sin frecuencia fija" (solo posible en modo valor_objetivo, ver
+      // DECISIONS.md) no se agrupa en ninguna sección de check-in — no tiene una
+      // periodicidad de la que derivar dónde mostrarlo como "objetivo de este tipo".
+      if (!o.periodicidad) continue
       objetivosPorTipo.get(PERIODICIDAD_A_TIPO_CHECKIN[o.periodicidad])!.push(o)
     }
 

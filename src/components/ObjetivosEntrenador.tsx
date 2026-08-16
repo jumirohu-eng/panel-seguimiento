@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { ObjetivoResuelto } from '@/lib/objetivos'
+import type { ObjetivoResuelto, PeriodicidadObjetivo } from '@/lib/objetivos'
 import { formatearProgresoTexto } from '@/lib/objetivos'
 import ObjetivoModal from './ObjetivoModal'
 
-const TITULOS_PERIODICIDAD: Record<ObjetivoResuelto['periodicidad'], string> = {
+const TITULOS_PERIODICIDAD: Record<PeriodicidadObjetivo, string> = {
   diario: 'Diario',
   semanal: 'Semanal',
   mensual: 'Mensual',
@@ -146,7 +146,7 @@ export default function ObjetivosEntrenador({
                       <>
                         <p className="truncate text-sm font-medium text-card-foreground">{o.nombre}</p>
                         <p className="text-xs text-muted">
-                          {TITULOS_PERIODICIDAD[o.periodicidad]}
+                          {o.periodicidad ? TITULOS_PERIODICIDAD[o.periodicidad] : 'Sin frecuencia fija'}
                           {o.progreso ? ` · ${formatearProgresoTexto(o.unidad, o.progreso)}` : ` · meta: ${o.meta} ${o.unidad}`}
                         </p>
                       </>

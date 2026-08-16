@@ -18,13 +18,18 @@ import {
   resolverNombreTipoHistorico,
   deserializarValor,
   resolverProgramacionTipo,
+  inicioVentanaRegistro,
   agruparPorFrecuencia,
-  inicioDeHoyUTC,
-  inicioDePeriodoSemanalUTC,
   CampoCheckinResuelto,
   FrecuenciaCheckin,
 } from '@/lib/checkinFields'
-import { resolverObjetivo, resolverEstadoCheckinTipo, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto } from '@/lib/objetivos'
+import {
+  resolverObjetivo,
+  resolverEstadoCheckinTipo,
+  PERIODICIDAD_A_TIPO_CHECKIN,
+  ObjetivoResuelto,
+  VentanaActual,
+} from '@/lib/objetivos'
 import { CheckinEnvio, ChecklinsResponse, PendientesCheckin } from '@/lib/types'
 
 const PAGE_SIZE = 7
@@ -60,8 +65,11 @@ function calcularPendientes(
   }
   const idsFuenteObjetivo = new Set(objetivosVigentes.filter((o) => o.fuenteFieldId).map((o) => o.fuenteFieldId!))
 
-  function pendientePara(tipo: FrecuenciaCheckin, campos: CampoCheckinResuelto[], inicioPeriodoActualMs: number | null): boolean {
+  const ahoraMs = Date.now()
+  function pendientePara(tipo: FrecuenciaCheckin, campos: CampoCheckinResuelto[]): boolean {
     const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
+    const inicioMs = inicioVentanaRegistro(tipo, diaSemanaCheckin, programacion, ahoraMs)
+    const ventanaActual: VentanaActual | null = inicioMs === null ? null : { inicioMs, inicioISO: new Date(inicioMs).toISOString() }
     const estado = resolverEstadoCheckinTipo({
       tipo,
       campos,
@@ -70,7 +78,7 @@ function calcularPendientes(
       camposPorId,
       idsFuenteObjetivoGlobal: idsFuenteObjetivo,
       objetivosDelTipo: objetivosPorTipo.get(tipo) ?? [],
-      inicioPeriodoActualMs,
+      ventanaActual,
     })
     // Solo cuenta como pendiente si hay de verdad alguna pregunta de REVISIÓN (no solo
     // campos de objetivo) — los objetivos tienen su propia UI de progreso en la ficha,
@@ -80,9 +88,9 @@ function calcularPendientes(
   }
 
   return {
-    diario: pendientePara('diario', grupos.diario, inicioDeHoyUTC()),
-    semanal: pendientePara('semanal', grupos.semanal, inicioDePeriodoSemanalUTC(diaSemanaCheckin)),
-    periodico: pendientePara('periodico', grupos.periodico, null),
+    diario: pendientePara('diario', grupos.diario),
+    semanal: pendientePara('semanal', grupos.semanal),
+    periodico: pendientePara('periodico', grupos.periodico),
   }
 }
 
@@ -119,28 +127,84 @@ export async function GET(request: NextRequest) {
     ])
     const camposResueltos = resolverCamposEfectivos(filasConfig)
     const camposPorId = new Map(camposResueltos.map((c) => [c.id, c]))
+    const filaPorTipoHist = new Map(filasTipos.map((f) => [f.fields.Tipo, f.fields]))
+    const diaSemanaHist = filaPorTipoHist.get('semanal')?.Dia_semana ?? 'lunes'
 
-    // Agrupa filas EAV por Fecha exacta (todas las filas de un mismo envío comparten timestamp).
-    const envioPorFecha = new Map<string, CheckinEnvio>()
-    for (const r of registros) {
-      const fecha = r.fields.Fecha
-      let envio = envioPorFecha.get(fecha)
-      if (!envio) {
-        envio = { fecha, tipo: r.fields.Tipo_registro as FrecuenciaCheckin, valores: [] }
-        envioPorFecha.set(fecha, envio)
+    // Identidad de agrupación de una fila para el historial (DEC-2026-052): "un guardado
+    // dentro de la misma ventana de check-in es una única revisión". Filas nuevas (con
+    // `Ventana_inicio` persistido) agrupan por ese valor exacto. Filas legacy (sin
+    // `Ventana_inicio`, anteriores a este cambio) agrupan por una ventana RECONSTRUIDA en
+    // vivo con la programación vigente — con el riesgo ya documentado de reprogramación
+    // retroactiva, acotado exclusivamente a estos datos antiguos. Los namespaces `n:`/`l:`
+    // impiden que una fila nueva y una legacy se fusionen aunque su timestamp de inicio de
+    // ventana coincida numéricamente — nunca se mezclan los dos mecanismos.
+    function identidadVentana(r: AirtableRecord<RegistroCheckinFields>): { key: string; inicioISO: string; reconstruida: boolean } {
+      const tipo = r.fields.Tipo_registro as FrecuenciaCheckin
+      if (r.fields.Ventana_inicio) {
+        return { key: `n:${tipo}:${r.fields.Ventana_inicio}`, inicioISO: r.fields.Ventana_inicio, reconstruida: false }
       }
+      const programacion = resolverProgramacionTipo(filaPorTipoHist.get(tipo), entrenador?.fields.Checkin_disponible_desde)
+      const inicioMs = inicioVentanaRegistro(tipo, diaSemanaHist, programacion, new Date(r.fields.Fecha).getTime())
+      // Sin programación calculable: cada fila legacy agrupa por su propia Fecha exacta,
+      // mismo comportamiento que existía antes de introducir ventanas.
+      const inicioISO = inicioMs === null ? r.fields.Fecha : new Date(inicioMs).toISOString()
+      return { key: `l:${tipo}:${inicioISO}`, inicioISO, reconstruida: true }
+    }
+
+    interface GrupoHistorial {
+      ventanaInicio: string
+      ventanaReconstruida: boolean
+      tipo: FrecuenciaCheckin
+      ultimaActualizacionMs: number
+      porCampo: Map<string, { fieldId: string; nombre: string; valor: unknown; fechaMs: number }>
+    }
+
+    const grupos = new Map<string, GrupoHistorial>()
+    for (const r of registros) {
+      const { key, inicioISO, reconstruida } = identidadVentana(r)
+      const fechaMs = new Date(r.fields.Fecha).getTime()
+      let grupo = grupos.get(key)
+      if (!grupo) {
+        grupo = {
+          ventanaInicio: inicioISO,
+          ventanaReconstruida: reconstruida,
+          tipo: r.fields.Tipo_registro as FrecuenciaCheckin,
+          ultimaActualizacionMs: fechaMs,
+          porCampo: new Map(),
+        }
+        grupos.set(key, grupo)
+      } else if (fechaMs > grupo.ultimaActualizacionMs) {
+        grupo.ultimaActualizacionMs = fechaMs
+      }
+
       // resolverNombreTipoHistorico cubre tanto campos activos como retirados
       // (dolor_nivel/dolor_zona/reflexion_semanal, ver DECISIONS.md) — el historial de
       // envíos antiguos sigue resolviendo nombre/valor legible aunque ya no se ofrezcan.
-      const historico = resolverNombreTipoHistorico(r.fields.Field_id, camposPorId)
-      envio.valores.push({
-        fieldId: r.fields.Field_id,
-        nombre: historico?.nombre ?? r.fields.Field_id,
-        valor: historico ? deserializarValor(historico.tipo, r.fields.Valor) : r.fields.Valor,
-      })
+      // Dedup por Field_id dentro de la ventana (posible con datos legacy agrupados
+      // retroactivamente, ver DECISIONS.md DEC-2026-052): se queda con el valor de la fila
+      // de Fecha más reciente.
+      const actual = grupo.porCampo.get(r.fields.Field_id)
+      if (!actual || fechaMs > actual.fechaMs) {
+        const historico = resolverNombreTipoHistorico(r.fields.Field_id, camposPorId)
+        grupo.porCampo.set(r.fields.Field_id, {
+          fieldId: r.fields.Field_id,
+          nombre: historico?.nombre ?? r.fields.Field_id,
+          valor: historico ? deserializarValor(historico.tipo, r.fields.Valor) : r.fields.Valor,
+          fechaMs,
+        })
+      }
     }
 
-    const envios = [...envioPorFecha.values()].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
+    const envios: CheckinEnvio[] = [...grupos.values()]
+      .map((g) => ({
+        ventanaInicio: g.ventanaInicio,
+        ventanaReconstruida: g.ventanaReconstruida,
+        ultimaActualizacion: new Date(g.ultimaActualizacionMs).toISOString(),
+        tipo: g.tipo,
+        valores: [...g.porCampo.values()].map(({ fieldId, nombre, valor }) => ({ fieldId, nombre, valor })),
+      }))
+      .sort((a, b) => new Date(b.ultimaActualizacion).getTime() - new Date(a.ultimaActualizacion).getTime())
+
     const inicio = page * PAGE_SIZE
     const checkins = envios.slice(inicio, inicio + PAGE_SIZE)
     const hasMore = inicio + PAGE_SIZE < envios.length
@@ -158,16 +222,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Elimina un "envío" completo de check-in (todas las filas EAV de Registros_checkin que
-// comparten Cliente + Fecha exacta, ver agrupación en GET) — borrado real, no soft-delete
-// (ver borrarRegistrosCheckin). Identificado por `fecha` + `tipo` (los mismos datos que ya
-// devuelve GET en cada CheckinEnvio), NUNCA por un id de Airtable enviado desde el frontend
-// (ver DECISIONS.md, "No confiar únicamente en IDs enviados por frontend" — y la ficha del
-// cliente tampoco expone ningún id de Registros_checkin, ver ClienteFicha.tsx). Ownership
-// completo: el entrenador autenticado debe ser dueño del cliente del path, y las filas a
-// borrar se derivan siempre de una consulta ya scoped a `cliente.fields.Email` (nunca de un
-// id adivinado), con una comprobación adicional contra el link real `Cliente` como defensa
-// en profundidad.
+// Elimina un "envío" completo de check-in — todas las filas EAV de Registros_checkin que
+// pertenecen a la misma ventana de registro (DEC-2026-052), borrado real, no soft-delete
+// (ver borrarRegistrosCheckin). Identificado por `ventanaInicio` + `tipo` + `ventanaReconstruida`
+// (los mismos datos que ya devuelve GET en cada CheckinEnvio), NUNCA por un id de Airtable
+// enviado desde el frontend (ver DECISIONS.md, "No confiar únicamente en IDs enviados por
+// frontend"). Ownership completo: el entrenador autenticado debe ser dueño del cliente del
+// path, y las filas a borrar se derivan siempre de una consulta ya scoped a
+// `cliente.fields.Email`, con comprobación adicional contra el link real `Cliente`.
+//
+// `ventanaReconstruida` distingue explícitamente el mecanismo de selección (DEC-2026-052):
+// - `false` (ventana nueva, persistida): solo filas con `Ventana_inicio` EXACTAMENTE igual.
+// - `true` (ventana legacy, reconstruida): solo filas SIN `Ventana_inicio` (defensa en
+//   profundidad — nunca puede tocar una fila nueva) cuya ventana recalculada coincida.
+// Los dos caminos son mutuamente excluyentes; nunca se mezclan.
 export async function DELETE(request: NextRequest) {
   const email = await getAuthenticatedEmail(request)
   if (!email) {
@@ -176,9 +244,10 @@ export async function DELETE(request: NextRequest) {
 
   const body = await request.json().catch(() => null)
   const clienteId = typeof body?.clienteId === 'string' ? body.clienteId : null
-  const fecha = typeof body?.fecha === 'string' ? body.fecha : null
+  const ventanaInicio = typeof body?.ventanaInicio === 'string' ? body.ventanaInicio : null
+  const ventanaReconstruida = body?.ventanaReconstruida === true
   const tipo = body?.tipo
-  if (!clienteId || !fecha || !['diario', 'semanal', 'periodico'].includes(tipo)) {
+  if (!clienteId || !ventanaInicio || !['diario', 'semanal', 'periodico'].includes(tipo)) {
     return NextResponse.json({ error: 'Faltan datos para eliminar el check-in' }, { status: 400 })
   }
 
@@ -194,10 +263,25 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'El cliente no tiene email configurado en Airtable' }, { status: 400 })
     }
 
-    const registros = await getRegistrosCheckinByClienteEmail(cliente.fields.Email)
-    const aBorrar = registros.filter(
-      (r) => r.fields.Fecha === fecha && r.fields.Tipo_registro === tipo && r.fields.Cliente?.includes(cliente.id)
-    )
+    const [entrenador, filasTipos, registros] = await Promise.all([
+      getEntrenadorByEmail(email),
+      getCheckinTiposByEntrenador(email),
+      getRegistrosCheckinByClienteEmail(cliente.fields.Email),
+    ])
+    const filaPorTipo = new Map(filasTipos.map((f) => [f.fields.Tipo, f.fields]))
+    const diaSemanaCheckin = filaPorTipo.get('semanal')?.Dia_semana ?? 'lunes'
+    const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
+
+    const aBorrar = registros.filter((r) => {
+      if (r.fields.Tipo_registro !== tipo || !r.fields.Cliente?.includes(cliente.id)) return false
+      if (ventanaReconstruida) {
+        if (r.fields.Ventana_inicio) return false
+        const inicioMs = inicioVentanaRegistro(tipo, diaSemanaCheckin, programacion, new Date(r.fields.Fecha).getTime())
+        const inicioISO = inicioMs === null ? r.fields.Fecha : new Date(inicioMs).toISOString()
+        return inicioISO === ventanaInicio
+      }
+      return r.fields.Ventana_inicio === ventanaInicio
+    })
     if (aBorrar.length === 0) {
       return NextResponse.json({ error: 'No se encontró ese check-in' }, { status: 404 })
     }

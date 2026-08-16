@@ -1,4 +1,4 @@
-import type { AirtableRecord, CampoCheckinFields, RegistroCheckinFields } from './airtable'
+import type { AirtableRecord, CampoCheckinFields } from './airtable'
 
 export type TipoCampoCheckin = 'escala' | 'si_no' | 'numero' | 'texto' | 'seleccion' | 'seleccion_multiple' | 'dolor'
 export type FrecuenciaCheckin = 'diario' | 'semanal' | 'periodico'
@@ -300,12 +300,58 @@ export function calcularProximaFechaPeriodico(config: ProgramacionResuelta, ahor
   return null
 }
 
+// Inicio de la apertura periódica VIGENTE que contiene `momentoMs` (no la próxima, la que
+// ya está en curso ahora) — inversa de calcularProximaFechaPeriodico. Ver DECISIONS.md
+// DEC-2026-052: es la base de `Ventana_inicio`, la identidad persistente e inmutable de un
+// registro periódico. `null` si no hay programación configurada todavía (mismo fallback
+// seguro que el resto del sistema: sin config, sin ventana, comportamiento insert-only) o
+// si `momentoMs` es anterior a la primera apertura configurada (todavía no ha abierto
+// ningún período).
+export function inicioPeriodoActualPeriodico(config: ProgramacionResuelta, momentoMs = Date.now()): number | null {
+  if (config.modoPeriodico === 'intervalo' && config.fechaInicioPeriodico && config.intervaloDiasPeriodico) {
+    const inicioMs = new Date(config.fechaInicioPeriodico).getTime()
+    if (!Number.isFinite(inicioMs) || config.intervaloDiasPeriodico <= 0 || momentoMs < inicioMs) return null
+    const intervaloMs = config.intervaloDiasPeriodico * 24 * 60 * 60 * 1000
+    const periodosPasados = Math.floor((momentoMs - inicioMs) / intervaloMs)
+    return inicioMs + periodosPasados * intervaloMs
+  }
+  if (config.modoPeriodico === 'dia_mes' && config.diaMesPeriodico) {
+    const momento = new Date(momentoMs)
+    const anio = momento.getUTCFullYear()
+    const mes = momento.getUTCMonth()
+    const diaEsteMes = Math.min(config.diaMesPeriodico, ultimoDiaDelMesUTC(anio, mes))
+    const fechaEsteMesMs = Date.UTC(anio, mes, diaEsteMes)
+    if (fechaEsteMesMs <= momentoMs) return fechaEsteMesMs
+    const mesAnterior = mes - 1
+    const diaMesAnterior = Math.min(config.diaMesPeriodico, ultimoDiaDelMesUTC(anio, mesAnterior))
+    return Date.UTC(anio, mesAnterior, diaMesAnterior)
+  }
+  return null
+}
+
+// Única función que calcula el inicio de una "ventana de registro" — la unidad lógica
+// cliente+campo+tipo+ventana que identifica un registro editable (ver DECISIONS.md
+// DEC-2026-052). Usada tanto para "ahora" (al escribir, o al calcular ultimosValores/
+// yaEnviado) como para el `Fecha` histórico de una fila legacy sin `Ventana_inicio` (al
+// agrupar el historial o al resolver un DELETE reconstruido) — mismo cálculo siempre, cero
+// divergencia posible entre escritura y lectura.
+export function inicioVentanaRegistro(
+  tipo: FrecuenciaCheckin,
+  diaSemana: DiaSemana,
+  programacionPeriodica: ProgramacionResuelta,
+  momentoMs = Date.now()
+): number | null {
+  if (tipo === 'diario') return inicioDeHoyUTC(momentoMs)
+  if (tipo === 'semanal') return inicioDePeriodoSemanalUTC(diaSemana, momentoMs)
+  return inicioPeriodoActualPeriodico(programacionPeriodica, momentoMs)
+}
+
 // Cuándo vuelve a tocar un check-in ya enviado, según su tipo.
 // diario/semanal: el siguiente periodo empieza justo al terminar el actual.
 // periódico: fecha calculada por calcularProximaFechaPeriodico, independiente de si ya se
 // envió (no tiene un "periodo actual" acotado de la misma forma).
-// Nunca implica bloqueo de envío: Registros_checkin es insert-only (ver DECISIONS.md
-// DEC-2026-007), esto es puramente informativo para el cliente.
+// Nunca implica bloqueo de envío: Registros_checkin es insert-only por defecto (ver
+// DECISIONS.md DEC-2026-007/052), esto es puramente informativo para el cliente.
 export function calcularProximaFecha(
   tipo: FrecuenciaCheckin,
   yaEnviado: boolean,
@@ -493,36 +539,6 @@ export function validarValorCampo(campo: Pick<CampoCheckinResuelto, 'tipo' | 'no
       if (typeof valor !== 'string') return `${campo.nombre}: se esperaba texto.`
       return null
   }
-}
-
-// Resiliencia ante doble envío (doble clic, reintento de red, etc — ver DECISIONS.md,
-// integración Objetivos↔Check-ins): si el ÚLTIMO lote de registros de este tipo tiene
-// exactamente los mismos campos y valores que el envío entrante, y se escribió hace
-// menos de `ventanaMs`, se considera un duplicado — el POST debe tratarlo como
-// idempotente (no insertar filas nuevas) en vez de multiplicar el historial. Un envío
-// con valores DISTINTOS (corrección real) nunca se bloquea, aunque llegue en el mismo
-// segundo — Registros_checkin sigue siendo insert-only para cualquier dato nuevo real.
-export function esEnvioDuplicadoReciente(
-  registros: AirtableRecord<RegistroCheckinFields>[],
-  tipo: FrecuenciaCheckin,
-  nuevasFilas: { Field_id: string; Valor: string }[],
-  ahoraMs = Date.now(),
-  ventanaMs = 5000
-): boolean {
-  const delTipo = registros.filter((r) => r.fields.Tipo_registro === tipo)
-  if (delTipo.length === 0) return false
-
-  const ultimaFechaMs = delTipo.reduce((max, r) => {
-    const t = new Date(r.fields.Fecha).getTime()
-    return Number.isFinite(t) && t > max ? t : max
-  }, -Infinity)
-  if (!Number.isFinite(ultimaFechaMs) || ahoraMs - ultimaFechaMs > ventanaMs || ahoraMs < ultimaFechaMs) return false
-
-  const ultimoLote = delTipo.filter((r) => new Date(r.fields.Fecha).getTime() === ultimaFechaMs)
-  if (ultimoLote.length !== nuevasFilas.length) return false
-
-  const mapaUltimo = new Map(ultimoLote.map((r) => [r.fields.Field_id, r.fields.Valor]))
-  return nuevasFilas.every((f) => mapaUltimo.get(f.Field_id) === f.Valor)
 }
 
 // Serializa un valor de formulario a texto para Registros_checkin.Valor.

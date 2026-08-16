@@ -216,8 +216,18 @@ export interface ClienteCheckinTipoResponse extends CheckinFrecuenciaEstado {
   idsFuenteObjetivoGlobal: string[]
 }
 
+// DEC-2026-052: identidad de un "envío" en el historial del entrenador — un guardado del
+// cliente dentro de la misma ventana de check-in (día/semana/apertura periódica) es una
+// única entrada, sea cual sea cuántos campos se crearon o actualizaron en esa acción.
 export interface CheckinEnvio {
-  fecha: string
+  ventanaInicio: string
+  // true cuando esta entrada agrupa filas legacy (sin Ventana_inicio persistido,
+  // anteriores a DEC-2026-052) reconstruidas con la programación vigente — nunca se mezcla
+  // con filas nuevas, ver DECISIONS.md.
+  ventanaReconstruida: boolean
+  // Solo informativa (para mostrar "última actualización") — nunca se usa para agrupar ni
+  // para identificar el envío en DELETE.
+  ultimaActualizacion: string
   tipo: 'diario' | 'semanal' | 'periodico'
   valores: { fieldId: string; nombre: string; valor: unknown }[]
 }

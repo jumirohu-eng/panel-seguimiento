@@ -5,24 +5,31 @@ import {
   getCamposCheckinByEntrenador,
   getRegistrosCheckinByClienteEmail,
   crearRegistrosCheckin,
+  actualizarRegistroCheckin,
   getCheckinTiposByEntrenador,
   getObjetivosByClienteEmail,
+  RegistroCheckinFields,
 } from '@/lib/airtable'
 import {
   resolverCamposEfectivos,
   agruparPorFrecuencia,
   serializarValor,
   validarValorCampo,
-  esEnvioDuplicadoReciente,
   resolverProgramacionTipo,
-  inicioDeHoyUTC,
-  inicioDePeriodoSemanalUTC,
+  inicioVentanaRegistro,
   campoDisponible,
   esCampoOcultoEnConfigAvanzada,
   FrecuenciaCheckin,
   CampoCheckinResuelto,
 } from '@/lib/checkinFields'
-import { resolverObjetivo, esVigenteHoy, PERIODICIDAD_A_TIPO_CHECKIN, ObjetivoResuelto, resolverEstadoCheckinTipo } from '@/lib/objetivos'
+import {
+  resolverObjetivo,
+  esVigenteHoy,
+  PERIODICIDAD_A_TIPO_CHECKIN,
+  ObjetivoResuelto,
+  resolverEstadoCheckinTipo,
+  VentanaActual,
+} from '@/lib/objetivos'
 import { ClienteCheckinResponse, ClienteCheckinTipoResponse, CheckinFrecuenciaEstado } from '@/lib/types'
 
 const TIPOS_VALIDOS: FrecuenciaCheckin[] = ['diario', 'semanal', 'periodico']
@@ -110,13 +117,14 @@ export async function GET(request: NextRequest) {
 
     // Cálculo real movido a resolverEstadoCheckinTipo (src/lib/objetivos.ts) — compartido con
     // el endpoint de check-ins pendientes de la ficha del entrenador, para no tener dos
-    // implementaciones del mismo cálculo (ver DECISIONS.md, resiliencia).
-    function estadoPara(
-      tipo: FrecuenciaCheckin,
-      campos: CampoCheckinResuelto[],
-      inicioPeriodoActualMs: number | null
-    ): CheckinFrecuenciaEstado {
+    // implementaciones del mismo cálculo (ver DECISIONS.md, resiliencia). La ventana actual
+    // (DEC-2026-052) se calcula aquí con la programación real de CADA tipo, una sola vez,
+    // reutilizada tanto para diario/semanal como para periódico (antes sin ventana propia).
+    const ahoraMs = Date.now()
+    function estadoPara(tipo: FrecuenciaCheckin, campos: CampoCheckinResuelto[]): CheckinFrecuenciaEstado {
       const programacion = resolverProgramacionTipo(filaPorTipo.get(tipo), entrenador?.fields.Checkin_disponible_desde)
+      const inicioMs = inicioVentanaRegistro(tipo, diaSemanaCheckin, programacion, ahoraMs)
+      const ventanaActual: VentanaActual | null = inicioMs === null ? null : { inicioMs, inicioISO: new Date(inicioMs).toISOString() }
       return resolverEstadoCheckinTipo({
         tipo,
         campos,
@@ -125,19 +133,13 @@ export async function GET(request: NextRequest) {
         camposPorId,
         idsFuenteObjetivoGlobal: idsFuenteObjetivo,
         objetivosDelTipo: objetivosPorTipo.get(tipo) ?? [],
-        inicioPeriodoActualMs,
+        ventanaActual,
       })
     }
 
     if (tipoSolicitado) {
-      const inicioPeriodoActualMs =
-        tipoSolicitado === 'diario'
-          ? inicioDeHoyUTC()
-          : tipoSolicitado === 'semanal'
-            ? inicioDePeriodoSemanalUTC(diaSemanaCheckin)
-            : null
       const respuestaTipo: ClienteCheckinTipoResponse = {
-        ...estadoPara(tipoSolicitado, grupos[tipoSolicitado], inicioPeriodoActualMs),
+        ...estadoPara(tipoSolicitado, grupos[tipoSolicitado]),
         tipo: tipoSolicitado,
         idsFuenteObjetivoGlobal: [...idsFuenteObjetivo],
       }
@@ -145,9 +147,9 @@ export async function GET(request: NextRequest) {
     }
 
     const response: ClienteCheckinResponse = {
-      diario: estadoPara('diario', grupos.diario, inicioDeHoyUTC()),
-      semanal: estadoPara('semanal', grupos.semanal, inicioDePeriodoSemanalUTC(diaSemanaCheckin)),
-      periodico: estadoPara('periodico', grupos.periodico, null),
+      diario: estadoPara('diario', grupos.diario),
+      semanal: estadoPara('semanal', grupos.semanal),
+      periodico: estadoPara('periodico', grupos.periodico),
     }
 
     return NextResponse.json(response)
@@ -187,8 +189,10 @@ export async function POST(request: NextRequest) {
       getObjetivosByClienteEmail(cliente.fields.Email ?? ''),
     ])
 
+    const diaSemanaCheckin = filasTipos.find((f) => f.fields.Tipo === 'semanal')?.fields.Dia_semana ?? 'lunes'
     const filaTipo = filasTipos.find((f) => f.fields.Tipo === tipo)
-    const { lanzado } = resolverProgramacionTipo(filaTipo?.fields, entrenador?.fields.Checkin_disponible_desde)
+    const programacionTipo = resolverProgramacionTipo(filaTipo?.fields, entrenador?.fields.Checkin_disponible_desde)
+    const { lanzado } = programacionTipo
 
     // Campos que alimentan un objetivo propio, activo y vigente hoy del cliente autenticado
     // (derivado siempre de su propia ficha, nunca de un ID que mande el frontend — ver
@@ -236,34 +240,71 @@ export async function POST(request: NextRequest) {
       return respuestaError(erroresValidacion.join(' '), 400)
     }
 
-    const fecha = new Date().toISOString()
-    const filas = camposAEnviar
+    const ahoraMs = Date.now()
+    const fecha = new Date(ahoraMs).toISOString()
+
+    // Ventana de registro actual (DEC-2026-052) — identidad estable de "mismo período" para
+    // este tipo, calculada con la programación vigente. `null` solo si no se puede calcular
+    // (p. ej. periódico sin programación configurada todavía): en ese caso se mantiene el
+    // comportamiento insert-only puro de siempre, sin ningún upsert.
+    const inicioVentanaMs = inicioVentanaRegistro(tipo, diaSemanaCheckin, programacionTipo, ahoraMs)
+    const ventanaISO = inicioVentanaMs === null ? null : new Date(inicioVentanaMs).toISOString()
+
+    const valoresAEnviar = camposAEnviar
       .map((campo) => {
         const valorSerializado = serializarValor(campo.tipo, valores[campo.id])
         if (valorSerializado === null) return null
-        return {
+        return { campo, valorSerializado }
+      })
+      .filter((f): f is { campo: CampoCheckinResuelto; valorSerializado: string } => f !== null)
+
+    if (valoresAEnviar.length === 0) {
+      return respuestaError('No hay valores válidos para los campos activos de este tipo', 400)
+    }
+
+    // Upsert por campo dentro de la ventana actual (DEC-2026-052): "editar y volver a
+    // guardar" dentro del mismo día/semana/apertura actualiza el registro existente en vez
+    // de crear uno nuevo — historial entre períodos distintos, último valor dentro del
+    // período. El lookup exige `Ventana_inicio` EXACTO en la fila existente: una fila legacy
+    // sin `Ventana_inicio` (anterior a este cambio) nunca es candidata a `PATCH`, aunque su
+    // `Fecha` caiga dentro de lo que hoy se consideraría la ventana actual — evita que el
+    // nuevo mecanismo sobrescriba accidentalmente una fila histórica (ver DECISIONS.md).
+    const nuevasFilas: Partial<RegistroCheckinFields>[] = []
+    let actualizados = 0
+    let sinCambios = 0
+    for (const { campo, valorSerializado } of valoresAEnviar) {
+      const filaExistente = ventanaISO
+        ? registros.find(
+            (r) => r.fields.Field_id === campo.id && r.fields.Tipo_registro === tipo && r.fields.Ventana_inicio === ventanaISO
+          )
+        : undefined
+
+      if (filaExistente) {
+        if (filaExistente.fields.Valor === valorSerializado) {
+          sinCambios++
+          continue
+        }
+        await actualizarRegistroCheckin(filaExistente.id, valorSerializado)
+        actualizados++
+      } else {
+        nuevasFilas.push({
           Fecha: fecha,
           Cliente: [cliente.id],
           Field_id: campo.id,
           Tipo_registro: tipo,
           Valor: valorSerializado,
-        }
-      })
-      .filter((f): f is NonNullable<typeof f> => f !== null)
-
-    if (filas.length === 0) {
-      return respuestaError('No hay valores válidos para los campos activos de este tipo', 400)
+          ...(ventanaISO ? { Ventana_inicio: ventanaISO } : {}),
+        })
+      }
     }
 
-    // Doble envío (doble clic, reintento de red): si es idéntico al último lote de este
-    // tipo y llegó hace segundos, no se inserta de nuevo — responde 200 idempotente en
-    // vez de 201 y de multiplicar filas en Registros_checkin.
-    if (esEnvioDuplicadoReciente(registros, tipo, filas, Date.now())) {
-      return NextResponse.json({ ok: true, fecha, campos: filas.length, duplicado: true }, { status: 200 })
+    if (nuevasFilas.length > 0) {
+      await crearRegistrosCheckin(nuevasFilas)
     }
 
-    await crearRegistrosCheckin(filas)
-    return NextResponse.json({ ok: true, fecha, campos: filas.length }, { status: 201 })
+    const creados = nuevasFilas.length
+    const status = creados > 0 ? 201 : 200
+    return NextResponse.json({ ok: true, fecha, creados, actualizados, sinCambios }, { status })
   } catch (err) {
     console.error('Error al guardar check-in del cliente', err)
     return respuestaError('Error al guardar el check-in', 500)

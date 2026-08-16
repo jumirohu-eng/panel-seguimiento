@@ -147,6 +147,12 @@ export interface RegistroCheckinFields {
   Field_id: string
   Tipo_registro: FrecuenciaCheckinAirtable
   Valor: string
+  // Identidad persistente e inmutable de la ventana de registro (día/semana/apertura
+  // periódica), calculada UNA VEZ al crear la fila y nunca tocada después (ver
+  // DECISIONS.md DEC-2026-052). Ausente en filas creadas antes de introducir este campo —
+  // esas se tratan como "legacy" con un fallback explícito, nunca se les asigna
+  // retroactivamente ni se mezclan con filas nuevas.
+  Ventana_inicio?: string
   Cliente_Email?: string[]
   Entrenador_email?: string[]
   Last_modified?: string
@@ -725,6 +731,15 @@ export async function crearRegistrosCheckin(filas: Partial<RegistroCheckinFields
     creados.push(await airtableWrite<AirtableRecord<RegistroCheckinFields>>(TABLE_REGISTROS_CHECKIN, 'POST', fields))
   }
   return creados
+}
+
+// Actualiza el `Valor` de una fila existente (edición dentro de la misma ventana de
+// registro, ver DECISIONS.md DEC-2026-052) — nunca toca `Fecha` ni `Ventana_inicio`, que
+// son inmutables tras crear la fila.
+export async function actualizarRegistroCheckin(recordId: string, valor: string) {
+  return airtableWrite<AirtableRecord<RegistroCheckinFields>>(`${TABLE_REGISTROS_CHECKIN}/${recordId}`, 'PATCH', {
+    Valor: valor,
+  })
 }
 
 export async function getRegistrosCheckinByClienteEmail(clienteEmail: string) {

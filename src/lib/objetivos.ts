@@ -315,6 +315,15 @@ export function validarConfiguracionProgreso(
 // de "check-ins pendientes" de la ficha del entrenador (auth de entrenador), sin duplicar el
 // cálculo entre ambas pantallas (ver DECISIONS.md, resiliencia: misma lógica en ficha y
 // dashboard/check-in del cliente).
+// Identidad de la ventana de registro "actual" (ahora), calculada con inicioVentanaRegistro
+// — ver DECISIONS.md DEC-2026-052. `null` cuando esa ventana no se puede calcular (p. ej.
+// periódico sin programación configurada todavía): en ese caso se mantiene el
+// comportamiento histórico sin ninguna ventana (insert-only puro).
+export interface VentanaActual {
+  inicioMs: number
+  inicioISO: string
+}
+
 export interface EntradaEstadoCheckinTipo {
   tipo: FrecuenciaCheckin
   campos: CampoCheckinResuelto[]
@@ -325,14 +334,24 @@ export interface EntradaEstadoCheckinTipo {
   // puede alimentarse de un campo que vive en un tipo distinto al de su periodicidad.
   idsFuenteObjetivoGlobal: Set<string>
   objetivosDelTipo: ObjetivoResuelto[]
-  inicioPeriodoActualMs: number | null
+  ventanaActual: VentanaActual | null
 }
 
 // Movido tal cual desde el `estadoPara` que vivía inline en GET /api/cliente/checkin (Parte
-// 1.5.3 en adelante) — mismo comportamiento exacto, solo parametrizado para poder llamarse
-// también desde el endpoint de check-ins pendientes de la ficha del entrenador.
+// 1.5.3 en adelante), parametrizado para reutilizarse también desde el endpoint de
+// check-ins pendientes de la ficha del entrenador.
+//
+// DEC-2026-052: `ultimosValores`/`yaEnviado` distinguen, POR CAMPO, entre registros nuevos
+// (con `Ventana_inicio` persistido, identidad estable) y registros legacy (sin
+// `Ventana_inicio`, anteriores a introducir este campo). Regla exacta acordada: si existe un
+// registro NUEVO cuyo `Ventana_inicio` coincide con la ventana actual para un campo, ese
+// gana y el legacy de ese mismo campo se ignora por completo (nunca se mezclan para un mismo
+// campo); solo si NO existe ningún nuevo para ese campo se usa el fallback legacy (`Fecha >=
+// inicio de la ventana`, la lógica anterior a este cambio, recalculada en vivo con la
+// programación vigente — con el riesgo de reprogramación retroactiva ya documentado,
+// acotado a datos anteriores al despliegue).
 export function resolverEstadoCheckinTipo(entrada: EntradaEstadoCheckinTipo): CheckinFrecuenciaEstado {
-  const { tipo, campos, programacion, registros, camposPorId, idsFuenteObjetivoGlobal, objetivosDelTipo, inicioPeriodoActualMs } = entrada
+  const { tipo, campos, programacion, registros, camposPorId, idsFuenteObjetivoGlobal, objetivosDelTipo, ventanaActual } = entrada
 
   const camposSinExclusivosSueltos = campos.filter(
     (c) => idsFuenteObjetivoGlobal.has(c.id) || !esCampoOcultoEnConfigAvanzada(c)
@@ -343,23 +362,35 @@ export function resolverEstadoCheckinTipo(entrada: EntradaEstadoCheckinTipo): Ch
 
   const idsVisibles = new Set(camposVisibles.map((c) => c.id))
   const registrosDelTipo = registros.filter((r) => r.fields.Tipo_registro === tipo && idsVisibles.has(r.fields.Field_id))
-  const registrosVigentes =
-    inicioPeriodoActualMs === null
-      ? registrosDelTipo
-      : registrosDelTipo.filter((r) => new Date(r.fields.Fecha).getTime() >= inicioPeriodoActualMs)
+
+  // Sin ventana calculable (p. ej. periódico sin programación): sin filtrar, comportamiento
+  // histórico sin ninguna ventana — mismo fallback que el resto del sistema.
+  const nuevosVigentes = ventanaActual
+    ? registrosDelTipo.filter((r) => r.fields.Ventana_inicio && r.fields.Ventana_inicio === ventanaActual.inicioISO)
+    : []
+  const legacyVigentes = ventanaActual
+    ? registrosDelTipo.filter((r) => !r.fields.Ventana_inicio && new Date(r.fields.Fecha).getTime() >= ventanaActual.inicioMs)
+    : registrosDelTipo
 
   const ultimosValores: Record<string, unknown> = {}
-  let yaEnviado = false
-  // registros ya vienen ordenados desc por Fecha (ver getRegistrosCheckinByClienteEmail)
-  for (const r of registrosVigentes) {
-    yaEnviado = true
+  // registros ya vienen ordenados desc por Fecha (ver getRegistrosCheckinByClienteEmail) —
+  // los nuevos se resuelven primero; el legacy solo rellena huecos de campos sin ningún
+  // registro nuevo en esta ventana, nunca sobrescribe uno que ya tenga valor nuevo.
+  for (const r of nuevosVigentes) {
     const campo = camposPorId.get(r.fields.Field_id)
     if (campo && !(r.fields.Field_id in ultimosValores)) {
       ultimosValores[r.fields.Field_id] = deserializarValor(campo.tipo, r.fields.Valor)
     }
   }
+  for (const r of legacyVigentes) {
+    const campo = camposPorId.get(r.fields.Field_id)
+    if (campo && !(r.fields.Field_id in ultimosValores)) {
+      ultimosValores[r.fields.Field_id] = deserializarValor(campo.tipo, r.fields.Valor)
+    }
+  }
+  const yaEnviado = nuevosVigentes.length > 0 || legacyVigentes.length > 0
 
-  const proximaFecha = calcularProximaFecha(tipo, yaEnviado, inicioPeriodoActualMs, programacion)
+  const proximaFecha = calcularProximaFecha(tipo, yaEnviado, ventanaActual?.inicioMs ?? null, programacion)
 
   return {
     lanzado: programacion.lanzado,

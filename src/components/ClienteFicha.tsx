@@ -255,14 +255,19 @@ export default function ClienteFicha({
 
   const handleEliminarCheckin = useCallback(
     async (c: CheckinEnvio) => {
-      setEliminandoCheckin(c.fecha)
+      setEliminandoCheckin(c.ventanaInicio)
       setErrorEliminarCheckin(null)
       const token = await getToken()
       try {
         const res = await fetch('/api/checkins', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ clienteId: cliente.id, fecha: c.fecha, tipo: c.tipo }),
+          body: JSON.stringify({
+            clienteId: cliente.id,
+            ventanaInicio: c.ventanaInicio,
+            ventanaReconstruida: c.ventanaReconstruida,
+            tipo: c.tipo,
+          }),
         })
         if (!res.ok) throw new Error()
         setConfirmandoEliminarCheckin(null)
@@ -504,9 +509,14 @@ export default function ClienteFicha({
       ) : (
         <div className="flex flex-col gap-4">
           {checkins.map((c) => (
-            <div key={c.fecha} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div key={c.ventanaInicio} className="rounded-xl border border-border bg-card p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-card-foreground">{formatDateTime(c.fecha)}</p>
+                <div>
+                  <p className="text-sm font-semibold text-card-foreground">{formatDateTime(c.ventanaInicio)}</p>
+                  {c.ultimaActualizacion !== c.ventanaInicio && (
+                    <p className="text-xs text-muted">Última actualización: {formatDateTime(c.ultimaActualizacion)}</p>
+                  )}
+                </div>
                 <span className="rounded-full bg-muted/10 px-3 py-1 text-xs font-medium text-muted capitalize">
                   {c.tipo}
                 </span>
@@ -528,7 +538,7 @@ export default function ClienteFicha({
                 ))}
               </div>
 
-              {confirmandoEliminarCheckin === c.fecha ? (
+              {confirmandoEliminarCheckin === c.ventanaInicio ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-danger/10 p-3">
                   <span className="text-xs text-card-foreground">
                     ¿Eliminar este check-in? Los datos registrados dejarán de contar para los objetivos que dependan de ellos.
@@ -536,7 +546,7 @@ export default function ClienteFicha({
                   <button
                     type="button"
                     onClick={() => setConfirmandoEliminarCheckin(null)}
-                    disabled={eliminandoCheckin === c.fecha}
+                    disabled={eliminandoCheckin === c.ventanaInicio}
                     className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-background disabled:opacity-50"
                   >
                     Cancelar
@@ -544,16 +554,16 @@ export default function ClienteFicha({
                   <button
                     type="button"
                     onClick={() => handleEliminarCheckin(c)}
-                    disabled={eliminandoCheckin === c.fecha}
+                    disabled={eliminandoCheckin === c.ventanaInicio}
                     className="rounded-lg bg-danger px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {eliminandoCheckin === c.fecha ? 'Eliminando…' : 'Eliminar'}
+                    {eliminandoCheckin === c.ventanaInicio ? 'Eliminando…' : 'Eliminar'}
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => setConfirmandoEliminarCheckin(c.fecha)}
+                  onClick={() => setConfirmandoEliminarCheckin(c.ventanaInicio)}
                   className="mt-3 text-xs font-medium text-danger hover:underline"
                 >
                   Eliminar

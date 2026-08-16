@@ -2807,3 +2807,151 @@ ningún otro archivo tocado). No se borró ni modificó ningún dato real en Air
 
 **No probado visualmente en navegador tras este cambio** — pendiente de que el usuario lo
 revise en un preview nuevo de esta misma rama.
+
+---
+
+## DEC-2026-052 — `Ventana_inicio`: edición en sitio dentro del mismo período, reemplazo parcial explícito de `DEC-2026-007`
+
+**Fecha:** 2026-08-16
+**Tipo:** Arquitectura / Modelo de datos / Producto
+**Estado:** Implementada, pendiente de revisión visual y de despliegue
+
+### Contexto y pedido de Juanmi
+`DEC-2026-007` fijó `Registros_checkin` como modelo EAV **insert-only**, por instrucción
+explícita de esa sesión: "debe existir historial; no sobrescribir simplemente el último
+valor". Juanmi pidió ahora un cambio de producto consciente que matiza esa regla, tras tres
+rondas de auditoría explícitas (investigación de escritura/lectura actual, investigación de
+la ventana periódica, investigación de agrupación del historial) antes de tocar código:
+
+> Historial entre períodos, último valor dentro del mismo período.
+
+Ejemplo: lunes 8.000 pasos, editar a 9.000, editar a 10.000 → el entrenador debe ver
+únicamente "martes: 10.000" (no tres registros). Lunes/martes/miércoles con valores
+distintos siguen siendo tres registros legítimos, sin fusionar.
+
+### Auditoría previa (regla de `CLAUDE.md`) — resumen de las tres rondas
+1. **Escritura/lectura actual:** no existía `PUT`; "editar" era simplemente repetir el mismo
+   `POST`, que siempre insertaba fila nueva (`Fecha = ahora`). El guard de doble envío
+   (`esEnvioDuplicadoReciente`, `DEC-2026-037`) solo bloqueaba duplicados EXACTOS en 5s — un
+   valor distinto siempre insertaba. El progreso de objetivos YA estaba protegido (dedup por
+   día en modo `acumulado`, último valor real sin ventana en modo `valor_objetivo`) — el bug
+   real vivía solo en el historial del entrenador (`GET /api/checkins`), que agrupaba por
+   `Fecha` EXACTA (timestamp de escritura), no por período lógico.
+2. **Ventana periódica:** `Checkin_tipos` no tiene versionado — cualquier cálculo de "ventana"
+   sobre un dato histórico usa siempre la programación VIGENTE, nunca la que estaba activa al
+   escribir. Para `diario`, el día UTC es absoluto (sin dependencia externa) — estable sin
+   cambios. Para `semanal`/`periodico`, **no** es posible garantizar estabilidad frente a
+   reprogramación futura sin persistir algo nuevo — conclusión explícita: opción B (persistir
+   identidad de ventana), no opción A.
+3. **Agrupación del historial:** confirmado que agrupar por `cliente + tipo + ventana`
+   (en vez de por `Fecha` exacta) resuelve el caso de "envío mixto" (un campo actualiza una
+   fila existente conservando su `Fecha`, otro crea una fila nueva) como una única entrada
+   visual, sin incompatibilidad con el modelo EAV existente.
+
+### Decisión: nuevo campo `Ventana_inicio` en `Registros_checkin`
+`Ventana_inicio` (Airtable `dateTime`, UTC) — identidad **persistente e inmutable** de la
+ventana de registro (día/semana/apertura periódica), calculada **una sola vez** al crear la
+fila con la programación vigente en ese instante, y **nunca recalculada ni tocada** en
+ediciones posteriores (esas solo modifican `Valor`). Aplicado uniformemente a los 3 tipos
+(diario/semanal/periódico) — regla única, sin lógica especial por tipo, para que una
+reprogramación futura nunca pueda reinterpretar un registro nuevo, tampoco los diarios.
+
+Nueva función pura `inicioVentanaRegistro(tipo, diaSemana, programacionPeriodica, momentoMs)`
+(`src/lib/checkinFields.ts`) — único cálculo de ventana, reutilizado en escritura (con
+`ahoraMs`) y en lectura/agrupación de filas legacy (con el `Fecha` histórico de la fila).
+Para periódico, nueva `inicioPeriodoActualPeriodico()` (inversa de
+`calcularProximaFechaPeriodico`, ya existente) da el inicio de la apertura VIGENTE (no la
+próxima) que contiene un instante dado.
+
+### Upsert por campo (`POST /api/cliente/checkin`)
+Por cada campo a enviar: se calcula la ventana actual y se busca, entre los registros ya
+cargados, una fila con `Field_id` + `Tipo_registro` + `Ventana_inicio` **exacto**. Si existe
+y el `Valor` cambia → `PATCH` (`actualizarRegistroCheckin`, nuevo en `airtable.ts`, solo toca
+`Valor`). Si el valor es idéntico → no se toca Airtable (`sinCambios`). Si no existe → `INSERT`
+con `Ventana_inicio` nuevo (comportamiento insert-only de siempre). Sin programación
+calculable (periódico sin configurar) → sin ventana, insert-only puro, sin cambios.
+Respuesta: `{ok, fecha, creados, actualizados, sinCambios}` (antes `{ok, fecha, campos}`) —
+sustituye por completo a `esEnvioDuplicadoReciente` (retirada), que quedaba subsumida por
+este mecanismo más preciso (por campo, no por lote completo).
+
+### Regla de "no mezcla" con datos anteriores al despliegue (protección explícita pedida)
+Una fila **legacy** (creada antes de este cambio, sin `Ventana_inicio`) nunca es candidata a
+`PATCH`, aunque su `Fecha` caiga dentro de lo que hoy se consideraría la ventana actual —
+evita que el nuevo mecanismo sobrescriba accidentalmente historial real. Consecuencia
+aceptada explícitamente: la primera edición tras el despliegue de un campo que ya tenía una
+fila legacy en la ventana actual crea una fila nueva en paralelo, sin tocar la legacy.
+
+En lectura (`ultimosValores`/`yaEnviado`, `resolverEstadoCheckinTipo`), reglas exactas
+confirmadas por Juanmi: por cada campo, si existe una fila NUEVA cuyo `Ventana_inicio`
+coincide con la ventana actual, esa gana y el legacy de ese mismo campo se ignora por
+completo; solo si no existe ninguna nueva para ese campo se usa el fallback legacy (`Fecha >=
+inicio de ventana`, recalculado en vivo). Nunca se mezclan para un mismo campo.
+
+### Historial del entrenador (`GET /api/checkins`)
+Sustituido `envioPorFecha` (por `Fecha` exacta) por agrupación por identidad de ventana con
+**namespace separado**: filas nuevas agrupan por clave `n:{tipo}:{Ventana_inicio real}`;
+filas legacy agrupan por clave `l:{tipo}:{ventana reconstruida en vivo}` — el prefijo impide
+que una fila nueva y una legacy se fusionen aunque su timestamp coincida numéricamente. Dedup
+por `Field_id` dentro de un grupo (posible en datos legacy agrupados retroactivamente):
+se queda con el valor de la fila de `Fecha` más reciente. `CheckinEnvio` gana
+`ventanaInicio`/`ventanaReconstruida` (sustituyen a `fecha`) y `ultimaActualizacion`
+(informativa, nunca usada para agrupar ni identificar).
+
+### `DELETE /api/checkins`
+Contrato nuevo: `{clienteId, tipo, ventanaInicio, ventanaReconstruida}` (antes `{clienteId,
+fecha, tipo}`). `ventanaReconstruida=false` → borra por `Ventana_inicio` exacto (nunca toca
+filas sin `Ventana_inicio`). `ventanaReconstruida=true` → borra solo filas SIN
+`Ventana_inicio` cuya ventana recalculada coincida (defensa en profundidad: nunca puede tocar
+una fila nueva). Caminos mutuamente excluyentes.
+
+### Qué NO se tocó
+`resolverObjetivo()`/`calcularProgresoDesdeCheckins()`/`calcularProgresoValorObjetivo()`
+(su ventana es el calendario real de la periodicidad del objetivo, `DEC-2026-026`,
+completamente independiente de `Ventana_inicio`) y los endpoints que solo consumen su
+salida (`/api/clientes/[id]/objetivos`, `/api/cliente/objetivos`, `ObjetivoModal.tsx`) — cero
+cambios, confirmado con test E2E dedicado (objetivo diario+semanal+mensual compartiendo
+fuente, con upserts intra-ventana: los tres siguen viendo el valor correcto, nunca doble
+contabilización).
+
+### Reemplazo parcial explícito de `DEC-2026-007`
+`DEC-2026-007` sigue vigente en su motivación de fondo (preservar historial legítimo) — lo
+que cambia es el **alcance de "insert-only"**: ya no aplica dentro del mismo período lógico
+(día/semana/apertura), donde ahora se actualiza en sitio; sigue aplicando sin cambios entre
+períodos distintos. **Los registros creados antes de introducir `Ventana_inicio` no
+contienen una identidad persistente de ventana y, por tanto, pueden verse afectados por
+cambios posteriores de programación** — riesgo documentado explícitamente, aceptado por
+decisión de producto (opción (a): sin backfill), acotado exclusivamente a datos anteriores a
+este despliegue.
+
+### Cambio de esquema en Airtable
+Campo `Ventana_inicio` (`dateTime`, UTC) añadido a `Registros_checkin`
+(`tbl7usdXJYJA83lsm`, campo `fldInPXNwceIyY7Tx`) directamente en la base de producción, antes
+de este commit — sin backfill, tal como se decidió. Las filas existentes quedan con este
+campo vacío.
+
+### Verificación
+`tsc --noEmit`, `eslint src/` y `next build` (47 rutas) sin errores. **39 comprobaciones E2E**
+con fixtures desechables (2 entrenadores/clientes ficticios, patrón `DEC-2026-009`, creados y
+borrados contra Airtable/Supabase reales vía `next dev` real, verificado post-limpieza que no
+quedó ningún resto): diario con 3 ediciones el mismo día → 1 fila con el último valor; ventana
+anterior (día distinto) nunca se reutiliza; semanal con 2 ediciones misma semana → 1 fila;
+periódico cada 20 días con 3 ediciones misma apertura → 1 fila, apertura anterior separada;
+envío mixto (1 campo actualiza + 1 campo nuevo en el mismo `POST`) → 1 sola entrada de
+historial; fila legacy simulada nunca se sobrescribe al editar tras el despliegue (crea fila
+nueva en paralelo), `ultimosValores` usa el legacy solo si no hay nueva y cambia a la nueva en
+cuanto existe, historial muestra ambas por separado (`ventanaReconstruida` distinto en cada
+una), `DELETE` de cada una borra solo lo que le corresponde sin tocar la otra; reprogramación
+retroactiva (`Dia_semana` cambiado después de crear una fila nueva) confirmada que NO altera
+ni el `Ventana_inicio` persistido ni su agrupación en el historial; objetivo
+diario+semanal+mensual compartiendo fuente con upserts intra-ventana confirmado sin doble
+contabilización (progreso correcto en los tres, 1 sola fila física); concurrencia real
+(`Promise.all`, 2 peticiones simultáneas con valores distintos) documentada sin asumir —
+mismo límite ya conocido de `DEC-2026-037` (no atómico bajo concurrencia real simultánea,
+protegido igualmente por la capa de lectura). **No probado visualmente en navegador** —
+pendiente de que el usuario lo revise en un preview de esta rama.
+
+### Pendiente real
+- Prueba visual en navegador de "Historial de check-ins" (ficha del entrenador) con el nuevo
+  agrupamiento y el texto "Última actualización".
+- Confirmación del usuario para hacer commit/push/merge/deploy — no realizado en esta sesión
+  a propósito.

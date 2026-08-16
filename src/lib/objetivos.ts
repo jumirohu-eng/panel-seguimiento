@@ -11,6 +11,7 @@ import {
   esCampoOcultoEnConfigAvanzada,
   deserializarValor,
   calcularProximaFecha,
+  finVentanaRegistro,
 } from './checkinFields'
 
 export type PeriodicidadObjetivo = 'diario' | 'semanal' | 'mensual'
@@ -335,23 +336,31 @@ export interface EntradaEstadoCheckinTipo {
   idsFuenteObjetivoGlobal: Set<string>
   objetivosDelTipo: ObjetivoResuelto[]
   ventanaActual: VentanaActual | null
+  // Necesario para decidir si una fila NUEVA (con Ventana_inicio propio) sigue vigente —
+  // ver finVentanaRegistro más abajo, DEC-2026-052 (corrección del bug de reprogramación).
+  ahoraMs: number
 }
 
 // Movido tal cual desde el `estadoPara` que vivía inline en GET /api/cliente/checkin (Parte
 // 1.5.3 en adelante), parametrizado para reutilizarse también desde el endpoint de
 // check-ins pendientes de la ficha del entrenador.
 //
-// DEC-2026-052: `ultimosValores`/`yaEnviado` distinguen, POR CAMPO, entre registros nuevos
-// (con `Ventana_inicio` persistido, identidad estable) y registros legacy (sin
-// `Ventana_inicio`, anteriores a introducir este campo). Regla exacta acordada: si existe un
-// registro NUEVO cuyo `Ventana_inicio` coincide con la ventana actual para un campo, ese
-// gana y el legacy de ese mismo campo se ignora por completo (nunca se mezclan para un mismo
-// campo); solo si NO existe ningún nuevo para ese campo se usa el fallback legacy (`Fecha >=
-// inicio de la ventana`, la lógica anterior a este cambio, recalculada en vivo con la
-// programación vigente — con el riesgo de reprogramación retroactiva ya documentado,
-// acotado a datos anteriores al despliegue).
+// DEC-2026-052/053: `ultimosValores`/`yaEnviado` distinguen, POR CAMPO, entre registros
+// nuevos (con `Ventana_inicio` persistido, identidad estable) y registros legacy (sin
+// `Ventana_inicio`, anteriores a introducir este campo).
+//
+// Una fila NUEVA sigue vigente mientras `ahora` no supere el fin de SU PROPIA ventana
+// (`finVentanaRegistro`, anclado siempre al `Ventana_inicio` ya persistido de esa fila) —
+// nunca se compara contra un recálculo de "ventana actual" con la programación de HOY
+// (DEC-2026-053, corrige un bug real: una reprogramación de `Dia_semana`/periodicidad a
+// mitad de ventana podía hacer que esa comparación dejara de coincidir y la fila se volviera
+// invisible, aunque siguiera siendo la misma vigente). Solo si NO existe ninguna fila nueva
+// vigente para ese campo se usa el fallback legacy (`Fecha >= inicio de la ventana actual`,
+// recalculada en vivo con la programación vigente — con el riesgo de reprogramación
+// retroactiva ya documentado, acotado exclusivamente a datos anteriores al despliegue de
+// `Ventana_inicio`). Los dos caminos nunca se mezclan para un mismo campo.
 export function resolverEstadoCheckinTipo(entrada: EntradaEstadoCheckinTipo): CheckinFrecuenciaEstado {
-  const { tipo, campos, programacion, registros, camposPorId, idsFuenteObjetivoGlobal, objetivosDelTipo, ventanaActual } = entrada
+  const { tipo, campos, programacion, registros, camposPorId, idsFuenteObjetivoGlobal, objetivosDelTipo, ventanaActual, ahoraMs } = entrada
 
   const camposSinExclusivosSueltos = campos.filter(
     (c) => idsFuenteObjetivoGlobal.has(c.id) || !esCampoOcultoEnConfigAvanzada(c)
@@ -366,7 +375,15 @@ export function resolverEstadoCheckinTipo(entrada: EntradaEstadoCheckinTipo): Ch
   // Sin ventana calculable (p. ej. periódico sin programación): sin filtrar, comportamiento
   // histórico sin ninguna ventana — mismo fallback que el resto del sistema.
   const nuevosVigentes = ventanaActual
-    ? registrosDelTipo.filter((r) => r.fields.Ventana_inicio && r.fields.Ventana_inicio === ventanaActual.inicioISO)
+    ? registrosDelTipo.filter((r) => {
+        if (!r.fields.Ventana_inicio) return false
+        const inicioMs = new Date(r.fields.Ventana_inicio).getTime()
+        if (!Number.isFinite(inicioMs)) return false
+        const finMs = finVentanaRegistro(tipo, inicioMs, programacion)
+        // Sin duración calculable (edge case: la programación periódica se retiró después
+        // de crear la fila) — único caso que cae al criterio antiguo de coincidencia exacta.
+        return finMs === null ? r.fields.Ventana_inicio === ventanaActual.inicioISO : ahoraMs < finMs
+      })
     : []
   const legacyVigentes = ventanaActual
     ? registrosDelTipo.filter((r) => !r.fields.Ventana_inicio && new Date(r.fields.Fecha).getTime() >= ventanaActual.inicioMs)

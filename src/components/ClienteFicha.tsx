@@ -28,6 +28,15 @@ const ENERGIA_BADGE: Record<string, string> = {
   'Con energía': 'bg-success/10 text-success',
 }
 
+// Identidad de una entrada de historial para React key / estado local de confirmación de
+// borrado. `ventanaInicio` solo NO basta: dos entradas de tipo distinto (p. ej. diario y
+// semanal) pueden compartir el mismo inicio de ventana cuando "hoy" coincide con el día
+// configurado del check-in semanal — ocurre cada semana, no es un caso raro (ver
+// DECISIONS.md DEC-2026-053).
+function claveHistorial(c: Pick<CheckinEnvio, 'tipo' | 'ventanaInicio'>): string {
+  return `${c.tipo}:${c.ventanaInicio}`
+}
+
 export default function ClienteFicha({
   cliente,
   onBack,
@@ -255,7 +264,7 @@ export default function ClienteFicha({
 
   const handleEliminarCheckin = useCallback(
     async (c: CheckinEnvio) => {
-      setEliminandoCheckin(c.ventanaInicio)
+      setEliminandoCheckin(claveHistorial(c))
       setErrorEliminarCheckin(null)
       const token = await getToken()
       try {
@@ -509,7 +518,7 @@ export default function ClienteFicha({
       ) : (
         <div className="flex flex-col gap-4">
           {checkins.map((c) => (
-            <div key={c.ventanaInicio} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div key={claveHistorial(c)} className="rounded-xl border border-border bg-card p-4 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-card-foreground">{formatDateTime(c.ventanaInicio)}</p>
@@ -538,7 +547,7 @@ export default function ClienteFicha({
                 ))}
               </div>
 
-              {confirmandoEliminarCheckin === c.ventanaInicio ? (
+              {confirmandoEliminarCheckin === claveHistorial(c) ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-danger/10 p-3">
                   <span className="text-xs text-card-foreground">
                     ¿Eliminar este check-in? Los datos registrados dejarán de contar para los objetivos que dependan de ellos.
@@ -546,7 +555,7 @@ export default function ClienteFicha({
                   <button
                     type="button"
                     onClick={() => setConfirmandoEliminarCheckin(null)}
-                    disabled={eliminandoCheckin === c.ventanaInicio}
+                    disabled={eliminandoCheckin === claveHistorial(c)}
                     className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-card-foreground hover:bg-background disabled:opacity-50"
                   >
                     Cancelar
@@ -554,16 +563,16 @@ export default function ClienteFicha({
                   <button
                     type="button"
                     onClick={() => handleEliminarCheckin(c)}
-                    disabled={eliminandoCheckin === c.ventanaInicio}
+                    disabled={eliminandoCheckin === claveHistorial(c)}
                     className="rounded-lg bg-danger px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {eliminandoCheckin === c.ventanaInicio ? 'Eliminando…' : 'Eliminar'}
+                    {eliminandoCheckin === claveHistorial(c) ? 'Eliminando…' : 'Eliminar'}
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => setConfirmandoEliminarCheckin(c.ventanaInicio)}
+                  onClick={() => setConfirmandoEliminarCheckin(claveHistorial(c))}
                   className="mt-3 text-xs font-medium text-danger hover:underline"
                 >
                   Eliminar

@@ -346,6 +346,35 @@ export function inicioVentanaRegistro(
   return inicioPeriodoActualPeriodico(programacionPeriodica, momentoMs)
 }
 
+// Fin de la ventana que EMPIEZA en `inicioVentanaMs` — a diferencia de `inicioVentanaRegistro`
+// (que calcula el inicio de la ventana de "ahora" con la programación vigente), esta función
+// se ancla siempre al `Ventana_inicio` YA PERSISTIDO de una fila concreta, nunca a un
+// recálculo de "inicio de la ventana actual". Es la base de la corrección de DEC-2026-052:
+// una fila nueva sigue vigente mientras `ahora` no supere el fin de SU PROPIA ventana,
+// aunque la programación (Dia_semana, Intervalo_dias_periodico, etc.) haya cambiado después
+// de crearla — nunca deja de reconocerse solo porque el recálculo de "ventana actual" con la
+// programación de hoy ya no coincide con su Ventana_inicio original. `null` únicamente si no
+// hay programación calculable para periódico (mismo fallback que el resto del sistema).
+export function finVentanaRegistro(
+  tipo: FrecuenciaCheckin,
+  inicioVentanaMs: number,
+  programacionPeriodica: ProgramacionResuelta
+): number | null {
+  if (tipo === 'diario') return inicioVentanaMs + 24 * 60 * 60 * 1000
+  if (tipo === 'semanal') return inicioVentanaMs + 7 * 24 * 60 * 60 * 1000
+  if (programacionPeriodica.modoPeriodico === 'intervalo' && programacionPeriodica.intervaloDiasPeriodico) {
+    return inicioVentanaMs + programacionPeriodica.intervaloDiasPeriodico * 24 * 60 * 60 * 1000
+  }
+  if (programacionPeriodica.modoPeriodico === 'dia_mes' && programacionPeriodica.diaMesPeriodico) {
+    const inicio = new Date(inicioVentanaMs)
+    const anio = inicio.getUTCFullYear()
+    const mes = inicio.getUTCMonth()
+    const diaMesSiguiente = Math.min(programacionPeriodica.diaMesPeriodico, ultimoDiaDelMesUTC(anio, mes + 1))
+    return Date.UTC(anio, mes + 1, diaMesSiguiente)
+  }
+  return null
+}
+
 // Cuándo vuelve a tocar un check-in ya enviado, según su tipo.
 // diario/semanal: el siguiente periodo empieza justo al terminar el actual.
 // periódico: fecha calculada por calcularProximaFechaPeriodico, independiente de si ya se

@@ -17,6 +17,7 @@ import {
   validarValorCampo,
   resolverProgramacionTipo,
   inicioVentanaRegistro,
+  finVentanaRegistro,
   campoDisponible,
   esCampoOcultoEnConfigAvanzada,
   FrecuenciaCheckin,
@@ -134,6 +135,7 @@ export async function GET(request: NextRequest) {
         idsFuenteObjetivoGlobal: idsFuenteObjetivo,
         objetivosDelTipo: objetivosPorTipo.get(tipo) ?? [],
         ventanaActual,
+        ahoraMs,
       })
     }
 
@@ -262,21 +264,31 @@ export async function POST(request: NextRequest) {
       return respuestaError('No hay valores válidos para los campos activos de este tipo', 400)
     }
 
-    // Upsert por campo dentro de la ventana actual (DEC-2026-052): "editar y volver a
+    // Upsert por campo dentro de la ventana actual (DEC-2026-052/053): "editar y volver a
     // guardar" dentro del mismo día/semana/apertura actualiza el registro existente en vez
     // de crear uno nuevo — historial entre períodos distintos, último valor dentro del
-    // período. El lookup exige `Ventana_inicio` EXACTO en la fila existente: una fila legacy
-    // sin `Ventana_inicio` (anterior a este cambio) nunca es candidata a `PATCH`, aunque su
-    // `Fecha` caiga dentro de lo que hoy se consideraría la ventana actual — evita que el
-    // nuevo mecanismo sobrescriba accidentalmente una fila histórica (ver DECISIONS.md).
+    // período. El lookup busca, entre las filas NUEVAS (con `Ventana_inicio` propio) de este
+    // campo/tipo, la que siga VIGENTE anclada a su propio `Ventana_inicio`
+    // (`finVentanaRegistro`) — nunca por igualdad exacta contra `ventanaISO` recalculado con
+    // la programación de HOY: si el entrenador reprograma a mitad de ventana, esa igualdad
+    // podía dejar de cumplirse aunque la fila siguiera siendo la vigente, causando un
+    // duplicado (ver DECISIONS.md). Una fila legacy sin `Ventana_inicio` (anterior a este
+    // cambio) nunca es candidata a `PATCH`, evitando que el nuevo mecanismo sobrescriba
+    // accidentalmente una fila histórica.
     const nuevasFilas: Partial<RegistroCheckinFields>[] = []
     let actualizados = 0
     let sinCambios = 0
     for (const { campo, valorSerializado } of valoresAEnviar) {
       const filaExistente = ventanaISO
-        ? registros.find(
-            (r) => r.fields.Field_id === campo.id && r.fields.Tipo_registro === tipo && r.fields.Ventana_inicio === ventanaISO
-          )
+        ? registros
+            .filter((r) => r.fields.Field_id === campo.id && r.fields.Tipo_registro === tipo && r.fields.Ventana_inicio)
+            .filter((r) => {
+              const inicioMs = new Date(r.fields.Ventana_inicio!).getTime()
+              if (!Number.isFinite(inicioMs)) return false
+              const finMs = finVentanaRegistro(tipo, inicioMs, programacionTipo)
+              return finMs === null ? r.fields.Ventana_inicio === ventanaISO : ahoraMs < finMs
+            })
+            .sort((a, b) => new Date(b.fields.Fecha).getTime() - new Date(a.fields.Fecha).getTime())[0]
         : undefined
 
       if (filaExistente) {

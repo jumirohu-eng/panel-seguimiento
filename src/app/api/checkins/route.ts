@@ -34,6 +34,17 @@ import { CheckinEnvio, ChecklinsResponse, PendientesCheckin } from '@/lib/types'
 
 const PAGE_SIZE = 7
 
+// `Last_modified` es un campo formula de Airtable y llega SIN sufijo de zona horaria
+// (p. ej. "2026-08-16T00:52:37.000", a diferencia de `Fecha`/`Ventana_inicio`, que sí
+// incluyen "Z") — `new Date(...)` directo lo interpretaría como hora LOCAL del proceso que
+// ejecuta el código, no UTC, desplazando el timestamp según la zona horaria del entorno.
+// Todo el resto de este proyecto calcula fechas en UTC explícito a propósito (ver
+// checkinFields.ts) — este helper mantiene esa misma garantía para `Last_modified`.
+function comoInstanteUTCMs(fechaAirtable: string): number {
+  const tieneZonaHoraria = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(fechaAirtable)
+  return new Date(tieneZonaHoraria ? fechaAirtable : `${fechaAirtable}Z`).getTime()
+}
+
 // Mismo cálculo que la tarjeta "Revisión" del dashboard del cliente (estado.yaEnviado +
 // exclusión de campos de objetivo, ver resolverEstadoCheckinTipo en objetivos.ts) — nunca se
 // inventa una segunda noción de "pendiente" distinta de la que ya ve el propio cliente (ver
@@ -79,6 +90,7 @@ function calcularPendientes(
       idsFuenteObjetivoGlobal: idsFuenteObjetivo,
       objetivosDelTipo: objetivosPorTipo.get(tipo) ?? [],
       ventanaActual,
+      ahoraMs,
     })
     // Solo cuenta como pendiente si hay de verdad alguna pregunta de REVISIÓN (no solo
     // campos de objetivo) — los objetivos tienen su propia UI de progreso en la ficha,
@@ -163,18 +175,24 @@ export async function GET(request: NextRequest) {
     for (const r of registros) {
       const { key, inicioISO, reconstruida } = identidadVentana(r)
       const fechaMs = new Date(r.fields.Fecha).getTime()
+      // `Fecha` es inmutable (origen del registro); `Last_modified` (formula de Airtable,
+      // se actualiza en cada PATCH) sí refleja una edición real dentro de la misma ventana
+      // — "Última actualización" debe basarse en este último, nunca en `Fecha` (ver
+      // DECISIONS.md DEC-2026-053). Fallback a `Fecha` si faltara (no debería, es formula).
+      const lastModMs = r.fields.Last_modified ? comoInstanteUTCMs(r.fields.Last_modified) : fechaMs
+      const ultimaActualizacionCandidataMs = Number.isFinite(lastModMs) ? lastModMs : fechaMs
       let grupo = grupos.get(key)
       if (!grupo) {
         grupo = {
           ventanaInicio: inicioISO,
           ventanaReconstruida: reconstruida,
           tipo: r.fields.Tipo_registro as FrecuenciaCheckin,
-          ultimaActualizacionMs: fechaMs,
+          ultimaActualizacionMs: ultimaActualizacionCandidataMs,
           porCampo: new Map(),
         }
         grupos.set(key, grupo)
-      } else if (fechaMs > grupo.ultimaActualizacionMs) {
-        grupo.ultimaActualizacionMs = fechaMs
+      } else if (ultimaActualizacionCandidataMs > grupo.ultimaActualizacionMs) {
+        grupo.ultimaActualizacionMs = ultimaActualizacionCandidataMs
       }
 
       // resolverNombreTipoHistorico cubre tanto campos activos como retirados
